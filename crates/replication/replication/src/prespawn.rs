@@ -6,12 +6,12 @@ use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::prelude::PredictionTarget;
 use crate::prelude::Replicate;
+use crate::receive::ReplicationReceiver;
 use crate::registry::{ComponentKind, ComponentRegistry};
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::Components;
-use bevy_ecs::entity::EntityHash;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
@@ -20,51 +20,13 @@ use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_replicon::prelude::Signature;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
+use lightyear_connection::p2p::P2P;
 use lightyear_core::prelude::{LocalTimeline, Tick};
-#[allow(unused_imports)]
-use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "client")]
-use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::InputTimelineConfig};
-
-type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
-
-#[derive(Resource, Default)]
-struct ActivePreSpawnedSignatures {
-    by_hash: bevy_platform::collections::HashMap<u64, Entity>,
-    by_entity: EntityHashMap<Entity, u64>,
-}
-
-impl ActivePreSpawnedSignatures {
-    fn insert(&mut self, entity: Entity, hash: u64) -> Result<(), Entity> {
-        if self.by_entity.get(&entity).is_some_and(|h| *h == hash) {
-            return Ok(());
-        }
-        if let Some(existing_entity) = self.by_hash.get(&hash).copied()
-            && existing_entity != entity
-        {
-            return Err(existing_entity);
-        }
-
-        self.by_hash.insert(hash, entity);
-        self.by_entity.insert(entity, hash);
-        Ok(())
-    }
-
-    fn remove(&mut self, entity: Entity) {
-        let Some(hash) = self.by_entity.remove(&entity) else {
-            return;
-        };
-        if self
-            .by_hash
-            .get(&hash)
-            .is_some_and(|candidate| *candidate == entity)
-        {
-            self.by_hash.remove(&hash);
-        }
-    }
-}
+use lightyear_core::timeline::LocalTimelineShift;
+use tracing::debug;
 
 /// PreSpawning allows you to replicate an entity to the remote, but instead of creating a new
 /// entity in the remote world, you match an existing pre-spawned entity.
@@ -86,15 +48,14 @@ pub enum PreSpawnedSystems {
 
 impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ActivePreSpawnedSignatures>();
+        app.init_resource::<PreSpawnedReceiver>();
         app.configure_sets(PostUpdate, PreSpawnedSystems::CleanUp);
         app.add_observer(Self::register_prespawn);
-        app.add_observer(Self::cleanup_removed_prespawn_signature);
         app.add_observer(Self::cleanup_matched_prespawn);
         app.add_observer(PreSpawnedReceiver::cleanup_removed_prespawn);
         app.add_observer(PreSpawnedReceiver::cleanup_despawned_prespawn);
         #[cfg(feature = "client")]
-        app.add_observer(PreSpawnedReceiver::handle_tick_sync);
+        app.add_observer(PreSpawnedReceiver::handle_local_timeline_shift);
         app.add_systems(
             PostUpdate,
             Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedSystems::CleanUp),
@@ -103,8 +64,8 @@ impl Plugin for PreSpawnedPlugin {
 }
 
 impl PreSpawnedPlugin {
-    /// For all newly added prespawns, register their active matching hash and
-    /// insert a Replicon Signature so incoming replicated entities can be
+    /// For all newly added prespawns, register receiver-side lifecycle state
+    /// and insert a Replicon Signature so incoming replicated entities can be
     /// matched to the local entity.
     fn register_prespawn(
         trigger: On<Add, PreSpawned>,
@@ -115,8 +76,17 @@ impl PreSpawnedPlugin {
             // ConfirmHistory as a new local matching candidate.
             Without<ConfirmHistory>,
         >,
-        mut active_signatures: ResMut<ActivePreSpawnedSignatures>,
-        mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
+        connected_receivers: Query<
+            (),
+            (
+                With<Client>,
+                With<Connected>,
+                With<ReplicationReceiver>,
+                Without<HostClient>,
+                Without<P2P>,
+            ),
+        >,
+        mut receiver: ResMut<PreSpawnedReceiver>,
         mut commands: Commands,
     ) {
         let entity = trigger.entity;
@@ -130,67 +100,45 @@ impl PreSpawnedPlugin {
             .hash
             .expect("prespawn hash should have been calculated by a hook");
 
-        if let Err(existing_entity) = active_signatures.insert(entity, hash) {
-            error!(
-                ?hash,
-                ?existing_entity,
-                duplicate_entity = ?entity,
-                "Duplicate active PreSpawned hash; keeping the existing matching candidate and ignoring the duplicate"
-            );
-            return;
+        // Only conventional receiver-side prespawns need timeout and rollback
+        // bookkeeping. PreSpawnedPlugin also runs in authoritative server worlds,
+        // where tracking these entities would incorrectly expire them after the
+        // client timeout. Direct P2P uses PreSpawned as a permanent stable input
+        // identity and has no authoritative entity stream to match against.
+        if !connected_receivers.is_empty() {
+            receiver.register_unmatched_entity(tick, entity);
         }
 
-        let receiver = match prespawn.receiver {
-            None => manager_query.single_mut().ok(),
-            Some(receiver) => manager_query.get_mut(receiver).ok(),
-        };
-
-        if let Some(mut receiver) = receiver
-            && let Err(existing_entity) = receiver.register_unmatched_entity(tick, hash, entity)
-        {
-            active_signatures.remove(entity);
-            error!(
-                ?hash,
-                ?existing_entity,
-                duplicate_entity = ?entity,
-                "Duplicate active PreSpawned receiver hash; keeping the existing matching candidate and ignoring the duplicate"
-            );
-            return;
+        let mut signature = Signature::from_hash(hash);
+        if let Some(client) = prespawn.client {
+            signature = signature.for_client(client);
         }
-
-        commands.entity(entity).insert(Signature::from(hash));
+        commands.entity(entity).insert(signature);
     }
 
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
         local_timeline: Res<LocalTimeline>,
-        manager_query: Option<Single<&mut PreSpawnedReceiver>>,
+        mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
-        let Some(manager_query) = manager_query else {
-            return;
-        };
         let tick = local_timeline.tick();
-        let mut manager = manager_query.into_inner();
-        let manager = &mut *manager;
 
         // TODO: choose a past tick based on the replication frequency received.
         let past_tick = tick - 50;
         // remove all the prespawned entities that have not been matched with a server entity
-        let split_idx = manager
-            .prespawn_tick_to_hash
-            .partition_point(|(t, _, _)| *t < past_tick);
-        let expired = manager
-            .prespawn_tick_to_hash
+        let split_idx = receiver
+            .unmatched_prespawn_spawn_tick_to_entities
+            .partition_point(|(spawn_tick, _)| *spawn_tick < past_tick);
+        let expired = receiver
+            .unmatched_prespawn_spawn_tick_to_entities
             .drain(..split_idx)
             .collect::<Vec<_>>();
-        for (_, hash, entity) in expired {
-            manager.remove_unmatched_entity(hash, entity);
+        for (_, entity) in expired {
             if let Ok(mut entity_commands) = commands.get_entity(entity) {
                 debug!(
                     ?tick,
                     ?entity,
-                    ?hash,
                     "Cleaning up prespawned player object up to past tick: {:?}",
                     past_tick
                 );
@@ -199,39 +147,26 @@ impl PreSpawnedPlugin {
         }
     }
 
-    fn cleanup_removed_prespawn_signature(
-        trigger: On<Remove, PreSpawned>,
-        mut active_signatures: ResMut<ActivePreSpawnedSignatures>,
-    ) {
-        active_signatures.remove(trigger.entity);
-    }
-
     /// When a prespawned entity is matched with a server entity (ConfirmHistory added),
-    /// clean up the PreSpawnedReceiver tracking.
+    /// update the PreSpawnedReceiver resource.
     fn cleanup_matched_prespawn(
         trigger: On<Add, ConfirmHistory>,
-        query: Query<&PreSpawned>,
-        mut active_signatures: ResMut<ActivePreSpawnedSignatures>,
-        mut receiver_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
+        query: Query<(), With<PreSpawned>>,
+        mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
         let entity = trigger.entity;
-        if let Ok(prespawn) = query.get(entity) {
-            active_signatures.remove(entity);
-            if let Some(hash) = prespawn.hash
-                && let Ok(mut receiver) = receiver_query.single_mut()
-            {
-                receiver.remove_unmatched_entity(hash, entity);
-                if let Some(index) = receiver.prespawn_tick_to_hash.iter().position(
-                    |(_, candidate_hash, candidate)| {
-                        *candidate_hash == hash && *candidate == entity
-                    },
-                ) {
-                    let (spawn_tick, _, _) = receiver.prespawn_tick_to_hash.remove(index);
-                    receiver
-                        .matched_prespawn_spawn_tick_to_entities
-                        .push((spawn_tick, entity));
-                }
-            }
+        if query.get(entity).is_ok()
+            && let Some(index) = receiver
+                .unmatched_prespawn_spawn_tick_to_entities
+                .iter()
+                .position(|(_, candidate)| *candidate == entity)
+        {
+            let (spawn_tick, _) = receiver
+                .unmatched_prespawn_spawn_tick_to_entities
+                .remove(index);
+            receiver
+                .matched_prespawn_spawn_tick_to_entities
+                .push((spawn_tick, entity));
             // Keep Signature attached for the rest of the entity lifetime.
             // Replicon removes SignatureMap during receive_replication, so
             // removing Signature during or shortly after the match can miss the
@@ -268,7 +203,6 @@ impl PreSpawnedPlugin {
 #[component(on_add = PreSpawned::on_add)]
 #[reflect(Component, Default)]
 pub struct PreSpawned {
-    // TODO: be able to specify for which receiver this pre-spawned entity is?
     /// The hash that will identify the spawned entity
     /// By default, if the hash is not set, it will be generated from the entity's archetype (list of components) and spawn tick
     /// Otherwise you can manually set it to a value that will be the same on both the client and server
@@ -279,9 +213,17 @@ pub struct PreSpawned {
     /// distinguish between bullets spawned on the same tick, but by different players.
     pub user_salt: Option<u64>,
 
-    // TODO: what if we want the Prespawned to only be for a given sender? or a subset of senders?
-    /// Receiver entity that is prespawning this entity.
-    /// If None, then we will use the entity that has a [`PreSpawnedReceiver`].
+    /// Optional client entity that should receive this entity's signature mapping.
+    ///
+    /// This is primarily sender-side configuration. It scopes only Replicon's
+    /// signature mapping; replication visibility is still controlled separately.
+    pub client: Option<Entity>,
+
+    /// Receiver link that owns this remote entity's P2P input stream.
+    ///
+    /// Direct P2P input uses this to accept a stable input-target hash only
+    /// from the link for that peer. This does not select lifecycle state;
+    /// [`PreSpawnedReceiver`] is application-global.
     pub receiver: Option<Entity>,
 }
 
@@ -291,6 +233,7 @@ impl PreSpawned {
         Self {
             hash: Some(hash),
             user_salt: None,
+            client: None,
             receiver: None,
         }
     }
@@ -299,36 +242,42 @@ impl PreSpawned {
         Self {
             hash: None,
             user_salt: Some(salt),
+            client: None,
             receiver: None,
         }
     }
 
-    pub fn for_receiver(self, entity: Entity) -> Self {
-        Self {
-            hash: self.hash,
-            user_salt: self.user_salt,
-            receiver: Some(entity),
-        }
+    /// Associates the signature mapping with a specific client.
+    ///
+    /// The `client` must be the sender-side client link entity known to Replicon.
+    /// Other clients can still receive the entity according to its replication
+    /// visibility, but they won't receive this prespawn mapping.
+    #[must_use]
+    pub fn for_client(mut self, client: Entity) -> Self {
+        self.client = Some(client);
+        self
+    }
+
+    /// Associates this stable input target with its receiving P2P link.
+    #[must_use]
+    pub fn for_receiver(mut self, receiver: Entity) -> Self {
+        self.receiver = Some(receiver);
+        self
     }
 }
 
-/// Component that can be inserted on an entity that has a [`ReplicationReceiver`](crate::receive::ReplicationReceiver)
-/// so that it can match replicated entities that have a PreSpawned hash with locally prespawned entities.
-#[derive(Component, Debug, Default)]
+/// Global lifecycle state for locally prespawned entities.
+///
+/// Tracks locally prespawned entities for timeout cleanup, timeline synchronization, and rollback.
+/// Entity matching itself is handled by Replicon's [`Signature`].
+#[derive(Resource, Debug, Default)]
 pub struct PreSpawnedReceiver {
     #[doc(hidden)]
-    /// Map from the hash of a PrespawnedPlayerObject to the corresponding active local entity.
-    /// Duplicate active hashes are a serious user error; if one is detected we
-    /// keep the first entity as the matching candidate and ignore the duplicate.
+    /// Stores the spawn tick of each unmatched local prespawned entity.
+    /// If the local timeline advances far enough without a match, the entity is despawned.
     ///
-    /// Also stores the tick at which the entities was spawned.
-    /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
-    pub prespawn_hash_to_entity: EntityHashMap<u64, Entity>,
-    #[doc(hidden)]
-    // TODO(perf): prespawned entities are added in order or tick, so we can use a Vec!
-    /// Store the spawn tick of the entity, as well as the corresponding hash
     /// Sorted in ascending order of Tick.
-    pub prespawn_tick_to_hash: Vec<(Tick, u64, Entity)>,
+    pub unmatched_prespawn_spawn_tick_to_entities: Vec<(Tick, Entity)>,
     #[doc(hidden)]
     /// Store matched prespawned entities so rollback can despawn entities that
     /// were spawned after the rollback tick even after Replicon has matched
@@ -337,70 +286,15 @@ pub struct PreSpawnedReceiver {
 }
 
 impl PreSpawnedReceiver {
-    fn register_unmatched_entity(
-        &mut self,
-        tick: Tick,
-        hash: u64,
-        entity: Entity,
-    ) -> Result<(), Entity> {
-        if let Some(existing_entity) = self.prespawn_hash_to_entity.get(&hash).copied()
-            && existing_entity != entity
-        {
-            return Err(existing_entity);
-        }
-        self.prespawn_hash_to_entity.insert(hash, entity);
+    fn register_unmatched_entity(&mut self, tick: Tick, entity: Entity) {
         if !self
-            .prespawn_tick_to_hash
+            .unmatched_prespawn_spawn_tick_to_entities
             .iter()
-            .any(|(_, candidate_hash, candidate)| *candidate_hash == hash && *candidate == entity)
+            .any(|(_, candidate)| *candidate == entity)
         {
-            self.prespawn_tick_to_hash.push((tick, hash, entity));
+            self.unmatched_prespawn_spawn_tick_to_entities
+                .push((tick, entity));
         }
-        Ok(())
-    }
-
-    fn remove_unmatched_entity(&mut self, hash: u64, entity: Entity) {
-        if self
-            .prespawn_hash_to_entity
-            .get(&hash)
-            .is_some_and(|candidate| *candidate == entity)
-        {
-            self.prespawn_hash_to_entity.remove(&hash);
-        }
-    }
-
-    /// Returns the PreSpawned entity on the receiver World that corresponds to the hash
-    /// received from the remote sender
-    pub(crate) fn matches(&mut self, hash: u64, entity: Entity) -> Option<Entity> {
-        let Some(prespawned_entity) = self.prespawn_hash_to_entity.remove(&hash) else {
-            #[cfg(feature = "metrics")]
-            {
-                metrics::counter!("prespawn::no_match").increment(1);
-            }
-            debug!(
-                ?hash,
-                "Received a PreSpawned entity {entity:?} from the remote with a hash that does not match any prespawned entity"
-            );
-            return None;
-        };
-        #[cfg(feature = "metrics")]
-        {
-            metrics::counter!("prespawn::match::found").increment(1);
-        }
-        debug!(
-            "found a client pre-spawned entity {prespawned_entity:?} for remote entity {entity:?} and hash {hash:?}!",
-        );
-        Some(prespawned_entity)
-    }
-
-    /// Despawn all local PreSpawned entities spawned at a tick >= Tick.
-    ///
-    /// This includes already matched entities, because rollback replay must be
-    /// able to recreate entities spawned after the rollback tick instead of
-    /// leaving the previous matched instance live.
-    #[doc(hidden)]
-    pub fn despawn_prespawned_after(&mut self, tick: Tick, commands: &mut Commands) {
-        self.despawn_prespawned_after_with(tick, |_| false, commands);
     }
 
     /// Despawn all local PreSpawned entities spawned at a tick >= Tick,
@@ -418,10 +312,10 @@ impl PreSpawnedReceiver {
         commands: &mut Commands,
     ) {
         let mut entities_to_despawn = Vec::new();
-        self.prespawn_tick_to_hash
-            .retain(|(spawn_tick, hash, entity)| {
+        self.unmatched_prespawn_spawn_tick_to_entities
+            .retain(|(spawn_tick, entity)| {
                 if *spawn_tick >= tick && !should_keep(*entity) {
-                    entities_to_despawn.push((*entity, Some(*hash)));
+                    entities_to_despawn.push(*entity);
                     false
                 } else {
                     true
@@ -430,16 +324,13 @@ impl PreSpawnedReceiver {
         self.matched_prespawn_spawn_tick_to_entities
             .retain(|(spawn_tick, entity)| {
                 if *spawn_tick >= tick && !should_keep(*entity) {
-                    entities_to_despawn.push((*entity, None));
+                    entities_to_despawn.push(*entity);
                     false
                 } else {
                     true
                 }
             });
-        for (entity, hash) in entities_to_despawn {
-            if let Some(hash) = hash {
-                self.remove_unmatched_entity(hash, entity);
-            }
+        for entity in entities_to_despawn {
             debug!(
                 ?entity,
                 "deleting pre-spawned entity because it was created after the rollback tick"
@@ -451,50 +342,42 @@ impl PreSpawnedReceiver {
     }
 
     #[cfg(feature = "client")]
-    pub(crate) fn handle_tick_sync(
-        trigger: On<SyncEvent<InputTimelineConfig>>,
-        mut manager: Single<&mut Self, With<Connected>>,
+    pub(crate) fn handle_local_timeline_shift(
+        trigger: On<LocalTimelineShift>,
+        mut receiver: ResMut<Self>,
     ) {
-        manager
-            .prespawn_tick_to_hash
+        receiver
+            .unmatched_prespawn_spawn_tick_to_entities
             .iter_mut()
-            .for_each(|(tick, _, _)| *tick = *tick + trigger.tick_delta);
-        manager
+            .for_each(|(tick, _)| *tick = *tick + trigger.delta);
+        receiver
             .matched_prespawn_spawn_tick_to_entities
             .iter_mut()
-            .for_each(|(tick, _)| *tick = *tick + trigger.tick_delta);
+            .for_each(|(tick, _)| *tick = *tick + trigger.delta);
     }
 
     fn cleanup_removed_prespawn(
         trigger: On<Remove, PreSpawned>,
-        mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
+        mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
         let entity = trigger.entity;
-        let Ok(mut manager) = manager_query.single_mut() else {
-            return;
-        };
-        manager.cleanup_unmatched_entity(entity);
+        receiver.cleanup_unmatched_entity(entity);
     }
 
     fn cleanup_despawned_prespawn(
         trigger: On<Despawn, (Signature, PreSpawned)>,
-        mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
+        mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
         let entity = trigger.entity;
-        let Ok(mut manager) = manager_query.single_mut() else {
-            return;
-        };
-        manager.cleanup_unmatched_entity(entity);
-        manager
+        receiver.cleanup_unmatched_entity(entity);
+        receiver
             .matched_prespawn_spawn_tick_to_entities
             .retain(|(_, candidate)| *candidate != entity);
     }
 
     fn cleanup_unmatched_entity(&mut self, entity: Entity) {
-        self.prespawn_hash_to_entity
-            .retain(|_, candidate| *candidate != entity);
-        self.prespawn_tick_to_hash
-            .retain(|(_, _, candidate)| *candidate != entity);
+        self.unmatched_prespawn_spawn_tick_to_entities
+            .retain(|(_, candidate)| *candidate != entity);
     }
 }
 
@@ -604,4 +487,59 @@ pub(crate) fn compute_default_hash(
     }
 
     hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_core::id::{PeerId, RemoteId};
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<LocalTimeline>();
+        app.init_resource::<ComponentRegistry>();
+        app.add_plugins(PreSpawnedPlugin);
+        app
+    }
+
+    #[test]
+    fn conventional_client_prespawns_are_lifecycle_tracked() {
+        let mut app = test_app();
+        app.world_mut().spawn((
+            Client,
+            RemoteId(PeerId::Server),
+            Connected,
+            ReplicationReceiver,
+        ));
+        let prespawned = app.world_mut().spawn(PreSpawned::new(1)).id();
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .resource::<PreSpawnedReceiver>()
+                .unmatched_prespawn_spawn_tick_to_entities,
+            [(Tick::default(), prespawned)]
+        );
+    }
+
+    #[test]
+    fn p2p_stable_input_targets_are_not_lifecycle_tracked() {
+        let mut app = test_app();
+        app.world_mut().spawn((
+            P2P,
+            RemoteId(PeerId::Local(1)),
+            Connected,
+            ReplicationReceiver,
+        ));
+        let prespawned = app.world_mut().spawn(PreSpawned::new(1)).id();
+        app.update();
+
+        assert!(app.world().get::<Signature>(prespawned).is_some());
+        assert!(
+            app.world()
+                .resource::<PreSpawnedReceiver>()
+                .unmatched_prespawn_spawn_tick_to_entities
+                .is_empty()
+        );
+    }
 }

@@ -8,12 +8,9 @@ use lightyear::prelude::*;
 
 use crate::protocol::{BallMarker, PlayerActions, PlayerId};
 
-pub(crate) fn print_overstep(
-    time: Res<Time<Fixed>>,
-    timeline: Single<&InputTimeline, With<Client>>,
-) {
-    let input_overstep = timeline.overstep();
-    let input_overstep_ms = input_overstep.to_f32() * (time.timestep().as_millis() as f32);
+pub(crate) fn print_overstep(time: Res<Time<Fixed>>, timeline: Res<LocalTimeline>) {
+    let local_overstep = timeline.instant(&time).overstep();
+    let input_overstep_ms = local_overstep.to_f32() * (time.timestep().as_millis() as f32);
     let time_overstep = time.overstep();
     trace!(?input_overstep_ms, ?time_overstep, "overstep");
 }

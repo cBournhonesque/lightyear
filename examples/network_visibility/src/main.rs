@@ -1,4 +1,6 @@
-//! This example showcases how to use Lightyear with Bevy, to easily get replication along with prediction/interpolation working.
+//! This example showcases Lightyear interest management and its three visibility lifetimes:
+//! despawn while hidden, retain after first visibility, and always create the client entity even
+//! when it starts hidden.
 //!
 //! There is a lot of setup code, but it's mostly to have the examples work in all possible configurations of transport.
 //! (all transports are supported, as well as running the example in client-and-server or host-server mode)
@@ -13,6 +15,8 @@
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
+#[cfg(feature = "p2p")]
+use crate::p2p::ExampleP2PPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
@@ -25,6 +29,8 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 #[cfg(feature = "client")]
 mod client;
 mod debug;
+#[cfg(feature = "p2p")]
+mod p2p;
 mod protocol;
 #[cfg(feature = "gui")]
 mod renderer;
@@ -45,9 +51,13 @@ fn main() {
     cli.spawn_connections(&mut app);
 
     match cli.mode {
-        #[cfg(feature = "client")]
+        #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
         Some(Mode::Client { .. }) => {
             app.add_plugins(ExampleClientPlugin);
+        }
+        #[cfg(feature = "p2p")]
+        Some(Mode::P2P { .. }) => {
+            app.add_plugins((ExampleClientPlugin, ExampleP2PPlugin));
         }
         #[cfg(feature = "server")]
         Some(Mode::Server) => {

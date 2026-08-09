@@ -1,4 +1,4 @@
-default: format taplo typos clippy clippy_examples test
+default: format taplo typos clippy test
 
 # Local CI
 format:
@@ -13,55 +13,51 @@ typos:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going --all-features --features="lightyear_avian2d/f32 lightyear_avian3d/f32"
 
-clippy: lightyear lightyear_aeronet lightyear_avian lightyear_connection lightyear_core \
-    lightyear_crossbeam lightyear_frame_interpolation lightyear_inputs lightyear_interpolation \
-    lightyear_link lightyear_messages lightyear_netcode lightyear_prediction lightyear_replication \
-    lightyear_serde lightyear_sync lightyear_tests lightyear_transport lightyear_udp lightyear_utils lightyear_webtransport
-    # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
-    # cargo clippy --workspace --examples --tests --all-features -- -D warnings
+# Keep local Clippy aligned with CI. The excluded GUI examples are linted in
+# separate feature graphs so Avian 2D and 3D are not unified.
+clippy:
+    cargo clippy --features=lightyear_core/not_mock,avian3d/f32 --workspace --exclude=compiletime --exclude=avian_3d --exclude=launcher --exclude=delta_compression --no-deps -- -D warnings -A clippy::needless_lifetimes
+    cargo clippy -p avian_3d --all-features --no-deps -- -D warnings
+    cargo clippy -p launcher --all-features --no-deps -- -D warnings
 
-clippy_examples:
-    cargo clippy -p spaceships --all-features -- -D warnings --no-deps
-    cargo clippy -p auth --all-features -- -D warnings --no-deps
-    cargo clippy -p avian_3d --all-features -- -D warnings --no-deps
-    cargo clippy -p avian_2d --all-features -- -D warnings --no-deps
-    cargo clippy -p bevy_enhanced_inputs --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_examples_common --all-features -- -D warnings --no-deps
-    # cargo clippy -p delta_compression --all-features -- -D warnings --no-deps
-    cargo clippy -p fps --all-features -- -D warnings --no-deps
-    cargo clippy -p launcher --all-features -- -D warnings --no-deps
-    cargo clippy -p lobby --all-features -- -D warnings --no-deps
-    cargo clippy -p network_visibility --all-features -- -D warnings --no-deps
-    cargo clippy -p priority --all-features -- -D warnings --no-deps
-    cargo clippy -p replication_groups --all-features -- -D warnings --no-deps
-    cargo clippy -p simple_box --all-features -- -D warnings --no-deps
-    # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
+# Run two conditioned simple-box peers and verify remote prediction rollback plus convergence.
+simple_box_p2p_smoke:
+    bash examples/simple_box/p2p_smoke.sh
 
 # jq filters shared by the example/demo build recipe.
+[private]
 _example_demo_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup")) | .name'
-_example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup") and (.name != "projectiles")) | .name'
-# simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
+[private]
+_example_demo_p2p_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.features | has("p2p"))) | .name'
+# simple_setup is excluded from explicit feature builds because it has its own feature setup.
 
-# Build all examples/demos.
+# Build all examples/demos with the requested role features. Client/server add
+# the default netcode + WebTransport stack, and client/P2P add the GUI. When P2P
+# is requested, only examples that expose P2P are selected, and the Avian 2D/3D
+# examples are built separately to avoid feature unification.
 #
 # Usage:
 #   just build_examples
-#   just build_examples features=server
+#   just build_examples features=client,server
 #   just build_examples features=client headless=true
-#   just build_examples release=true features=both
+#   just build_examples names=avian_3d
+#   just build_examples names=avian_2d,avian_3d features=client headless=true
+#   just build_examples features=client,server,p2p
+#   just build_examples release=true features=server headless=false
 #
 # Args:
 #   release=true|false   Defaults to false.
-#   headless=true|false  Defaults to true for features=server, false otherwise.
-#   features=server|client|both  Defaults to both.
+#   headless=true|false  Removes/adds gui. Defaults based on the requested role.
+# names=NAME,... selects packages; features=FEATURE,... defaults to client,server.
 build_examples *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    usage='usage: just build_examples [release=true|false] [headless=true|false] [features=server|client|both]'
+    usage='usage: just build_examples [release=true|false] [headless=true|false] [features=FEATURE,...] [names=NAME,...]'
     release=false
     headless=""
-    feature_mode=both
-    for arg in {{args}}; do
+    names=""
+    requested_features="client,server"
+    for arg in {{ args }}; do
         case "$arg" in
             release=true|release=false)
                 release="${arg#release=}"
@@ -69,8 +65,19 @@ build_examples *args:
             headless=true|headless=false)
                 headless="${arg#headless=}"
                 ;;
-            features=server|features=client|features=both)
-                feature_mode="${arg#features=}"
+            features=*)
+                requested_features="${arg#features=}"
+                if [ -z "$requested_features" ]; then
+                    echo "features must not be empty" >&2
+                    exit 2
+                fi
+                ;;
+            names=*)
+                names="${arg#names=}"
+                if [ -z "$names" ]; then
+                    echo "names must not be empty" >&2
+                    exit 2
+                fi
                 ;;
             -h|--help|help)
                 echo "$usage"
@@ -83,63 +90,112 @@ build_examples *args:
                 ;;
         esac
     done
-    if [ -z "$headless" ]; then
-        if [ "$feature_mode" = server ]; then
-            headless=true
-        else
-            headless=false
+
+    cargo_features="$requested_features"
+    has_feature() {
+        case ",$cargo_features," in
+            *,"$1",*) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+    add_feature() {
+        if ! has_feature "$1"; then
+            cargo_features="$cargo_features,$1"
         fi
+    }
+    remove_feature() {
+        local padded_features=",$cargo_features,"
+        padded_features="${padded_features//,$1,/,}"
+        cargo_features="${padded_features#,}"
+        cargo_features="${cargo_features%,}"
+    }
+    if has_feature client || has_feature server; then
+        add_feature netcode
+        add_feature webtransport
+    fi
+    if [ "$headless" = true ]; then
+        remove_feature gui
+    elif [ "$headless" = false ]; then
+        add_feature gui
+    elif has_feature client || has_feature p2p; then
+        add_feature gui
     fi
 
     cargo_build=(cargo build -j 1)
-    release_suffix=""
     if [ "$release" = true ]; then
         cargo_build+=(--release)
-        release_suffix="-release"
     fi
 
-    target_dir=""
-    if [ "$headless" = true ]; then
-        case "$feature_mode" in
-            both) target_dir="target/headless${release_suffix}" ;;
-            client) target_dir="target/headless-client${release_suffix}" ;;
-            server) target_dir="target/headless-server${release_suffix}" ;;
-        esac
-    elif [ "$feature_mode" = server ]; then
-        target_dir="target/server-only${release_suffix}"
-    fi
-    if [ -n "$target_dir" ]; then
-        cargo_build+=(--target-dir "$target_dir")
-    fi
-
-    case "$feature_mode:$headless" in
-        both:true) cargo_features="client,server,netcode,webtransport" ;;
-        client:true) cargo_features="client,netcode,webtransport" ;;
-        server:true) cargo_features="server,netcode,webtransport" ;;
-        both:false) cargo_features="client,gui,server,netcode,webtransport" ;;
-        client:false) cargo_features="client,gui,netcode,webtransport" ;;
-        server:false) cargo_features="server,gui,netcode,webtransport" ;;
+    p2p=false
+    case ",$cargo_features," in
+        *,p2p,*) p2p=true ;;
     esac
 
-    if [ "$headless" = true ]; then
-        projectiles_features="client,server,netcode,webtransport"
+    workspace_metadata="$(cargo metadata --no-deps --format-version 1)"
+    selected_packages=()
+    if [ -n "$names" ]; then
+        IFS=',' read -r -a requested_names <<< "$names"
+        IFS=',' read -r -a resolved_features <<< "$cargo_features"
+        for pkg in "${requested_names[@]}"; do
+            if [ -z "$pkg" ]; then
+                echo "names must not contain an empty package name" >&2
+                exit 2
+            fi
+            if ! jq -e --arg pkg "$pkg" '
+                any(.packages[];
+                    .name == $pkg
+                    and (.manifest_path | test("/(examples|demos)/"))
+                    and (.manifest_path | test("/examples/common/") | not)
+                )
+            ' <<< "$workspace_metadata" >/dev/null; then
+                echo "unknown example/demo package: $pkg" >&2
+                exit 2
+            fi
+            for feature in "${resolved_features[@]}"; do
+                if ! jq -e --arg pkg "$pkg" --arg feature "$feature" '
+                    any(.packages[]; .name == $pkg and (.features | has($feature)))
+                ' <<< "$workspace_metadata" >/dev/null; then
+                    echo "example/demo package '$pkg' does not support feature '$feature'" >&2
+                    exit 2
+                fi
+            done
+            selected_packages+=("$pkg")
+        done
     else
-        projectiles_features="client,gui,server,netcode,webtransport"
+        if [ "$p2p" = true ]; then
+            pkgs_filter='{{ _example_demo_p2p_pkgs_filter }}'
+        else
+            pkgs_filter='{{ _example_demo_pkgs_filter }}'
+        fi
+        while IFS= read -r pkg; do
+            selected_packages+=("$pkg")
+        done < <(jq -r "$pkgs_filter" <<< "$workspace_metadata" | sort)
     fi
 
-    echo "Building examples: release=$release headless=$headless features=$feature_mode cargo_features=$cargo_features"
-    if [ "$projectiles_features" = "$cargo_features" ]; then
-        pkgs_filter='{{ _example_demo_pkgs_filter }}'
-    else
-        pkgs_filter='{{ _example_demo_non_projectiles_pkgs_filter }}'
-    fi
+    echo "Building examples: release=$release headless=${headless:-auto} requested=$requested_features features=$cargo_features"
+    echo "Selected packages: ${selected_packages[*]}"
     package_args=()
-    while IFS= read -r pkg; do
-        package_args+=(-p "$pkg")
-    done < <(cargo metadata --no-deps --format-version 1 | jq -r "$pkgs_filter" | sort)
-    "${cargo_build[@]}" --no-default-features --features="$cargo_features" "${package_args[@]}"
-    if [ "$projectiles_features" != "$cargo_features" ]; then
-        "${cargo_build[@]}" --no-default-features --features="$projectiles_features" -p projectiles
+    non_avian_count=0
+    build_avian_2d=false
+    build_avian_3d=false
+    for pkg in "${selected_packages[@]}"; do
+        if [ "$p2p" = true ] && [ "$pkg" = avian_2d ]; then
+            build_avian_2d=true
+        elif [ "$p2p" = true ] && [ "$pkg" = avian_3d ]; then
+            build_avian_3d=true
+        else
+            package_args+=(-p "$pkg")
+            non_avian_count=$((non_avian_count + 1))
+        fi
+    done
+    if [ "$non_avian_count" -gt 0 ]; then
+        "${cargo_build[@]}" --no-default-features --features="$cargo_features" "${package_args[@]}"
+    fi
+    if [ "$build_avian_2d" = true ]; then
+        "${cargo_build[@]}" --no-default-features --features="$cargo_features" -p avian_2d
+    fi
+    if [ "$build_avian_3d" = true ]; then
+        "${cargo_build[@]}" --no-default-features --features="$cargo_features" -p avian_3d
     fi
 
 test:
@@ -179,357 +235,6 @@ test:
     # Limit to 1 test thread to prevent mocked GlobalTime from going crazy
     cargo test -p lightyear_tests --all-features -- --test-threads=1
 
-# Clippy
-lightyear:
-    # `lightyear_avian` only works on `std`
-    # cargo clippy -p lightyear --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std replication" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std prediction" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std netcode" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="webtransport" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std webtransport_self_signed" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std webtransport_dangerous_configuration" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std input_native" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std leafwing" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std input_bei" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="avian2d lightyear_avian2d/f32" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="avian3d lightyear_avian3d/f32" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="udp" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="websocket" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std crossbeam" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="steam" -- -D warnings --no-deps
-    # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`
-    cargo clippy -p lightyear --no-default-features --features="std client server replication \
-    interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d lightyear_avian2d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="std client server replication \
-    interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d lightyear_avian3d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
-    # cargo clippy -p lightyear --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std replication" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std prediction" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std netcode" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="webtransport" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std webtransport_self_signed" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std webtransport_dangerous_configuration" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std input_native" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std leafwing" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std input_bei" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="avian2d lightyear_avian2d/f32" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="avian3d lightyear_avian3d/f32" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="udp" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="websocket" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std crossbeam" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="steam" -- -D warnings --no-deps
-    # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`
-    cargo clippy -p lightyear --tests --no-default-features --features="std client server replication \
-    interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d lightyear_avian2d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="std client server replication \
-    interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d lightyear_avian3d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
-
-lightyear_aeronet:
-    cargo clippy -p lightyear_aeronet --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_aeronet --no-default-features --features="test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_aeronet --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_aeronet --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_aeronet --tests --no-default-features --features="test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_aeronet --tests --all-features -- -D warnings --no-deps
-
-lightyear_avian:
-    # `lightyear_avian` only works on `std`
-    # `2d` and `3d` are mutually exclusive
-    # `lag_compensation` requires either `2d` or `3d`
-    cargo clippy -p lightyear_avian --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --no-default-features --features="std 2d" -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --no-default-features --features="std 3d" -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --no-default-features --features="std 2d lag_compensation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --no-default-features --features="std 3d lag_compensation" -- -D warnings --no-deps
-    # cargo clippy -p lightyear_avian --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --tests --no-default-features --features="std 2d" -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --tests --no-default-features --features="std 3d" -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --tests --no-default-features --features="std 2d lag_compensation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_avian --tests --no-default-features --features="std 3d lag_compensation" -- -D warnings --no-deps
-
-lightyear_connection:
-    cargo clippy -p lightyear_connection --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --tests --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --tests --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_connection --tests --all-features -- -D warnings --no-deps
-
-lightyear_core:
-    cargo clippy -p lightyear_core --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --no-default-features --features="prediction" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --no-default-features --features="interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --no-default-features --features="test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --no-default-features --features="not_mock" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --tests --no-default-features --features="prediction" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --tests --no-default-features --features="interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --tests --no-default-features --features="test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --tests --no-default-features --features="not_mock" -- -D warnings --no-deps
-    cargo clippy -p lightyear_core --tests --all-features -- -D warnings --no-deps
-
-lightyear_crossbeam:
-    cargo clippy -p lightyear_crossbeam --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_crossbeam --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_crossbeam --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_crossbeam --tests --all-features -- -D warnings --no-deps
-
-lightyear_frame_interpolation:
-    # `lightyear_frame_interpolation` only works with `std`
-    # cargo clippy -p lightyear_frame_interpolation --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_frame_interpolation --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_frame_interpolation --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_frame_interpolation --tests --no-default-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_frame_interpolation --tests --no-default-features --features="std" -- -D warnings --no-deps
-    # cargo clippy -p lightyear_frame_interpolation --tests --all-features -- -D warnings --no-deps
-
-lightyear_inputs:
-    # `lightyear_inputs` only works with `std`
-    # cargo clippy -p lightyear_inputs --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="std interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="std interpolation client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --no-default-features --features="std interpolation server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --all-features -- -D warnings --no-deps
-    # # cargo clippy -p lightyear_inputs --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="std interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="std interpolation client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --no-default-features --features="std interpolation server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs --tests --all-features -- -D warnings --no-deps
-
-lightyear_inputs_bei:
-    # `lightyear_inputs_bei` only works with `std`
-    # cargo clippy -p lightyear_inputs_bei --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_inputs_bei --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_bei --tests --all-features -- -D warnings --no-deps
-
-lightyear_inputs_leafwing:
-    # `lightyear_inputs_leafwing` only works with `std`
-    cargo clippy -p lightyear_inputs_leafwing --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_leafwing --tests --all-features -- -D warnings --no-deps
-
-lightyear_inputs_native:
-    # `lightyear_inputs_native` only works with `std`
-    # cargo clippy -p lightyear_inputs_native --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_inputs_native --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_inputs_native --tests --all-features -- -D warnings --no-deps
-
-lightyear_interpolation:
-    # `lightyear_interpolation` only works with `std`
-    # cargo clippy -p lightyear_interpolation --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_interpolation --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_interpolation --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_interpolation --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_interpolation --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_interpolation --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_interpolation --tests --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_interpolation --tests --all-features -- -D warnings --no-deps
-
-lightyear_link:
-    cargo clippy -p lightyear_link --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_link --no-default-features --features="test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_link --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_link --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_link --tests --no-default-features --features="test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_link --tests --all-features -- -D warnings --no-deps
-
-lightyear_messages:
-    # `lightyear_messages` only works in `std`
-    # cargo clippy -p lightyear_messages --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_messages --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --tests --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_messages --tests --all-features -- -D warnings --no-deps
-
-lightyear_netcode:
-    # `lightyear_netcode` only works in `std`
-    # `trace` only affects `server`
-    # cargo clippy -p lightyear_netcode --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --no-default-features --features="std server trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_netcode --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --tests --no-default-features --features="std server trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear_netcode --tests --all-features -- -D warnings --no-deps
-
-lightyear_prediction:
-    # `lightyear_prediction` only works in `std`
-    # cargo clippy -p lightyear_prediction --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_prediction --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_prediction --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_prediction --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_prediction --tests --no-default-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_prediction --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    # cargo clippy -p lightyear_prediction --tests --no-default-features --features="metrics" -- -D warnings --no-deps
-    # cargo clippy -p lightyear_prediction --tests --all-features -- -D warnings --no-deps
-
-lightyear_replication:
-    # `lightyear_replication` only works in `std`
-    # cargo clippy -p lightyear_replication --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="std prediction" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="std interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="std trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_replication --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="std prediction" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="std interpolation" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="std trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_replication --tests --all-features -- -D warnings --no-deps
-
-lightyear_serde:
-    cargo clippy -p lightyear_serde --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_serde --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_serde --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_serde --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_serde --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_serde --tests --all-features -- -D warnings --no-deps
-
-lightyear_steam:
-    cargo clippy -p lightyear_steam --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --tests --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --tests --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_steam --tests --all-features -- -D warnings --no-deps
-
-lightyear_sync:
-    # `lightyear_sync` only works in `std`
-    # cargo clippy -p lightyear_sync --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_sync --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_sync --tests --all-features -- -D warnings --no-deps
-
-lightyear_tests:
-    # `lightyear_tests` only works in `std`
-    # cargo clippy -p lightyear_tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_tests --no-default-features --features="std" -- -D warnings --no-deps
-
-lightyear_transport:
-    # `lightyear_transport` only works in `std`
-    # cargo clippy -p lightyear_transport --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --no-default-features --features="std trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --all-features -- -D warnings --no-deps
-    # cargo clippy -p lightyear_transport --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --no-default-features --features="std" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --no-default-features --features="std client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --no-default-features --features="std server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --no-default-features --features="metrics" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --no-default-features --features="std trace" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --no-default-features --features="std test_utils" -- -D warnings --no-deps
-    cargo clippy -p lightyear_transport --tests --all-features -- -D warnings --no-deps
-
-lightyear_udp:
-    cargo clippy -p lightyear_udp --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_udp --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_udp --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_udp --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_udp --tests --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_udp --tests --all-features -- -D warnings --no-deps
-
-lightyear_utils:
-    cargo clippy -p lightyear_utils --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_utils --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_utils --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_utils --tests --all-features -- -D warnings --no-deps
-
-lightyear_webtransport:
-    cargo clippy -p lightyear_webtransport --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --no-default-features --features="self-signed" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --no-default-features --features="dangerous-configuration" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --all-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --tests --no-default-features -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --tests --no-default-features --features="client" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --tests --no-default-features --features="server" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --tests --no-default-features --features="self-signed" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --tests --no-default-features --features="dangerous-configuration" -- -D warnings --no-deps
-    cargo clippy -p lightyear_webtransport --tests --all-features -- -D warnings --no-deps
-
 add_avian_symlinks:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -568,7 +273,7 @@ release_dryrun version:
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    cargo release --no-publish --no-tag --no-push --workspace --config .release.toml "{{version}}"
+    cargo release --no-publish --no-tag --no-push --workspace --config .release.toml "{{ version }}"
     just add_avian_symlinks
     pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | "-p " + .name' | tr "\n" " ")
     cargo package --allow-dirty -j 4 $pkgs
@@ -584,7 +289,7 @@ release version:
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    cargo release --execute --no-publish --no-tag --no-push --workspace --config .release.toml "{{version}}"
+    cargo release --execute --no-publish --no-tag --no-push --workspace --config .release.toml "{{ version }}"
     just add_avian_symlinks
     pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | "-p " + .name' | tr "\n" " ")
     cargo publish --allow-dirty -j 4 $pkgs

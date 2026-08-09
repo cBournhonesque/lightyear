@@ -47,7 +47,11 @@
 //! ## Visibility
 //!
 //! [`VisibilityExt::gain_visibility`] and [`VisibilityExt::lose_visibility`]
-//! let you dynamically show or hide an entity for a specific client.
+//! let you dynamically show or hide an entity for a specific client. The default
+//! [`VisibilityExt::lose_visibility`] behavior despawns the remote entity. Use
+//! [`VisibilityExt::lose_visibility_retained`] to retain an entity the client has already seen, or
+//! [`VisibilityExt::lose_visibility_always_present`] to guarantee an initial remote entity even
+//! when it starts hidden. Both retaining policies pause updates while hidden.
 //! Visibility changes propagate through [`ReplicateLikeChildren`] so that
 //! hiding a parent also hides its replicated descendants.
 //!
@@ -68,6 +72,10 @@
 //! [`PreSpawned`] allows both client and server to spawn the same entity
 //! independently, then match them via a deterministic hash. This enables
 //! zero-latency predicted spawns (e.g. bullets, projectiles).
+//! Sender-side [`PreSpawned::for_client`] scopes the matching signature to one
+//! remote client without changing the entity's replication visibility.
+//! Rollback and timeout bookkeeping lives in the world-global
+//! [`prespawn::PreSpawnedReceiver`] resource.
 //!
 //! [`Replicate`]: crate::send::Replicate
 //! [`ReplicationTarget<()>`]: crate::send::ReplicationTarget
@@ -81,6 +89,8 @@
 //! [`ReplicateLikeChildren`]: crate::hierarchy::ReplicateLikeChildren
 //! [`VisibilityExt::gain_visibility`]: crate::visibility::immediate::VisibilityExt::gain_visibility
 //! [`VisibilityExt::lose_visibility`]: crate::visibility::immediate::VisibilityExt::lose_visibility
+//! [`VisibilityExt::lose_visibility_retained`]: crate::visibility::immediate::VisibilityExt::lose_visibility_retained
+//! [`VisibilityExt::lose_visibility_always_present`]: crate::visibility::immediate::VisibilityExt::lose_visibility_always_present
 //! [`RoomPlugin`]: crate::visibility::room::RoomPlugin
 //! [`ControlledBy`]: crate::control::ControlledBy
 //! [`HasAuthority`]: crate::authority::HasAuthority
@@ -108,6 +118,7 @@ pub mod client;
 pub mod control;
 pub mod deferred_entity;
 pub mod diff_history;
+pub mod diffable;
 pub mod hierarchy;
 pub mod metadata;
 pub mod prespawn;
@@ -117,10 +128,6 @@ pub mod send;
 
 pub mod visibility;
 
-#[cfg(feature = "delta")]
-pub mod delta;
-
-#[cfg(feature = "delta")]
 mod impls;
 
 pub mod prelude {
@@ -129,7 +136,7 @@ pub mod prelude {
     pub use bevy_replicon::prelude::Remote;
     pub use bevy_replicon::prelude::Remote as Replicated;
     #[cfg(feature = "server")]
-    pub use bevy_replicon::server::PriorityMap;
+    pub use bevy_replicon::server::{PriorityMap, ReplicatePriority};
 
     pub use crate::ReplicationSystems;
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
@@ -140,7 +147,7 @@ pub mod prelude {
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
-    pub use crate::receive::ReplicationReceiver;
+    pub use crate::receive::{Persistent, ReplicationReceiver};
     pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender, ReplicationState};
 
     pub use crate::registry::ComponentRegistry;
@@ -149,8 +156,7 @@ pub mod prelude {
     pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
     pub use crate::visibility::room::{RoomAllocator, RoomId, RoomPlugin, Rooms};
 
-    #[cfg(feature = "delta")]
-    pub use crate::delta::{DeltaManager, Diffable};
+    pub use crate::diffable::Diffable;
 
     #[cfg(feature = "interpolation")]
     pub use crate::send::InterpolationTarget;
@@ -184,6 +190,7 @@ impl Plugin for SharedComponentRegistrationPlugin {
     fn build(&self, app: &mut bevy_app::prelude::App) {
         use bevy_ecs::prelude::ChildOf;
         use bevy_replicon::prelude::{AppMarkerExt, AppRuleExt, RuleFns};
+        app.init_resource::<registry::ComponentRegistry>();
         // The order of app.replicate() calls must be identical on client and server.
         // These marker components are sent from server to client as part of entity replication.
         #[cfg(feature = "prediction")]

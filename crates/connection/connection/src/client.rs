@@ -1,4 +1,4 @@
-use alloc::{format, string::String};
+use alloc::string::String;
 use bevy_app::{App, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -8,7 +8,7 @@ use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::LinkStart;
-use lightyear_link::prelude::{Server, Unlinked};
+use lightyear_link::prelude::{Server, UnlinkReason, Unlinked};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -82,10 +82,41 @@ impl Connecting {
     }
 }
 
+/// Why a [`Disconnected`] component was inserted on a connection entity.
+#[derive(Default, Debug, Clone, PartialEq, Eq, Reflect)]
+pub enum DisconnectedReason {
+    /// The connection has not been attempted yet, or no more specific reason is available.
+    #[default]
+    Unknown,
+    /// The underlying link was closed or failed.
+    LinkFailed(UnlinkReason),
+    /// The local user requested the disconnect, optionally with additional context.
+    UserRequested(Option<String>),
+    /// The remote peer disconnected, optionally with a reason.
+    ByPeer(Option<String>),
+    /// The connection transport or protocol encountered an error.
+    TransportError(String),
+}
+
+impl core::fmt::Display for DisconnectedReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Unknown => f.write_str("Unknown"),
+            Self::LinkFailed(reason) => write!(f, "Link failed: {reason}"),
+            Self::UserRequested(Some(reason)) => write!(f, "User requested: {reason}"),
+            Self::UserRequested(None) => f.write_str("User requested"),
+            Self::ByPeer(Some(reason)) => write!(f, "Disconnected by peer: {reason}"),
+            Self::ByPeer(None) => f.write_str("Disconnected by peer"),
+            Self::TransportError(reason) => write!(f, "Transport error: {reason}"),
+        }
+    }
+}
+
 #[derive(Component, Default, Debug, Reflect)]
 #[component(on_add = Disconnected::on_add)]
 pub struct Disconnected {
-    pub reason: Option<String>,
+    /// Structured reason for the disconnection.
+    pub reason: DisconnectedReason,
 }
 
 impl Disconnected {
@@ -178,7 +209,7 @@ impl ConnectionPlugin {
                 unlinked.reason
             );
             commands.entity(trigger.entity).insert(Disconnected {
-                reason: Some(format!("Link failed: {:?}", unlinked.reason)),
+                reason: DisconnectedReason::LinkFailed(unlinked.reason.clone()),
             });
         }
     }
@@ -223,5 +254,24 @@ mod tests {
         let state = query.get(&world, connected_client_of).unwrap();
         assert!(state.is_connected());
         assert!(!state.is_disconnected());
+    }
+
+    #[test]
+    fn link_failure_preserves_structured_reason() {
+        let mut app = App::new();
+        app.add_plugins(ConnectionPlugin);
+        let entity = app
+            .world_mut()
+            .spawn(Unlinked {
+                reason: UnlinkReason::ByPeer(String::from("server shutdown")),
+            })
+            .id();
+
+        app.update();
+
+        assert_eq!(
+            app.world().get::<Disconnected>(entity).unwrap().reason,
+            DisconnectedReason::LinkFailed(UnlinkReason::ByPeer(String::from("server shutdown")))
+        );
     }
 }

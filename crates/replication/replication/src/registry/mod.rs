@@ -4,7 +4,6 @@ pub mod deterministic;
 pub mod replication;
 
 use crate::registry::replication::ReplicationMetadata;
-use alloc::string::String;
 use bevy_ecs::component::ComponentId;
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::HashMap;
@@ -32,10 +31,6 @@ pub enum ComponentError {
     MissingReplicationFns,
     #[error("missing serialization functions for component")]
     MissingSerializationFns,
-    #[error("missing delta compression functions for component")]
-    MissingDeltaFns,
-    #[error("delta compression error: {0}")]
-    DeltaCompressionError(String),
     #[error("component error: {0}")]
     SerializationError(#[from] SerializationError),
 }
@@ -176,8 +171,6 @@ pub struct ComponentRegistry {
 pub struct ComponentMetadata {
     pub component_id: ComponentId,
     pub replication: Option<ReplicationMetadata>,
-    // #[cfg(feature = "delta")]
-    // pub(crate) delta: Option<ErasedDeltaFns>,
     #[cfg(feature = "deterministic")]
     pub deterministic: Option<deterministic::DeterministicFns>,
 }
@@ -212,8 +205,6 @@ impl ComponentRegistry {
             .or_insert(ComponentMetadata {
                 component_id,
                 replication: Some(ReplicationMetadata::default()),
-                // #[cfg(feature = "delta")]
-                // delta: None,
                 #[cfg(feature = "deterministic")]
                 deterministic: None,
             });

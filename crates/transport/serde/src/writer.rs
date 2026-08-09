@@ -9,236 +9,110 @@
 use crate::SerializationError;
 use crate::varint::varint_len;
 use bytes::{BufMut, Bytes, BytesMut};
+use core::cmp;
 use no_std_io2::io;
 use no_std_io2::io::{Result, Write};
 
-#[cfg(not(feature = "std"))]
-pub use no_std::Writer;
-#[cfg(feature = "std")]
-pub use std::Writer;
+#[derive(Debug)]
+pub struct Writer(BytesMut);
 
-#[cfg(feature = "std")]
-pub(crate) mod std {
-    use super::*;
-
-    #[derive(Debug)]
-    pub struct Writer(bytes::buf::Writer<BytesMut>);
-
-    impl From<BytesMut> for Writer {
-        fn from(value: BytesMut) -> Self {
-            Self(value.writer())
-        }
-    }
-
-    impl Write for Writer {
-        fn write(&mut self, buf: &[u8]) -> Result<usize> {
-            self.0.write(buf)
-        }
-
-        fn flush(&mut self) -> Result<()> {
-            self.0.flush()
-        }
-    }
-
-    impl<const N: usize> From<[u8; N]> for Writer {
-        #[inline]
-        fn from(value: [u8; N]) -> Self {
-            BytesMut::from(Bytes::copy_from_slice(&value)).into()
-        }
-    }
-
-    impl AsMut<[u8]> for Writer {
-        fn as_mut(&mut self) -> &mut [u8] {
-            self.0.get_mut().as_mut()
-        }
-    }
-
-    impl Writer {
-        pub fn with_capacity(capacity: usize) -> Self {
-            let buf = BytesMut::with_capacity(capacity);
-            Self(buf.writer())
-        }
-
-        pub fn capacity(&self) -> usize {
-            self.0.get_ref().capacity()
-        }
-
-        pub fn len(&self) -> usize {
-            self.0.get_ref().len()
-        }
-
-        pub fn is_empty(&self) -> bool {
-            self.len() == 0
-        }
-
-        pub fn position(&self) -> usize {
-            self.len()
-        }
-
-        // TODO: how do reduce capacity over time?
-        /// Split the current bytes written as a separate [`Bytes`].
-        ///
-        /// Retains any additional capacity. O(1) operation.
-        pub fn split(&mut self) -> Bytes {
-            self.0.get_mut().split().freeze()
-        }
-
-        pub fn reserve(&mut self, additional: usize) {
-            self.0.get_mut().reserve(additional)
-        }
-
-        pub fn extend_from_slice(&mut self, extend: &[u8]) {
-            self.0.get_mut().extend_from_slice(extend)
-        }
-
-        /// Splits the buffer into two at the given index.
-        ///
-        /// Afterwards `self` contains elements `[at, len)`, and the returned `BytesMut`
-        /// contains elements `[0, at)`.
-        pub fn split_to(&mut self, at: usize) -> Bytes {
-            self.0.get_mut().split_to(at).freeze()
-        }
-
-        // TODO: normally there is no need to reset, because once all the messages that have been split
-        //  are dropped, the writer will move the current data to the front of the buffer to reuse memory
-        //  All the split bytes messages are dropped at Send for unreliable senders, but NOT for reliable
-        //  senders, think about what to do for that! Maybe do a clone there to drop the message?
-        /// Reset the writer but keeps the underlying allocation
-        pub fn reset(&mut self) {
-            self.0.get_mut().clear();
-        }
-
-        // by convention, to_* functions with non-Copy self types usually take a &self, but not here.
-        /// Consume the writer to get the RawData
-        #[allow(clippy::wrong_self_convention)]
-        pub fn to_bytes(self) -> Bytes {
-            self.0.into_inner().into()
-        }
-
-        // by convention, to_* functions with non-Copy self types usually take a &self, but not here.
-        /// Consume the writer to get the RawData
-        #[allow(clippy::wrong_self_convention)]
-        pub fn to_bytes_mut(self) -> BytesMut {
-            self.0.into_inner()
-        }
+impl From<BytesMut> for Writer {
+    fn from(value: BytesMut) -> Self {
+        Self(value)
     }
 }
-#[cfg(not(feature = "std"))]
-pub(crate) mod no_std {
-    use super::*;
-    use bincode::error::EncodeError;
-    use core::cmp;
-    #[derive(Debug)]
-    pub struct Writer(BytesMut);
 
-    impl From<BytesMut> for Writer {
-        fn from(value: BytesMut) -> Self {
-            Self(value)
-        }
+impl Write for Writer {
+    fn write(&mut self, src: &[u8]) -> Result<usize> {
+        let n = cmp::min(self.0.remaining_mut(), src.len());
+        self.0.put_slice(&src[..n]);
+        Ok(n)
     }
 
-    // impl bincode::Writer for Writer {
-    //     fn write_all(&mut self, buf: &[u8]) -> Result<(), EncodeError> {
-    //         let n = cmp::min(self.0.remaining_mut(), buf.len());
-    //         self.0.put_slice(&buf[..n]);
-    //         Ok(())
-    //     }
-    // }
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
 
-    impl Write for Writer {
-        fn write(&mut self, src: &[u8]) -> Result<usize> {
-            let n = cmp::min(self.0.remaining_mut(), src.len());
-            self.0.put_slice(&src[..n]);
-            Ok(n)
-        }
+impl<const N: usize> From<[u8; N]> for Writer {
+    /// Creates a writer containing all `N` bytes from `value`.
+    ///
+    /// In particular, `Writer::from([0; N])` has length `N`; it is not an empty
+    /// writer with capacity `N`. Use [`Writer::with_capacity`] for that.
+    #[inline]
+    fn from(value: [u8; N]) -> Self {
+        BytesMut::from(Bytes::copy_from_slice(&value)).into()
+    }
+}
 
-        fn flush(&mut self) -> Result<()> {
-            Ok(())
-        }
+impl AsMut<[u8]> for Writer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+impl Writer {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self(BytesMut::with_capacity(capacity))
     }
 
-    impl<const N: usize> From<[u8; N]> for crate::writer::Writer {
-        #[inline]
-        fn from(value: [u8; N]) -> Self {
-            BytesMut::from(Bytes::copy_from_slice(&value)).into()
-        }
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
     }
 
-    impl AsMut<[u8]> for Writer {
-        fn as_mut(&mut self) -> &mut [u8] {
-            self.0.as_mut()
-        }
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
-    impl Writer {
-        pub fn with_capacity(capacity: usize) -> Self {
-            let buf = BytesMut::with_capacity(capacity);
-            Self(buf)
-        }
-
-        pub fn capacity(&self) -> usize {
-            self.0.capacity()
-        }
-
-        pub fn len(&self) -> usize {
-            self.0.as_ref().len()
-        }
-
-        pub fn is_empty(&self) -> bool {
-            self.len() == 0
-        }
-
-        pub fn position(&self) -> usize {
-            self.len()
-        }
-
-        // TODO: how do reduce capacity over time?
-        /// Split the current bytes written as a separate [`Bytes`].
-        ///
-        /// Retains any additional capacity. O(1) operation.
-        pub fn split(&mut self) -> Bytes {
-            self.0.split().freeze()
-        }
-
-        pub fn reserve(&mut self, additional: usize) {
-            self.0.reserve(additional)
-        }
-
-        pub fn extend_from_slice(&mut self, extend: &[u8]) {
-            self.0.extend_from_slice(extend)
-        }
-
-        // TODO: normally there is no need to reset, because once all the messages that have been split
-        //  are dropped, the writer will move the current data to the front of the buffer to reuse memory
-        //  All the split bytes messages are dropped at Send for unreliable senders, but NOT for reliable
-        //  senders, think about what to do for that! Maybe do a clone there to drop the message?
-        /// Reset the writer but keeps the underlying allocation
-        pub fn reset(&mut self) {
-            self.0.clear();
-        }
-
-        // by convention, to_* functions with non-Copy self types usually take a &self, but not here.
-        /// Consume the writer to get the RawData
-        #[allow(clippy::wrong_self_convention)]
-        pub fn to_bytes(self) -> Bytes {
-            self.0.into()
-        }
-
-        #[allow(clippy::wrong_self_convention)]
-        pub fn to_bytes_mut(self) -> BytesMut {
-            self.0
-        }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
-    /// We need to provide our own implementation of bincode::enc::write::Writer.
-    /// We cannot use the SliceWriter because it supposes that the slice is immutable
-    impl bincode::enc::write::Writer for Writer {
-        #[inline(always)]
-        fn write(&mut self, bytes: &[u8]) -> core::result::Result<(), EncodeError> {
-            self.write_all(bytes)
-                .map_err(|_| EncodeError::Other("encode error"))?;
-            Ok(())
-        }
+    pub fn position(&self) -> usize {
+        self.len()
+    }
+
+    // TODO: how do reduce capacity over time?
+    /// Split the current bytes written as a separate [`Bytes`].
+    ///
+    /// Retains any additional capacity. O(1) operation.
+    pub fn take_written(&mut self) -> Bytes {
+        self.0.split().freeze()
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.0.reserve(additional)
+    }
+
+    pub fn extend_from_slice(&mut self, extend: &[u8]) {
+        self.0.extend_from_slice(extend)
+    }
+
+    /// Splits the buffer into two at the given index.
+    ///
+    /// Afterwards `self` contains elements `[at, len)`, and the returned `BytesMut`
+    /// contains elements `[0, at)`.
+    pub fn split_to(&mut self, at: usize) -> Bytes {
+        self.0.split_to(at).freeze()
+    }
+
+    // TODO: normally there is no need to reset, because once all the messages that have been split
+    //  are dropped, the writer will move the current data to the front of the buffer to reuse memory
+    //  All the split bytes messages are dropped at Send for unreliable senders, but NOT for reliable
+    //  senders, think about what to do for that! Maybe do a clone there to drop the message?
+    /// Reset the writer but keeps the underlying allocation
+    pub fn reset(&mut self) {
+        self.0.clear();
+    }
+
+    /// Consumes the writer and returns its written bytes as immutable storage.
+    pub fn into_bytes(self) -> Bytes {
+        self.0.into()
+    }
+
+    /// Consumes the writer and returns its mutable byte storage.
+    pub fn into_bytes_mut(self) -> BytesMut {
+        self.0
     }
 }
 

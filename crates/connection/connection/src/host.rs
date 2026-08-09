@@ -5,13 +5,13 @@
 //! - is a ClientOf of a Server
 //! - the Server is started
 
-#[cfg(feature = "server")]
-use alloc::string::ToString;
 use alloc::vec::Vec;
 
 #[cfg(feature = "server")]
 use crate::{
-    client::{Client, Connect, Connected, Disconnect, Disconnected},
+    client::{
+        Client, Connect, Connected, Connecting, Disconnect, Disconnected, DisconnectedReason,
+    },
     client_of::ClientOf,
     server::Started,
 };
@@ -21,6 +21,7 @@ use bevy_reflect::Reflect;
 use bytes::Bytes;
 #[cfg(feature = "server")]
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
+use lightyear_core::tick::Tick;
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
 #[cfg(feature = "server")]
@@ -31,8 +32,8 @@ use tracing::info;
 #[derive(Component, Debug)]
 pub struct HostClient {
     // TODO: put the buffer in a separate component?
-    // buffer that will hold the (bytes, channel_kind) for messages serialized by the ServerMultiSender
-    pub buffer: Vec<(Bytes, core::any::TypeId)>,
+    // buffer that will hold the (bytes, channel_kind, tick) for messages serialized by the ServerMultiSender
+    pub buffer: Vec<(Bytes, core::any::TypeId, Tick)>,
 }
 
 /// Marker component inserted on a server that has a [`HostClient`]
@@ -48,54 +49,57 @@ impl HostPlugin {
 
     /// A host-server client gets connected automatically to the server.
     ///
-    /// NOTE: the server must be started before we try to connect.
-    /// TODO: set to Connecting? and as soon as the server is started, we switch it to
-    ///  Connected?
+    /// Starting the server link can be asynchronous, so the client may request a connection before
+    /// the server is [`Started`]. The client remains [`Connecting`] until the server starts.
     #[cfg(feature = "server")]
     fn connect(
         trigger: On<Connect>,
         mut commands: Commands,
         query: Query<&LinkOf, (With<Client>, Without<HostClient>)>,
-        server_query: Query<(), (With<Server>, With<Started>)>,
+        server_query: Query<Has<Started>, With<Server>>,
     ) {
-        if let Ok(link_of) = query.get(trigger.entity)
-            && server_query.get(link_of.server).is_ok()
-        {
-            info!(entity=?trigger.entity, "Connected host-client");
-            commands.entity(trigger.entity).insert((
-                Connected,
-                // We cannot insert the ids purely from the point of view of the client
-                // so we set both its to Local
-                LocalId(PeerId::Local(0)),
-                RemoteId(PeerId::Local(0)),
-                ClientOf,
-                // NOTE: it's very important to insert Connected and HostClient at the same time
-                //  to avoid race conditions between observers that depend on Connected, and those
-                // that depend on HostClient
-                HostClient { buffer: Vec::new() },
-            ));
-            commands.entity(link_of.server).insert(HostServer {
-                client: trigger.entity,
-            });
+        let Ok(link_of) = query.get(trigger.entity) else {
+            return;
+        };
+        let Ok(server_started) = server_query.get(link_of.server) else {
+            return;
+        };
+        if !server_started {
+            commands.entity(trigger.entity).insert(Connecting);
+            return;
         }
+
+        info!(entity=?trigger.entity, "Connected host-client");
+        commands.entity(trigger.entity).insert((
+            Connected,
+            // We cannot insert the ids purely from the point of view of the client
+            // so we set both its to Local
+            LocalId(PeerId::Local(0)),
+            RemoteId(PeerId::Local(0)),
+            ClientOf,
+            // NOTE: it's very important to insert Connected and HostClient at the same time
+            //  to avoid race conditions between observers that depend on Connected, and those
+            // that depend on HostClient
+            HostClient { buffer: Vec::new() },
+        ));
+        commands.entity(link_of.server).insert(HostServer {
+            client: trigger.entity,
+        });
     }
 
     #[cfg(feature = "server")]
     fn disconnect(
         trigger: On<Disconnect>,
         mut commands: Commands,
-        query: Query<&LinkOf, With<HostClient>>,
-        server_query: Query<(), With<HostServer>>,
+        query: Query<&LinkOf, (With<Client>, Or<(With<HostClient>, With<Connecting>)>)>,
     ) {
-        if let Ok(link_of) = query.get(trigger.entity)
-            && server_query.get(link_of.server).is_ok()
-        {
+        if let Ok(link_of) = query.get(trigger.entity) {
             info!(entity=?trigger.entity,"Disconnected host-client");
             commands
                 .entity(trigger.entity)
                 .remove::<HostClient>()
                 .insert(Disconnected {
-                    reason: Some("Client trigger".to_string()),
+                    reason: DisconnectedReason::UserRequested(None),
                 });
             commands.entity(link_of.server).remove::<HostServer>();
         }
@@ -126,18 +130,25 @@ impl HostPlugin {
     fn check_if_host_on_server_change(
         trigger: On<Add, (Server, Started)>,
         server_query: Query<&Server, With<Started>>,
-        client_query: Query<(), (With<Client>, With<Connected>, Without<HostClient>)>,
+        client_query: Query<(Has<Connected>, Has<Connecting>), (With<Client>, Without<HostClient>)>,
         mut commands: Commands,
     ) {
         if let Ok(server) = server_query.get(trigger.entity) {
             for client in server.collection() {
-                if client_query.get(*client).is_ok() {
-                    commands
-                        .entity(*client)
-                        .insert(HostClient { buffer: Vec::new() });
-                    commands.entity(trigger.entity).insert(HostServer {
-                        client: trigger.entity,
-                    });
+                if let Ok((connected, connecting)) = client_query.get(*client) {
+                    if connecting {
+                        // The client may have requested a connection before the server link was
+                        // ready. `connect` leaves that request pending until `Started` is added, so
+                        // retry it now that the server link is ready.
+                        commands.trigger(Connect { entity: *client });
+                    } else if connected {
+                        commands
+                            .entity(*client)
+                            .insert(HostClient { buffer: Vec::new() });
+                        commands
+                            .entity(trigger.entity)
+                            .insert(HostServer { client: *client });
+                    }
                 }
             }
         }
@@ -154,5 +165,105 @@ impl Plugin for HostPlugin {
         app.add_observer(Self::check_if_host_on_client_change);
         #[cfg(feature = "server")]
         app.add_observer(Self::check_if_host_on_server_change);
+    }
+}
+
+#[cfg(all(test, feature = "server"))]
+mod tests {
+    use super::*;
+    use crate::client::{ConnectionPlugin, PeerMetadata};
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((ConnectionPlugin, HostPlugin));
+        app
+    }
+
+    fn spawn_host(app: &mut App) -> (Entity, Entity) {
+        let server = app.world_mut().spawn(Server::default()).id();
+        let client = app.world_mut().spawn((Client, LinkOf { server })).id();
+        (server, client)
+    }
+
+    #[test]
+    fn connect_is_retried_when_server_starts() {
+        let mut app = test_app();
+        let (server, client) = spawn_host(&mut app);
+
+        app.world_mut().trigger(Connect { entity: client });
+        app.world_mut().flush();
+
+        assert!(app.world().entity(client).contains::<Connecting>());
+        assert!(!app.world().entity(client).contains::<Connected>());
+
+        app.world_mut().entity_mut(server).insert(Started);
+        app.world_mut().flush();
+
+        assert!(app.world().entity(client).contains::<Connected>());
+        assert!(!app.world().entity(client).contains::<Connecting>());
+        assert!(app.world().entity(client).contains::<HostClient>());
+        assert_eq!(
+            app.world()
+                .entity(server)
+                .get::<HostServer>()
+                .unwrap()
+                .client,
+            client
+        );
+    }
+
+    #[test]
+    fn disconnect_cancels_pending_connection() {
+        let mut app = test_app();
+        let (server, client) = spawn_host(&mut app);
+
+        app.world_mut().trigger(Connect { entity: client });
+        app.world_mut().flush();
+        app.world_mut().trigger(Disconnect { entity: client });
+        app.world_mut().flush();
+
+        assert!(app.world().entity(client).contains::<Disconnected>());
+        assert!(!app.world().entity(client).contains::<Connecting>());
+
+        app.world_mut().entity_mut(server).insert(Started);
+        app.world_mut().flush();
+
+        assert!(!app.world().entity(client).contains::<Connected>());
+        assert!(!app.world().entity(client).contains::<HostClient>());
+        assert!(!app.world().entity(server).contains::<HostServer>());
+    }
+
+    #[test]
+    fn connected_client_becomes_host_when_server_starts() {
+        let mut app = test_app();
+        let (server, client) = spawn_host(&mut app);
+        app.world_mut().entity_mut(client).insert((
+            LocalId(PeerId::Local(0)),
+            RemoteId(PeerId::Local(0)),
+            Connected,
+        ));
+        app.world_mut().flush();
+
+        assert!(!app.world().entity(client).contains::<HostClient>());
+
+        app.world_mut().entity_mut(server).insert(Started);
+        app.world_mut().flush();
+
+        assert!(app.world().entity(client).contains::<HostClient>());
+        assert_eq!(
+            app.world()
+                .entity(server)
+                .get::<HostServer>()
+                .unwrap()
+                .client,
+            client
+        );
+        assert_eq!(
+            app.world()
+                .resource::<PeerMetadata>()
+                .mapping
+                .get(&PeerId::Local(0)),
+            Some(&client)
+        );
     }
 }

@@ -1,7 +1,6 @@
 use crate::channel::builder::Transport;
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::channel::senders::{ChannelSend, SendFlushOutcome};
+use crate::channel::send::SendFlushOutcome;
 use crate::error::TransportError;
 use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
@@ -13,10 +12,10 @@ use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_platform::collections::hash_map::Entry;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
+#[cfg(test)]
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_connection::host::HostClient;
@@ -27,8 +26,9 @@ use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
+use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
-use lightyear_utils::metrics::TimerGauge;
+use lightyear_utils::timer_gauge;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -38,11 +38,11 @@ pub type TransportSet = TransportSystems;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSystems {
     // PRE UPDATE
-    /// Receive messages from the Link and buffer them into the ChannelReceivers
+    /// Receive messages from the Link and buffer them into the receive channels.
     Receive,
 
     // PostUpdate
-    /// Flush the messages buffered in the ChannelSenders to the Link
+    /// Flush the messages buffered in the send channels to the Link.
     Send,
 }
 
@@ -83,170 +83,242 @@ impl TransportPlugin {
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport/recv");
+        let _timer = timer_gauge!("transport/recv");
 
         #[cfg(feature = "std")]
-        let query = query.par_iter_mut();
+        let query = adaptive_for_each_mut!(query);
         #[cfg(not(feature = "std"))]
         let query = query.iter_mut();
 
-        query
-            .for_each(|(entity, mut link, mut transport)| {
-                // enable split borrows
-                let transport = &mut *transport;
-                // update with the latest time
-                transport.senders.values_mut().for_each(|sender_metadata| {
-                    sender_metadata.sender.update(&time, &link.stats);
-                    sender_metadata.message_acks.clear();
-                    sender_metadata.message_nacks.clear();
-                    sender_metadata.messages_sent.clear();
+        query.for_each(|(entity, mut link, mut transport)| {
+            // enable split borrows
+            let transport = &mut *transport;
+            // update with the latest time
+            transport.senders.values_mut().for_each(|channel_send| {
+                channel_send.update(&time, &link.stats);
+                channel_send.clear_frame_events();
+            });
+            transport
+                .receivers
+                .values_mut()
+                .for_each(|channel_receive| {
+                    channel_receive.update(time.elapsed());
                 });
-                transport
-                    .receivers
-                    .values_mut()
-                    .for_each(|receiver_metadata| {
-                        receiver_metadata.receiver.update(time.elapsed());
-                    });
-                // check which packets were lost
-                transport
-                    .packet_manager
-                    .header_manager
-                    .update(time.elapsed(), &link.stats);
-                transport
-                    .packet_manager
-                    .header_manager
-                    .lost_packets
-                    .drain(..)
-                    .try_for_each(|lost_packet| {
-                        #[cfg(feature = "metrics")]
-                        metrics::counter!("transport/packets_lost").increment(1);
-                        trace!(
-                            target: "lightyear_debug::transport",
-                            kind = "packet_lost",
-                            schedule = "PreUpdate",
-                            sample_point = "PreUpdate",
-                            entity = ?entity,
-                            packet_id = ?lost_packet,
-                            packet_loss = true,
-                            "transport packet marked lost"
-                        );
-                        #[cfg(feature = "std")]
-                        par_commands.command_scope(|mut commands| {
-                            commands.trigger(PacketLost {
-                                entity,
-                                packet_id: lost_packet.0,
-                            });
-                        });
-                        #[cfg(not(feature = "std"))]
+            // check which packets were lost
+            transport
+                .packet_manager
+                .header_manager
+                .update(time.elapsed(), &link.stats);
+            let packet_message_acks = &mut transport.packet_message_acks;
+            let senders = &mut transport.senders;
+            transport
+                .packet_manager
+                .header_manager
+                .lost_packets
+                .drain(..)
+                .try_for_each(|lost_packet| {
+                    #[cfg(feature = "metrics")]
+                    metrics::counter!("transport/packets_lost").increment(1);
+                    trace!(
+                        target: "lightyear_debug::transport",
+                        kind = "packet_lost",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?entity,
+                        packet_id = ?lost_packet,
+                        packet_loss = true,
+                        "transport packet marked lost"
+                    );
+                    #[cfg(feature = "std")]
+                    par_commands.command_scope(|mut commands| {
                         commands.trigger(PacketLost {
                             entity,
                             packet_id: lost_packet.0,
                         });
-                        if let Some(message_map) =
-                            transport.packet_to_message_map.remove(&lost_packet)
-                        {
-                            for (channel_kind, message_ack) in message_map {
-                                let sender_metadata = transport
-                                    .senders
-                                    .get_mut(&channel_kind)
-                                    .ok_or(PacketError::ChannelNotFound)?;
-                                // TODO: batch the messages?
-                                trace!(
-                                    ?lost_packet,
-                                    ?channel_kind,
-                                    "message lost: {:?}",
-                                    message_ack.message_id
-                                );
-                                sender_metadata.message_nacks.push(message_ack.message_id);
-                                if message_ack.fragment_id.is_some() {
-                                    transport.fragment_acks.remove(&message_ack.message_id);
-                                }
-                            }
-                        }
-                        Ok::<(), TransportError>(())
-                    })
-                    .ok();
+                    });
+                    #[cfg(not(feature = "std"))]
+                    commands.trigger(PacketLost {
+                        entity,
+                        packet_id: lost_packet.0,
+                    });
+                    if let Some(mut message_acks) = packet_message_acks.take(&lost_packet) {
+                        let result =
+                            message_acks
+                                .drain(..)
+                                .try_for_each(|(channel_kind, message_ack)| {
+                                    let channel_send = senders
+                                        .get_mut(&channel_kind)
+                                        .ok_or(PacketError::ChannelNotFound)?;
+                                    // TODO: batch the messages?
+                                    trace!(
+                                        ?lost_packet,
+                                        ?channel_kind,
+                                        "message lost: {:?}",
+                                        message_ack.message_id
+                                    );
+                                    channel_send.message_nacks.push(message_ack.message_id);
+                                    channel_send.receive_nack(&message_ack);
+                                    Ok::<(), TransportError>(())
+                                });
+                        packet_message_acks.recycle(message_acks);
+                        result?;
+                    }
+                    Ok::<(), TransportError>(())
+                })
+                .ok();
 
-                link.recv
-                    .drain()
-                    .try_for_each(|packet| {
-                        let packet_len = packet.len();
+            link.recv
+                .drain()
+                .try_for_each(|packet| {
+                    let packet_len = packet.len();
+                    #[cfg(feature = "metrics")]
+                    metrics::gauge!("transport/recv_bytes").increment(packet_len as f64);
+
+                    // Connection layers are the last receive stage that needs in-place mutation.
+                    // Freeze here so transport parsing can retain cheap immutable subslices.
+                    let mut cursor = Reader::from(packet.freeze());
+
+                    // Parse the packet
+                    let header = PacketHeader::from_bytes(&mut cursor)?;
+                    let tick = header.tick;
+                    trace!(
+                        target: "lightyear_debug::transport",
+                        kind = "packet_recv",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?entity,
+                        packet_id = ?header.packet_id,
+                        remote_tick = tick.0,
+                        bytes = packet_len,
+                        packet_type = ?header.get_packet_type(),
+                        "received transport packet"
+                    );
+
+                    // Update the packet acks before triggering PacketReceived, so timeline
+                    // observers can consume RTT samples from this packet first.
+                    let newly_acked_packets = transport
+                        .packet_manager
+                        .header_manager
+                        .process_recv_packet_header(&header, time.elapsed());
+
+                    #[cfg(feature = "std")]
+                    par_commands.command_scope(|mut commands| {
+                        newly_acked_packets
+                            .iter()
+                            .for_each(|(packet_id, rtt_sample)| {
+                                commands.trigger(PacketAcked {
+                                    entity,
+                                    packet_id: packet_id.0,
+                                    rtt_sample: *rtt_sample,
+                                });
+                            });
+                        commands.trigger(PacketReceived {
+                            entity,
+                            remote_tick: tick,
+                        });
+                    });
+                    #[cfg(not(feature = "std"))]
+                    {
+                        newly_acked_packets
+                            .iter()
+                            .for_each(|(packet_id, rtt_sample)| {
+                                commands.trigger(PacketAcked {
+                                    entity,
+                                    packet_id: packet_id.0,
+                                    rtt_sample: *rtt_sample,
+                                });
+                            });
+                        commands.trigger(PacketReceived {
+                            entity,
+                            remote_tick: tick,
+                        });
+                    }
+
+                    let mut packet_type = header.get_packet_type();
+                    if packet_type.is_compressed() {
+                        let compressed_payload = cursor.take_remaining();
+                        let decompressed_payload =
+                            decompress_payload(compressed_payload.as_ref(), transport.compression)?;
+                        cursor = Reader::from(decompressed_payload);
+                        packet_type = packet_type.uncompressed_variant();
+                    }
+
+                    // Parse the payload into messages, put them in the internal buffers for each channel
+                    // we read directly from the packet and don't create intermediary datastructures to avoid allocations
+                    // TODO: maybe do this in a helper function?
+                    if packet_type == PacketType::DataFragment {
+                        // read the fragment data
+                        let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                        let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                        let channel_name = channel_registry.get_name_from_net_id(channel_id);
                         #[cfg(feature = "metrics")]
-                        metrics::gauge!("transport/recv_bytes").increment(packet_len as f64);
-
-                        let mut cursor = Reader::from(packet);
-
-                        // Parse the packet
-                        let header = PacketHeader::from_bytes(&mut cursor)?;
-                        let tick = header.tick;
+                        {
+                            channel_registry.record_recv_messages(channel_id, channel_name, 1.0);
+                            channel_registry.record_recv_bytes(
+                                channel_id,
+                                channel_name,
+                                fragment_data.bytes.len() as f64,
+                            );
+                        }
                         trace!(
                             target: "lightyear_debug::transport",
-                            kind = "packet_recv",
+                            kind = "channel_recv_fragment",
                             schedule = "PreUpdate",
                             sample_point = "PreUpdate",
                             entity = ?entity,
                             packet_id = ?header.packet_id,
                             remote_tick = tick.0,
-                            bytes = packet_len,
-                            packet_type = ?header.get_packet_type(),
-                            "received transport packet"
+                            channel_id,
+                            channel = channel_name,
+                            bytes = fragment_data.bytes.len(),
+                            "received channel fragment"
                         );
-
-                        // Update the packet acks before triggering PacketReceived, so timeline
-                        // observers can consume RTT samples from this packet first.
-                        let newly_acked_packets = transport
-                            .packet_manager
-                            .header_manager
-                            .process_recv_packet_header(&header, time.elapsed());
-
-                        #[cfg(feature = "std")]
-                        par_commands.command_scope(|mut commands| {
-                            newly_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
-                                commands.trigger(PacketAcked {
-                                    entity,
-                                    packet_id: packet_id.0,
-                                    rtt_sample: *rtt_sample,
-                                });
-                            });
-                            commands.trigger(PacketReceived { entity, remote_tick: tick });
-                        });
-                        #[cfg(not(feature = "std"))]
-                        {
-                            newly_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
-                                commands.trigger(PacketAcked {
-                                    entity,
-                                    packet_id: packet_id.0,
-                                    rtt_sample: *rtt_sample,
-                                });
-                            });
-                            commands.trigger(PacketReceived { entity, remote_tick: tick });
-                        }
-
-                        let mut packet_type = header.get_packet_type();
-                        if packet_type.is_compressed() {
-                            let compressed_payload = cursor.split();
-                            let decompressed_payload =
-                                decompress_payload(compressed_payload.as_ref(), transport.compression)?;
-                            cursor = Reader::from(decompressed_payload);
-                            packet_type = packet_type.uncompressed_variant();
-                        }
-
-                        // Parse the payload into messages, put them in the internal buffers for each channel
-                        // we read directly from the packet and don't create intermediary datastructures to avoid allocations
-                        // TODO: maybe do this in a helper function?
-                        if packet_type == PacketType::DataFragment {
-                            // read the fragment data
-                            let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                            let fragment_data = FragmentData::from_bytes(&mut cursor)?;
-                            let channel_name = channel_registry.get_name_from_net_id(channel_id);
+                        transport
+                            .receivers
+                            .get_mut(&channel_id)
+                            .ok_or(PacketError::ChannelNotFound)?
+                            .buffer_recv(ReceiveMessage {
+                                data: fragment_data.into(),
+                                remote_sent_tick: tick,
+                                compression: transport.compression,
+                            })?;
+                    }
+                    // read single message data
+                    while cursor.has_remaining() {
+                        let channel_id = ChannelId::from_bytes(&mut cursor)?;
+                        let channel_name = channel_registry.get_name_from_net_id(channel_id);
+                        let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
+                        #[cfg(feature = "metrics")]
+                        channel_registry.record_recv_messages(
+                            channel_id,
+                            channel_name,
+                            num_messages as f64,
+                        );
+                        trace!(?channel_id, ?num_messages);
+                        trace!(
+                            target: "lightyear_debug::transport",
+                            kind = "channel_recv_batch",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            packet_id = ?header.packet_id,
+                            remote_tick = tick.0,
+                            channel_id,
+                            channel = channel_name,
+                            num_messages,
+                            "received channel message batch"
+                        );
+                        for _ in 0..num_messages {
+                            let single_data = SingleData::from_bytes(&mut cursor)?;
                             #[cfg(feature = "metrics")]
-                            {
-                                metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(1);
-                                metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(fragment_data.bytes.len() as f64);
-                            }
+                            channel_registry.record_recv_bytes(
+                                channel_id,
+                                channel_name,
+                                single_data.bytes.len() as f64,
+                            );
                             trace!(
                                 target: "lightyear_debug::transport",
-                                kind = "channel_recv_fragment",
+                                kind = "channel_recv_message",
                                 schedule = "PreUpdate",
                                 sample_point = "PreUpdate",
                                 entity = ?entity,
@@ -254,136 +326,75 @@ impl TransportPlugin {
                                 remote_tick = tick.0,
                                 channel_id,
                                 channel = channel_name,
-                                bytes = fragment_data.bytes.len(),
-                                "received channel fragment"
+                                bytes = single_data.bytes.len(),
+                                "received channel message bytes"
                             );
                             transport
                                 .receivers
                                 .get_mut(&channel_id)
                                 .ok_or(PacketError::ChannelNotFound)?
-                                .receiver
                                 .buffer_recv(ReceiveMessage {
-                                    data: fragment_data.into(),
+                                    data: single_data.into(),
                                     remote_sent_tick: tick,
                                     compression: transport.compression,
                                 })?;
                         }
-                        // read single message data
-                        while cursor.has_remaining() {
-                            let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                            let channel_name = channel_registry.get_name_from_net_id(channel_id);
-                            let num_messages =
-                                cursor.read_u8().map_err(SerializationError::from)?;
-                            #[cfg(feature = "metrics")]
-                            metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(num_messages as f64);
-                            trace!(?channel_id, ?num_messages);
-                            trace!(
-                                target: "lightyear_debug::transport",
-                                kind = "channel_recv_batch",
-                                schedule = "PreUpdate",
-                                sample_point = "PreUpdate",
-                                entity = ?entity,
-                                packet_id = ?header.packet_id,
-                                remote_tick = tick.0,
-                                channel_id,
-                                channel = channel_name,
-                                num_messages,
-                                "received channel message batch"
-                            );
-                            for _ in 0..num_messages {
-                                let single_data = SingleData::from_bytes(&mut cursor)?;
-                                #[cfg(feature = "metrics")]
-                                metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(single_data.bytes.len() as f64);
-                                trace!(
-                                    target: "lightyear_debug::transport",
-                                    kind = "channel_recv_message",
-                                    schedule = "PreUpdate",
-                                    sample_point = "PreUpdate",
-                                    entity = ?entity,
-                                    packet_id = ?header.packet_id,
-                                    remote_tick = tick.0,
-                                    channel_id,
-                                    channel = channel_name,
-                                    bytes = single_data.bytes.len(),
-                                    "received channel message bytes"
-                                );
-                                transport
-                                    .receivers
-                                    .get_mut(&channel_id)
-                                    .ok_or(PacketError::ChannelNotFound)?
-                                    .receiver
-                                    .buffer_recv(ReceiveMessage {
-                                        data: single_data.into(),
-                                        remote_sent_tick: tick,
-                                        compression: transport.compression,
-                                    })?;
-                            }
-                        }
-                        Ok::<(), TransportError>(())
-                    })
-                    .inspect_err(|e| {
-                        error!("Error processing packet: {e:?}");
-                    })
-                    .ok();
+                    }
+                    Ok::<(), TransportError>(())
+                })
+                .inspect_err(|e| {
+                    error!("Error processing packet: {e:?}");
+                })
+                .ok();
 
-                // Update the list of messages that have been acked
-                transport
-                    .packet_manager
-                    .header_manager
-                    .newly_acked_packets
-                    .drain(..)
-                    .try_for_each(|(acked_packet, rtt_sample)| {
-                        trace!("Acked packet {:?}", acked_packet);
-                        trace!(
-                            target: "lightyear_debug::transport",
-                            kind = "packet_acked",
-                            schedule = "PreUpdate",
-                            sample_point = "PreUpdate",
-                            entity = ?entity,
-                            packet_id = ?acked_packet,
-                            rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
-                            "transport packet acked"
-                        );
-                        if let Some(message_acks) =
-                            transport.packet_to_message_map.remove(&acked_packet)
-                        {
-                            for (channel_kind, message_ack) in message_acks {
-                                let sender_metadata = transport
-                                    .senders
-                                    .get_mut(&channel_kind)
-                                    .ok_or(PacketError::ChannelNotFound)?;
-
-                                sender_metadata.sender.receive_ack(&message_ack);
-
-                                if message_ack.fragment_id.is_none() {
-                                    trace!(
-                                        "Acked message in packet: channel={:?},message_ack={:?}",
-                                        sender_metadata.name, message_ack
-                                    );
-                                    sender_metadata.message_acks.push(message_ack.message_id);
-                                } else if let Entry::Occupied(mut entry) = transport.fragment_acks.entry(message_ack.message_id) {
-                                        let num_fragments = entry.get_mut();
-                                        *num_fragments -= 1;
-                                        if *num_fragments == 0 {
-                                            entry.remove();
-                                            trace!(
-                                                "Acked all fragments in message: channel={:?},message_ack={:?}",
-                                                sender_metadata.name, message_ack
-                                            );
-                                            sender_metadata.message_acks.push(message_ack.message_id);
-                                        }
+            // Update the list of messages that have been acked
+            let packet_message_acks = &mut transport.packet_message_acks;
+            let senders = &mut transport.senders;
+            transport
+                .packet_manager
+                .header_manager
+                .newly_acked_packets
+                .drain(..)
+                .try_for_each(|(acked_packet, rtt_sample)| {
+                    trace!("Acked packet {:?}", acked_packet);
+                    trace!(
+                        target: "lightyear_debug::transport",
+                        kind = "packet_acked",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?entity,
+                        packet_id = ?acked_packet,
+                        rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
+                        "transport packet acked"
+                    );
+                    if let Some(mut message_acks) = packet_message_acks.take(&acked_packet) {
+                        let result =
+                            message_acks
+                                .drain(..)
+                                .try_for_each(|(channel_kind, message_ack)| {
+                                    let channel_send = senders
+                                        .get_mut(&channel_kind)
+                                        .ok_or(PacketError::ChannelNotFound)?;
+                                    if channel_send.receive_ack(&message_ack) {
+                                        trace!(
+                                            "Acked message: channel={:?},message_ack={:?}",
+                                            channel_send.name(),
+                                            message_ack
+                                        );
+                                        channel_send.message_acks.push(message_ack.message_id);
                                     }
-                            }
-                        }
-                        Ok::<(), TransportError>(())
-                    })
-                    .ok();
-            });
+                                    Ok::<(), TransportError>(())
+                                });
+                        packet_message_acks.recycle(message_acks);
+                        result?;
+                    }
+                    Ok::<(), TransportError>(())
+                })
+                .ok();
+        });
     }
 
-    /// Iterates through the `ChannelSenders` on the entity,
-    /// Build packets from the messages in the channel,
-    /// Upload the packets to the [`Link`]
+    /// Builds packets from the entity's send channels and uploads them to the [`Link`].
     fn buffer_send(
         real_time: Res<Time<Real>>,
         timeline: Res<LocalTimeline>,
@@ -391,9 +402,10 @@ impl TransportPlugin {
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport/send");
+        let _timer = timer_gauge!("transport/send");
         let tick = timeline.tick();
-        query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
+        let query = adaptive_for_each_mut!(query);
+        query.for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
             let mtu = link.mtu();
@@ -402,14 +414,15 @@ impl TransportPlugin {
             if let Some(mut host_client) = host_client {
                 // for a host-client, we write the bytes directly to the HostClient buffer
                 transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
-                    host_client.buffer.push((bytes, channel_kind.0));
+                    host_client.buffer.push((bytes, channel_kind.0, tick));
                     Ok::<(), TransportError>(())
                 }).inspect_err(|e| error!("error buffering host-client message: {e:?}")).ok();
                 return
             }
+            transport.packet_manager.begin_send(mtu);
             (|| {
                 while let Ok((channel_kind, bytes, priority)) = transport.recv_channel.try_recv() {
-                    let sender_metadata = transport.senders.get(&channel_kind).ok_or(
+                    let channel_send = transport.senders.get(&channel_kind).ok_or(
                         TransportError::ChannelNotFound(channel_kind),
                     )?;
                     trace!(
@@ -419,7 +432,7 @@ impl TransportPlugin {
                         sample_point = "PostUpdate",
                         tick = ?tick,
                         tick_id = u64::from(tick.0),
-                        channel = %sender_metadata.name,
+                        channel = %channel_send.name(),
                         channel_kind = ?channel_kind,
                         bytes = bytes.len(),
                         priority = priority,
@@ -437,12 +450,8 @@ impl TransportPlugin {
             transport.priority_manager.clear();
             {
                 let candidates = transport.priority_manager.candidates_mut();
-                transport.senders.iter_mut().for_each(|(channel_kind, metadata)| {
-                    metadata.sender.collect_send_candidates(
-                        *channel_kind,
-                        metadata.channel_id,
-                        candidates,
-                    );
+                transport.senders.values_mut().for_each(|channel| {
+                    channel.collect_send_candidates(candidates);
                 });
             }
             transport.priority_manager.prioritize(&channel_registry);
@@ -512,7 +521,8 @@ impl TransportPlugin {
                 // Acceptance into Link.send is the transactional boundary. Packet ids, retry
                 // timestamps, ack maps, and metrics are committed only after this point.
                 total_bytes_sent += packet.payload.len() as u32;
-                link.send.push(Bytes::from(core::mem::take(&mut packet.payload)));
+                let payload = transport.packet_manager.take_send_payload(&mut packet);
+                link.send.push(payload);
                 transport
                     .packet_manager
                     .header_manager
@@ -528,52 +538,50 @@ impl TransportPlugin {
                 let mut packet_messages = core::mem::take(&mut packet.messages);
                 for metadata in packet_messages.drain(..) {
                     let commit = metadata.commit;
-                    let sender_metadata = transport
-                        .senders
-                        .get_mut(&commit.channel_kind)
-                        .expect("staged candidate channel must remain registered during flush");
-                    sender_metadata
-                        .sender
-                        .commit_send(commit.key, real_time.elapsed());
+                    let watches_acks = {
+                        let channel_send = transport
+                            .senders
+                            .get_mut(&commit.channel_kind)
+                            .expect("staged candidate channel must remain registered during flush");
+                        channel_send.commit_send(commit.key, real_time.elapsed());
+                        channel_send.watches_acks()
+                    };
 
                     #[cfg(feature = "metrics")]
                     {
                         let channel_name =
                             channel_registry.get_name_from_net_id(metadata.channel);
-                        metrics::gauge!("channel/send_messages", "channel" => channel_name)
-                            .increment(1);
-                        metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                            .increment(metadata.num_bytes as f64);
+                        channel_registry.record_send_message(
+                            metadata.channel,
+                            channel_name,
+                            metadata.num_bytes as f64,
+                        );
                     }
 
                     let Some(message_id) = metadata.message else {
                         continue;
                     };
-                    sender_metadata.messages_sent.push(message_id);
-                    if sender_metadata.mode.is_watching_acks() {
+                    transport
+                        .senders
+                        .get_mut(&commit.channel_kind)
+                        .expect("staged candidate channel must remain registered during flush")
+                        .messages_sent
+                        .push(message_id);
+                    if watches_acks {
                         trace!(
                             "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
                             metadata.channel, metadata, packet.packet_id
                         );
 
-                        if let Some(num_fragments) = metadata.num_fragments {
-                            transport
-                                .fragment_acks
-                                .entry(message_id)
-                                .or_insert(num_fragments);
-                        }
-                        transport
-                            .packet_to_message_map
-                            .entry(packet.packet_id)
-                            .or_default()
-                            .push((
-                                commit.channel_kind,
-                                MessageAck {
-                                    message_id,
-                                    fragment_id: metadata.fragment_index,
-                                },
-                            ));
-                        trace!(?transport.packet_to_message_map, "packet to message");
+                        transport.packet_message_acks.track(
+                            packet.packet_id,
+                            commit.channel_kind,
+                            MessageAck {
+                                message_id,
+                                fragment_id: metadata.fragment_index,
+                            },
+                        );
+                        trace!(?transport.packet_message_acks, "packet to message");
                     }
                 }
                 transport
@@ -583,8 +591,36 @@ impl TransportPlugin {
             transport
                 .senders
                 .values_mut()
-                .for_each(|metadata| metadata.sender.finish_send(flush_outcome));
+                .for_each(|channel| channel.finish_send(flush_outcome));
             transport.priority_manager.clear();
+
+            // Every data packet carries the latest ACK state. When ACK information is pending but
+            // no data packet entered the link this frame, send one header-only packet so the remote
+            // peer learns about delivered packets without waiting for more application traffic.
+            // Control traffic deliberately bypasses application bandwidth admission, and ACK-only
+            // packets do not elicit another ACK.
+            if total_bytes_sent == 0
+                && transport
+                    .packet_manager
+                    .header_manager
+                    .has_pending_ack()
+            {
+                match transport.packet_manager.build_ack_only_packet(tick, mtu) {
+                    Ok(mut packet) => {
+                        let packet_id = packet.packet_id;
+                        let packet_len = packet.payload.len();
+                        trace!(?packet_id, packet_len, "sending ACK-only packet");
+                        let payload = transport.packet_manager.take_send_payload(&mut packet);
+                        link.send.push(payload);
+                        transport
+                            .packet_manager
+                            .header_manager
+                            .commit_send_ack_only(packet_id);
+                        total_bytes_sent += packet_len as u32;
+                    }
+                    Err(error) => error!(?error, "failed to stage ACK-only packet"),
+                }
+            }
             if total_bytes_sent > 0 {
                 trace!(
                     target: "lightyear_debug::transport",
@@ -671,6 +707,8 @@ mod tests {
     use super::*;
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::ChannelKind;
+    use crate::packet::header::PacketHeaderManager;
+    use crate::packet::packet::PacketId;
     use crate::packet::priority_manager::PriorityConfig;
     use bevy_ecs::system::RunSystemOnce;
 
@@ -685,7 +723,7 @@ mod tests {
         channel_id: ChannelId,
     ) -> Entity {
         let mut transport = Transport::new(PriorityConfig::new(1).with_burst_size(1200));
-        transport.add_sender::<C>((&settings).into(), settings.mode, channel_id);
+        transport.add_channel_send::<C>(settings, channel_id);
         for value in [1, 2] {
             transport
                 .send_mut_erased(channel_kind, Bytes::from(vec![value; 1000]), 1.0)
@@ -700,9 +738,7 @@ mod tests {
         let channel_kind = ChannelKind::of::<C>();
         let mut candidates = Vec::new();
         let metadata = transport.senders.get_mut(&channel_kind).unwrap();
-        metadata
-            .sender
-            .collect_send_candidates(channel_kind, metadata.channel_id, &mut candidates);
+        metadata.collect_send_candidates(&mut candidates);
         candidates.len()
     }
 
@@ -721,31 +757,75 @@ mod tests {
         let (retry_kind, retry_id) = registry.add_channel::<RetryChannel>(retry_settings);
         let (discard_kind, discard_id) = registry.add_channel::<DiscardChannel>(discard_settings);
 
-        let mut world = World::new();
+        let mut app = App::new();
+        app.add_plugins(bevy_app::TaskPoolPlugin::default());
+        let world = app.world_mut();
         world.insert_resource(registry);
         world.init_resource::<Time<Real>>();
         world.init_resource::<LocalTimeline>();
         let retry_entity =
-            spawn_transport::<RetryChannel>(&mut world, retry_settings, retry_kind, retry_id);
-        let discard_entity = spawn_transport::<DiscardChannel>(
-            &mut world,
-            discard_settings,
-            discard_kind,
-            discard_id,
-        );
+            spawn_transport::<RetryChannel>(world, retry_settings, retry_kind, retry_id);
+        let discard_entity =
+            spawn_transport::<DiscardChannel>(world, discard_settings, discard_kind, discard_id);
 
         world.run_system_once(TransportPlugin::buffer_send).unwrap();
 
         assert_eq!(world.get::<Link>(retry_entity).unwrap().send.len(), 1);
         assert_eq!(world.get::<Link>(discard_entity).unwrap().send.len(), 1);
+        assert_eq!(pending_candidates::<RetryChannel>(world, retry_entity), 1);
         assert_eq!(
-            pending_candidates::<RetryChannel>(&mut world, retry_entity),
-            1
-        );
-        assert_eq!(
-            pending_candidates::<DiscardChannel>(&mut world, discard_entity),
+            pending_candidates::<DiscardChannel>(world, discard_entity),
             0
         );
+    }
+
+    #[test]
+    fn idle_receiver_sends_one_prompt_ack_only_packet() {
+        let mut remote = PacketHeaderManager::default();
+        let data_header = remote.preview_send_packet_header(PacketType::Data, Tick(7));
+        let mut data_packet = Vec::new();
+        data_header.to_bytes(&mut data_packet).unwrap();
+        remote.commit_send_packet(data_header.packet_id, Duration::ZERO);
+
+        let mut world = World::new();
+        world.insert_resource(ChannelRegistry::default());
+        world.init_resource::<Time<Real>>();
+        world.init_resource::<LocalTimeline>();
+        let entity = world
+            .spawn((Link::default(), Linked, Transport::default()))
+            .id();
+        world.get_mut::<Link>(entity).unwrap().recv.push_raw(
+            lightyear_link::recv_payload_from_bytes(Bytes::from(data_packet)),
+        );
+
+        world
+            .run_system_once(TransportPlugin::buffer_receive)
+            .unwrap();
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+
+        let ack_packet = world
+            .get_mut::<Link>(entity)
+            .unwrap()
+            .send
+            .pop()
+            .expect("an idle receiver must promptly emit an ACK-only packet");
+        let ack_header = PacketHeader::from_bytes(&mut Reader::from(ack_packet.clone())).unwrap();
+        assert_eq!(ack_header.get_packet_type(), PacketType::AckOnly);
+        assert_eq!(
+            remote.process_recv_packet_header(&ack_header, Duration::from_millis(1)),
+            vec![(PacketId(0), Duration::from_millis(1))]
+        );
+
+        world
+            .get_mut::<Link>(entity)
+            .unwrap()
+            .recv
+            .push_raw(lightyear_link::recv_payload_from_bytes(ack_packet));
+        world
+            .run_system_once(TransportPlugin::buffer_receive)
+            .unwrap();
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+        assert_eq!(world.get::<Link>(entity).unwrap().send.len(), 0);
     }
 
     #[test]
@@ -755,8 +835,8 @@ mod tests {
         let (channel_kind, channel_id) = registry.add_channel::<SmallMtuChannel>(settings);
 
         let mut transport = Transport::default();
-        transport.add_sender::<SmallMtuChannel>((&settings).into(), settings.mode, channel_id);
-        transport.add_receiver::<SmallMtuChannel>((&settings).into(), channel_id);
+        transport.add_channel_send::<SmallMtuChannel>(settings, channel_id);
+        transport.add_channel_receive::<SmallMtuChannel>(settings, channel_id);
 
         let mut world = World::new();
         world.insert_resource(registry);
@@ -789,9 +869,10 @@ mod tests {
 
         {
             let mut link = world.get_mut::<Link>(entity).unwrap();
-            packets
-                .into_iter()
-                .for_each(|packet| link.recv.push_raw(packet));
+            packets.into_iter().for_each(|packet| {
+                link.recv
+                    .push_raw(lightyear_link::recv_payload_from_bytes(packet));
+            });
         }
         world
             .run_system_once(TransportPlugin::buffer_receive)
@@ -802,7 +883,6 @@ mod tests {
             .receivers
             .get_mut(&channel_id)
             .unwrap()
-            .receiver
             .read_message()
             .unwrap()
             .1;

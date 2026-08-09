@@ -45,28 +45,33 @@ fn test_compute_hash() {
     stepper.frame_step(1);
 
     let current_tick = stepper.client_tick(0);
-    let prediction_manager = stepper.client(0).get::<PreSpawnedReceiver>().unwrap();
-    tracing::info!(?prediction_manager
-            .prespawn_hash_to_entity, "hi");
-    assert_eq!(prediction_manager.prespawn_hash_to_entity.len(), 2);
-    let expected_hash = prediction_manager
-        .prespawn_tick_to_hash
-        .last()
-        .expect("prespawn hash should be registered")
-        .1;
+    let hash_1 = stepper
+        .client_app()
+        .world()
+        .get::<PreSpawned>(entity_1)
+        .unwrap()
+        .hash
+        .unwrap();
+    let hash_2 = stepper
+        .client_app()
+        .world()
+        .get::<PreSpawned>(entity_2)
+        .unwrap()
+        .hash
+        .unwrap();
+    assert_ne!(hash_1, hash_2);
+
+    let receiver = stepper
+        .client_app()
+        .world()
+        .resource::<PreSpawnedReceiver>();
+    assert_eq!(receiver.unmatched_prespawn_spawn_tick_to_entities.len(), 2);
     assert_eq!(
-        prediction_manager
-            .prespawn_hash_to_entity
-            .get(&expected_hash)
-            .copied(),
-        Some(entity_2)
-    );
-    assert_eq!(
-        prediction_manager.prespawn_tick_to_hash.last(),
+        receiver.unmatched_prespawn_spawn_tick_to_entities.last(),
         // NOTE: in this test we have to add + 1 here because the `register_prespawn` observer
         //  runs outside of the FixedUpdate schedule so the entity is registered with the previous tick
         //  in a real situation the entity would be spawned inside FixedUpdate so the hash would be correct
-        Some(&(current_tick - 1, expected_hash, entity_2))
+        Some(&(current_tick - 1, entity_2))
     );
 
     // check that a PredictionHistory got added to the entity
@@ -82,9 +87,8 @@ fn test_compute_hash() {
     );
 }
 
-/// Duplicate active prespawn hashes are a serious user error. Keep the first
-/// matching candidate so Replicon never sees two local entities with the same
-/// Signature.
+/// Duplicate active prespawn hashes are a serious user error. Replicon's
+/// SignatureMap keeps the first matching candidate.
 #[test]
 fn test_duplicate_prespawn_hash_keeps_first_candidate() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -145,16 +149,63 @@ fn test_duplicate_prespawn_hash_keeps_first_candidate() {
             .is_none(),
         "the duplicate prespawn candidate should be ignored"
     );
-    assert_eq!(
+}
+
+/// A sender-scoped prespawn mapping must only claim the matching local entity
+/// on the selected client. Other clients still receive the replicated entity,
+/// but Replicon should spawn it normally even if they have the same signature.
+#[test]
+fn test_prespawn_signature_for_client() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let client_0_prespawn = stepper.client_apps[0]
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+    let client_1_prespawn = stepper.client_apps[1]
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+
+    let client_0_link = stepper.client_of_entities[0];
+    let server_prespawn = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            PreSpawned::new(1).for_client(client_0_link),
+            CompFull(1.0),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    let client_0_mapped = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_prespawn)
+        .unwrap();
+    let client_1_mapped = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_prespawn)
+        .unwrap();
+
+    assert_eq!(client_0_mapped, client_0_prespawn);
+    assert_ne!(client_1_mapped, client_1_prespawn);
+    assert!(
         stepper
-            .client(0)
-            .get::<PreSpawnedReceiver>()
-            .unwrap()
-            .prespawn_hash_to_entity
-            .get(&1)
-            .copied(),
-        None,
-        "the active prespawn hash should be removed after the match"
+            .server_app
+            .world()
+            .resource::<PreSpawnedReceiver>()
+            .unmatched_prespawn_spawn_tick_to_entities
+            .is_empty(),
+        "authoritative sender prespawns should not enter the receiver timeout ledger"
     );
 }
 
@@ -329,9 +380,9 @@ fn test_matched_prespawn_despawned_on_rollback_before_spawn_tick() {
     );
     assert!(
         stepper
-            .client(0)
-            .get::<PreSpawnedReceiver>()
-            .unwrap()
+            .client_app()
+            .world()
+            .resource::<PreSpawnedReceiver>()
             .matched_prespawn_spawn_tick_to_entities
             .iter()
             .any(|(tick, entity)| *tick == spawn_tick && *entity == client_prespawn),
@@ -654,8 +705,9 @@ fn test_prespawn_local_despawn_match() {
     let mut sync_config = SyncConfig::default();
     sync_config.max_error_margin = 0.5;
     stepper
-        .client_mut(0)
-        .insert(InputTimelineConfig::default().with_sync_config(sync_config));
+        .client_app()
+        .world_mut()
+        .insert_resource(InputTimelineConfig::default().with_sync_config(sync_config));
     stepper
         .client_mut(0)
         .get_mut::<Link>()

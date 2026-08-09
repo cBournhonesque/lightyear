@@ -5,7 +5,7 @@ use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::{RuleFns, SingleComponent};
+use bevy_replicon::prelude::{RuleFns, ScopeLifetime, SingleComponent};
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
@@ -47,8 +47,8 @@ pub struct ControlledByRemote(Vec<Entity>);
 /// The receiver will add a [`Controlled`] marker component upon receiving the entity.
 ///
 /// When the link is disconnected, the sender will optionally (based on the [`Lifetime`] value)
-/// despawn the entity. If you want to persist an entity on the receiver side even after the link is disconnected,
-/// see [`Lifetime::Persistent`].
+/// despawn the entity. To keep a received entity alive when its connection ends, use
+/// [`Persistent`](crate::receive::Persistent) on the receiver side instead.
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect)]
 #[require(ControlledSend)]
 #[reflect(Component)]
@@ -167,9 +167,9 @@ fn emulate_controlled_on_add(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Reflect)]
 pub enum Lifetime {
     #[default]
-    /// When the client that controls the entity disconnects, the entity is despawned
+    /// When the client that controls the entity disconnects, the entity is despawned on the sender.
     SessionBased,
-    /// The entity is not despawned even if the controlling client disconnects
+    /// The entity is not despawned on the sender when the controlling client disconnects.
     Persistent,
 }
 
@@ -181,8 +181,11 @@ impl FromWorld for ControlBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry
-                    .register_scope::<SingleComponent<ControlledSend>>(world, &mut registry)
+                filter_registry.register_scope::<SingleComponent<ControlledSend>>(
+                    world,
+                    &mut registry,
+                    ScopeLifetime::WhileVisible,
+                )
             })
         });
         Self(bit)

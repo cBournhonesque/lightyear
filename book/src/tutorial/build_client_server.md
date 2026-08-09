@@ -103,8 +103,15 @@ commands.trigger_targets(Start, server);
 ```
 
 We need to add `NetcodeServer` because we need a connection layer. This will automatically insert the [`Server`] component.
+By default, it uses the server entity's [`LocalAddr`] to validate the private address list in
+incoming connection tokens. The transport updates [`LocalAddr`] after binding, so this also picks
+up an OS-assigned port when binding to port `0`.
 We also need to specify the [`LocalAddr`] component to define the local address of the server.
 The IO layer we choose is UDP, so we add the [`ServerUdpIo`] component to the entity.
+
+For local development, wildcard and loopback addresses of the same family and port are considered
+equivalent, such as `0.0.0.0:5000` and `127.0.0.1:5000`. Address checking can be disabled for an
+addressless transport by setting `NetcodeConfig::server_addr_check` to `false`.
 
 Finally we trigger the [`Start`] trigger so that the server can start listening for incoming connections.
 

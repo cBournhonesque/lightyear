@@ -1,9 +1,8 @@
-use crate::plugin::MessagePlugin;
-use crate::prelude::MessageReceiver;
-use crate::receive::ReceivedMessage;
+use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
+#[cfg(feature = "metrics")]
+use crate::registry::MessageMetricHandles;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageManager, MessageNetId};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::{
@@ -18,13 +17,14 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::{LocalTimeline, Tick};
+use lightyear_core::prelude::{LocalTimeline, Tick, TimelineRegistry};
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
-use lightyear_transport::prelude::Transport;
+use lightyear_transport::prelude::{ChannelRegistry, Transport};
+use lightyear_utils::adaptive_for_each_mut;
 #[allow(unused_imports)]
 use tracing::{error, info, trace};
 
@@ -78,12 +78,20 @@ pub(crate) type SendMessageFn = unsafe fn(
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut SendEntityMap,
+    #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
 ) -> Result<(), MessageError>;
 
 // SAFETY: the sender must correspond to the correct `MessageSender<M>` type
 // SAFETY: the receiver must correspond to the correct `MessageReceiver<M>` type
-pub(crate) type SendLocalMessageFn =
-    unsafe fn(sender: MutUntyped, receiver: MutUntyped, tick: Tick);
+pub(crate) type SendLocalMessageFn = unsafe fn(
+    sender: MutUntyped,
+    receivers: &mut FilteredEntityMut<'_, '_>,
+    commands: &ParallelCommands,
+    tick: Tick,
+    registry: &MessageRegistry,
+    channel_registry: &ChannelRegistry,
+    timeline_registry: &TimelineRegistry,
+) -> Result<(), MessageError>;
 
 impl<M: Message> MessageSender<M> {
     /// Buffers a message to be sent over the channel
@@ -116,63 +124,80 @@ impl<M: Message> MessageSender<M> {
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &mut SendEntityMap,
+        #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
         let mut sender = unsafe { message_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
-        sender.send.drain(..).try_for_each(|(message, channel_kind, channel_name, priority)| {
-            // we write the message NetId, and then serialize the message
-            net_id.to_bytes(&mut sender.writer)?;
-            // SAFETY: the message has been checked to be of type `M`
-            unsafe { serialize_metadata.serialize::<SendEntityMap, M, M>(&message, &mut sender.writer, entity_map)? };
-            let bytes = sender.writer.split();
-            #[cfg(feature = "metrics")]
-            {
-                metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
-                metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes.len() as f64);
-            }
-            trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", DebugName::type_name::<M>(), MessageKind::of::<M>());
-            trace!(
-                target: "lightyear_debug::message",
-                kind = "message_send",
-                schedule = "PostUpdate",
-                sample_point = "PostUpdate",
-                message_name = core::any::type_name::<M>(),
-                message_net_id = net_id,
-                channel = channel_name,
-                bytes = bytes.len(),
-                priority,
-                "serialized message for transport"
-            );
-            transport.send_erased(channel_kind, bytes, priority)?;
-            Ok(())
-        })
+        sender
+            .send
+            .drain(..)
+            .try_for_each(|(message, channel_kind, channel_name, priority)| {
+                // we write the message NetId, and then serialize the message
+                net_id.to_bytes(&mut sender.writer)?;
+                // SAFETY: the message has been checked to be of type `M`.
+                unsafe {
+                    serialize_metadata.serialize::<SendEntityMap, M, M>(
+                        &message,
+                        &mut sender.writer,
+                        entity_map,
+                    )?
+                };
+                let bytes = sender.writer.take_written();
+                #[cfg(feature = "metrics")]
+                metric_handles.record_send::<M>(bytes.len());
+                trace!(
+                    "Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {:?}",
+                    DebugName::type_name::<M>(),
+                    MessageKind::of::<M>(),
+                    channel_kind
+                );
+                trace!(
+                    target: "lightyear_debug::message",
+                    kind = "message_send",
+                    schedule = "PostUpdate",
+                    sample_point = "PostUpdate",
+                    message_name = core::any::type_name::<M>(),
+                    message_net_id = net_id,
+                    channel = channel_name,
+                    bytes = bytes.len(),
+                    priority,
+                    "serialized message for transport"
+                );
+                transport.send_erased(channel_kind, bytes, priority)?;
+                Ok(())
+            })
     }
 
-    /// Take all messages from the [`MessageSender<M>`], and add them to [`MessageReceiver<M>`]
+    /// Take all messages from the [`MessageSender<M>`], and add them to
+    /// [`MessageReceiver<M>`](crate::receive::MessageReceiver).
     ///
     /// # Safety
     /// - the `message_sender` must be of type [`MessageSender<M>`]
-    /// - the `message_receiver` must be of type [`MessageReceiver<M>`]
+    /// - `message_receivers` must provide mutable access to the registered
+    ///   [`MessageReceiver<M>`](crate::receive::MessageReceiver) component.
     pub(crate) unsafe fn send_local_message_typed(
         message_sender: MutUntyped,
-        message_receiver: MutUntyped,
+        message_receivers: &mut FilteredEntityMut<'_, '_>,
+        commands: &ParallelCommands,
         tick: Tick,
-    ) {
+        registry: &MessageRegistry,
+        channel_registry: &ChannelRegistry,
+        timeline_registry: &TimelineRegistry,
+    ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
         let mut sender = unsafe { message_sender.with_type::<Self>() };
-        // SAFETY:  the `message_receiver` must be of type `MessageReceiver<M>`
-        let mut receiver = unsafe { message_receiver.with_type::<MessageReceiver<M>>() };
         // enable split borrows
         let sender = &mut *sender;
         sender
             .send
             .drain(..)
-            .for_each(|(message, channel_kind, channel_name, _)| {
+            .try_for_each(|(message, channel_kind, channel_name, _priority)| {
                 trace!(
-                    "Send local message of type {:?} on channel {channel_kind:?}",
-                    DebugName::type_name::<M>()
+                    "Send local message of type {:?} on channel {:?}",
+                    DebugName::type_name::<M>(),
+                    channel_kind
                 );
                 trace!(
                     target: "lightyear_debug::message",
@@ -184,12 +209,48 @@ impl<M: Message> MessageSender<M> {
                     remote_tick = tick.0,
                     "queued local message"
                 );
-                receiver.recv.push(ReceivedMessage::<M> {
-                    data: message,
-                    remote_tick: tick,
-                    channel_kind,
-                    message_id: None,
-                });
+                let target_timeline = channel_registry
+                    .settings(channel_kind)
+                    .and_then(|settings| settings.timeline);
+                if let Some(timeline) = target_timeline {
+                    let timeline_metadata = timeline_registry
+                        .get(&timeline)
+                        .ok_or(MessageError::TimelineNotRegistered(timeline))?;
+                    let timeline_ptr = message_receivers
+                        .get_by_id(timeline_metadata.component_id())
+                        .ok_or(MessageError::MissingTimeline(timeline))?;
+                    // SAFETY: the metadata is registered with this timeline component id.
+                    let current_tick = unsafe { timeline_metadata.tick(timeline_ptr) };
+                    let delta = tick - current_tick;
+                    if delta > 0 && delta as u32 > MAX_TIMELINE_LAG_TICKS {
+                        return Err(MessageError::TimelineTooFarBehind {
+                            target: tick,
+                            current: current_tick,
+                            max_lag_ticks: MAX_TIMELINE_LAG_TICKS,
+                        });
+                    }
+                }
+
+                let receiver_metadata = registry
+                    .receive_metadata
+                    .get(&MessageKind::of::<M>())
+                    .ok_or(MessageError::UnrecognizedMessage(MessageKind::of::<M>()))?;
+                let mut message = Some(message);
+                let receiver_entity = message_receivers.id();
+                let receiver = message_receivers.get_mut_by_id(receiver_metadata.component_id);
+                // SAFETY: the callback is registered for `M`, and `message` is an `Option<M>`.
+                unsafe {
+                    (receiver_metadata.receive_local_message_fn)(
+                        receiver,
+                        commands,
+                        receiver_entity,
+                        &mut message,
+                        tick,
+                        channel_kind,
+                        None,
+                        target_timeline,
+                    )
+                }
             })
     }
 
@@ -222,12 +283,11 @@ impl MessagePlugin {
         message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
     ) {
-        // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components
-        // on different entities
-        let message_sender_query = Arc::new(message_sender_query);
-        transport_query
-            .par_iter_mut()
-            .for_each(|(entity, transport, mut message_manager)| {
+        // Each outer query item accesses senders on a different entity, so workers can safely
+        // share the query before taking their disjoint unsafe reborrows below.
+        let message_sender_query = &message_sender_query;
+        adaptive_for_each_mut!(transport_query).for_each(
+            |(entity, transport, mut message_manager)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
 
@@ -254,6 +314,8 @@ impl MessagePlugin {
                             .kind_map
                             .net_id(message_kind)
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        #[cfg(feature = "metrics")]
+                        let metric_handles = registry.metric_handles(message_kind)?;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
                             (send_metadata.send_message_fn)(
@@ -262,6 +324,8 @@ impl MessagePlugin {
                                 transport,
                                 serialize_fns,
                                 &mut message_manager.entity_mapper.local_to_remote,
+                                #[cfg(feature = "metrics")]
+                                metric_handles,
                             )?;
                         }
                         Ok::<_, MessageError>(())
@@ -306,11 +370,13 @@ impl MessagePlugin {
                     })
                     .inspect_err(|e| error!("error sending trigger: {e:?}"))
                     .ok();
-            })
+            },
+        )
     }
 
     /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
-    /// and add them directly to the [`MessageReceiver<M>`] components.
+    /// and add them directly to the typed
+    /// [`MessageReceiver<M>`](crate::receive::MessageReceiver) components.
     /// (the [`Transport`] is not used)
     pub fn send_local(
         timeline: Res<LocalTimeline>,
@@ -322,84 +388,82 @@ impl MessagePlugin {
         message_components_query: Query<FilteredEntityMut>,
         commands: ParallelCommands,
         registry: Res<MessageRegistry>,
+        channel_registry: Res<ChannelRegistry>,
+        timeline_registry: Res<TimelineRegistry>,
     ) {
-        // We use Arc to make the query Clone, since we know that we will only access MessageSender<M>/MessageReceiver<M> components
-        // on different entities
+        // Each outer query item accesses components on a different entity, so workers can safely
+        // share the query before taking their disjoint unsafe reborrows below.
         let tick = timeline.tick();
-        let message_components_query = Arc::new(message_components_query);
-        manager_query
-            .par_iter_mut()
-            .for_each(|(entity, mut message_manager)| {
-                // SAFETY: we know that this won't lead to violating the aliasing rule
-                let mut message_sender_query =
-                    unsafe { message_components_query.reborrow_unsafe() };
-                let mut message_receiver_query =
-                    unsafe { message_components_query.reborrow_unsafe() };
+        let message_components_query = &message_components_query;
+        adaptive_for_each_mut!(manager_query).for_each(|(entity, mut message_manager)| {
+            // SAFETY: we know that this won't lead to violating the aliasing rule
+            let mut message_sender_query = unsafe { message_components_query.reborrow_unsafe() };
+            let mut message_receiver_query = unsafe { message_components_query.reborrow_unsafe() };
 
-                // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
-                // enable split borrows
-                let message_manager = &mut *message_manager;
-                message_manager
-                    .send_messages
-                    .iter()
-                    .try_for_each(|(message_kind, sender_id)| {
-                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                        let message_sender = entity_mut
-                            .get_mut_by_id(*sender_id)
-                            .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        // TODO: maybe use an IndexMap for faster lookup?
-                        let receiver_id = message_manager
-                            .receive_messages
-                            .iter()
-                            .find_map(
-                                |(kind, id)| if kind == message_kind { Some(id) } else { None },
-                            )
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+            // enable split borrows
+            let message_manager = &mut *message_manager;
+            message_manager
+                .send_messages
+                .iter()
+                .try_for_each(|(message_kind, sender_id)| {
+                    let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                    let message_sender = entity_mut
+                        .get_mut_by_id(*sender_id)
+                        .ok_or(MessageError::MissingComponent(*sender_id))?;
+                    let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
+                    let send_metadata = registry
+                        .send_metadata
+                        .get(message_kind)
+                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                    // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                    unsafe {
+                        (send_metadata.send_local_message_fn)(
+                            message_sender,
+                            &mut entity_mut,
+                            &commands,
+                            tick,
+                            &registry,
+                            &channel_registry,
+                            &timeline_registry,
+                        )?;
+                    }
+                    Ok::<_, MessageError>(())
+                })
+                .inspect_err(|e| error!("error sending message on host-client: {e:?}"))
+                .ok();
 
-                        let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
-                        let message_receiver = entity_mut
-                            .get_mut_by_id(*receiver_id)
-                            .ok_or(MessageError::MissingComponent(*receiver_id))?;
-                        let send_metadata = registry
-                            .send_metadata
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                        unsafe {
-                            (send_metadata.send_local_message_fn)(
-                                message_sender,
-                                message_receiver,
-                                tick,
-                            );
-                        }
-                        Ok::<_, MessageError>(())
-                    })
-                    .inspect_err(|e| error!("error sending message on host-client: {e:?}"))
-                    .ok();
-
-                // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
-                // enable split borrows
-                let message_manager = &mut *message_manager;
-                message_manager
-                    .send_triggers
-                    .iter()
-                    .try_for_each(|(message_kind, sender_id)| {
-                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                        let message_sender = entity_mut
-                            .get_mut_by_id(*sender_id)
-                            .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        let send_metadata = registry
-                            .send_trigger_metadata
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                        unsafe {
-                            (send_metadata.send_local_trigger_fn)(message_sender, &commands);
-                        }
-                        Ok::<_, MessageError>(())
-                    })
-                    .inspect_err(|e| error!("error sending trigger on host-client: {e:?}"))
-                    .ok();
-            })
+            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+            // enable split borrows
+            message_manager
+                .send_triggers
+                .iter()
+                .try_for_each(|(message_kind, sender_id)| {
+                    let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                    let message_sender = entity_mut
+                        .get_mut_by_id(*sender_id)
+                        .ok_or(MessageError::MissingComponent(*sender_id))?;
+                    let send_metadata = registry
+                        .send_trigger_metadata
+                        .get(message_kind)
+                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                    let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
+                    // SAFETY: sender and receiver callbacks come from the registry for this event type.
+                    unsafe {
+                        (send_metadata.send_local_trigger_fn)(
+                            message_sender,
+                            &mut entity_mut,
+                            &commands,
+                            tick,
+                            &registry,
+                            &channel_registry,
+                            &timeline_registry,
+                        )?;
+                    }
+                    Ok::<_, MessageError>(())
+                })
+                .inspect_err(|e| error!("error sending trigger on host-client: {e:?}"))
+                .ok();
+        })
     }
 }

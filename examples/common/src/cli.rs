@@ -14,10 +14,12 @@ use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
 use clap::{ArgAction, Parser, Subcommand};
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
 use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
+#[cfg(feature = "p2p")]
+use crate::p2p::{self, DEFAULT_P2P_BASE_PORT};
 #[cfg(feature = "server")]
 use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "server"))]
@@ -47,24 +49,25 @@ fn parse_bool_arg(value: &str) -> Result<bool, String> {
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Cli {
-    /// Run without windowing/rendering plugins even when the example was built
-    /// with a GUI feature.
+    /// Override whether to run without windowing/rendering plugins.
+    ///
+    /// Dedicated servers are headless by default. Other modes use the GUI when
+    /// one was compiled. Pass `--headless=false` to show a dedicated server GUI.
     #[arg(
         long,
         global = true,
         action = ArgAction::Set,
-        default_value_t = false,
         default_missing_value = "true",
         num_args = 0..=1,
         require_equals = true,
         value_parser = parse_bool_arg
     )]
-    pub headless: bool,
+    pub headless: Option<bool>,
     #[command(subcommand)]
     pub mode: Option<Mode>,
 }
 
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
 fn default_client_transport() -> ClientTransports {
     ClientTransports::WebTransport
 }
@@ -81,18 +84,26 @@ impl Cli {
     /// Get the client id from the CLI
     pub fn client_id(&self) -> Option<u64> {
         match &self.mode {
-            #[cfg(feature = "client")]
+            #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
             Some(Mode::Client { client_id }) => *client_id,
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::Separate { client_id }) => *client_id,
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::HostClient { client_id }) => *client_id,
+            #[cfg(feature = "p2p")]
+            Some(Mode::P2P { peer_id, .. }) => Some(u64::from(*peer_id)),
             _ => None,
         }
     }
 
     pub fn headless(&self) -> bool {
-        self.headless || !cfg!(any(feature = "gui2d", feature = "gui3d"))
+        #[cfg(feature = "server")]
+        let dedicated_server = matches!(self.mode.as_ref(), Some(Mode::Server));
+        #[cfg(not(feature = "server"))]
+        let dedicated_server = false;
+
+        !cfg!(any(feature = "gui2d", feature = "gui3d"))
+            || self.headless.unwrap_or(dedicated_server)
     }
 
     pub fn create_app(add_inspector: bool, mode: Option<&Mode>, headless: bool) -> App {
@@ -106,10 +117,12 @@ impl Cli {
         // to ~60 FPS so that headless automation behaves closer to a
         // real windowed client. Dedicated servers stay unthrottled.
         let loop_wait = match mode {
-            #[cfg(feature = "client")]
+            #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
             Some(Mode::Client { .. }) => {
                 Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
             }
+            #[cfg(feature = "p2p")]
+            Some(Mode::P2P { .. }) => Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ)),
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::HostClient { .. }) | Some(Mode::Separate { .. }) => {
                 Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
@@ -122,7 +135,7 @@ impl Cli {
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
         let mut app = Cli::create_app(add_inspector, self.mode.as_ref(), self.headless());
         match self.mode {
-            #[cfg(feature = "client")]
+            #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
             Some(Mode::Client { client_id }) => {
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
@@ -133,6 +146,21 @@ impl Cli {
                         "Client {client_id:?}"
                     )));
                 }
+                app
+            }
+            #[cfg(feature = "p2p")]
+            Some(Mode::P2P {
+                peer_id,
+                player_count,
+                ..
+            }) => {
+                p2p::configure_app(
+                    &mut app,
+                    tick_duration,
+                    self.headless(),
+                    peer_id,
+                    player_count,
+                );
                 app
             }
             #[cfg(feature = "server")]
@@ -178,7 +206,7 @@ impl Cli {
     pub fn spawn_connections(&self, app: &mut App) {
         let conditioner = LinkConditionerConfig::average_condition().half();
         match self.mode {
-            #[cfg(feature = "client")]
+            #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
             Some(Mode::Client { client_id }) => {
                 let client = app
                     .world_mut()
@@ -197,6 +225,14 @@ impl Cli {
                     })
                     .id();
                 app.add_systems(Startup, connect);
+            }
+            #[cfg(feature = "p2p")]
+            Some(Mode::P2P {
+                peer_id,
+                player_count,
+                base_port,
+            }) => {
+                p2p::spawn_connections(app, &conditioner, peer_id, player_count, base_port);
             }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
@@ -256,11 +292,24 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Mode {
-    #[cfg(feature = "client")]
+    #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
     /// Runs the app in client mode
     Client {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
+    },
+    #[cfg(feature = "p2p")]
+    /// Runs a fixed roster with one direct raw UDP Link to every other peer.
+    P2P {
+        /// Zero-based identity of this peer within the fixed roster.
+        #[arg(short, long)]
+        peer_id: u8,
+        /// Number of players in the fixed roster (2 through 4).
+        #[arg(short = 'n', long, default_value_t = 2)]
+        player_count: u8,
+        /// First UDP port reserved for the roster's directed peer Links.
+        #[arg(long, default_value_t = DEFAULT_P2P_BASE_PORT)]
+        base_port: u16,
     },
     #[cfg(feature = "server")]
     /// Runs the app in server mode
@@ -284,8 +333,14 @@ pub enum Mode {
 impl Mode {
     fn possible_options() -> &'static str {
         cfg_if::cfg_if! {
-            if #[cfg(all(feature = "client", feature = "server"))] {
+            if #[cfg(all(feature = "client", feature = "server", feature = "p2p"))] {
+                "client, server, separate, host-client, p2p"
+            } else if #[cfg(all(feature = "client", feature = "server"))] {
                 "client, server, separate, host-client"
+            } else if #[cfg(all(feature = "p2p", feature = "netcode"))] {
+                "client, p2p"
+            } else if #[cfg(feature = "p2p")] {
+                "p2p"
             } else if #[cfg(feature = "client")] {
                 "client"
             } else if #[cfg(feature = "server")] {
@@ -304,6 +359,12 @@ impl Default for Mode {
                 Mode::HostClient { client_id: None }
             } else if #[cfg(feature = "server")] {
                 Mode::Server
+            } else if #[cfg(feature = "p2p")] {
+                Mode::P2P {
+                    peer_id: 0,
+                    player_count: 2,
+                    base_port: DEFAULT_P2P_BASE_PORT,
+                }
             } else {
                 Mode::Client { client_id: None }
             }
@@ -336,7 +397,7 @@ pub fn cli() -> Cli {
         if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
             Cli {
-                headless: false,
+                headless: None,
                 mode: Some(Mode::Client {
                     client_id: Some(client_id),
                 })

@@ -6,7 +6,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -16,11 +16,19 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
 
+### P2P mode
+
+The same movement example can run without a server. Every peer creates the fixed player roster and
+BEI action entities locally, then sends its action inputs directly to every other peer.
+
+- Peer 0: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
+- Peer 1: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 1 --player-count 2`
+
 ### Testing in wasm with webtransport
 
 NOTE: I am using the [bevy cli](https://github.com/TheBevyFlock/bevy_cli) to build and serve the wasm example.
 
 To test the example in wasm, you can run the following commands: `bevy run web`
 
-The repo includes a pre-generated self-signed WebTransport certificate and digest, so `certificates/generate.sh` is not required for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
-- `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)
+The repo includes a pre-generated self-signed WebTransport certificate and digest, so you do not need to run the certificate generator for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
+- `cargo run -p generate_certificate` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)

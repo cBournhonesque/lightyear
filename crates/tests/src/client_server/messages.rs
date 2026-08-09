@@ -260,11 +260,20 @@ fn test_send_multi_messages_with_target() {
     info!("Sending messages from server to client");
     let send_message = StringMessage("World".to_string());
     let message = send_message.clone();
+    let client_0_id = stepper.client_of(0).get::<RemoteId>().unwrap().0;
     let system_id = stepper.server_app.register_system(
-        move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
+        move |mut sender: ServerMultiMessageSender,
+              server: Single<&Server>,
+              mut sent_all: Local<bool>| {
+            let target = if *sent_all {
+                NetworkTarget::Single(client_0_id)
+            } else {
+                NetworkTarget::All
+            };
             sender
-                .send::<_, Channel1>(&message, server.into_inner(), &NetworkTarget::All)
+                .send::<_, Channel1>(&message, server.into_inner(), &target)
                 .ok();
+            *sent_all = true;
         },
     );
     stepper.server_app.world_mut().run_system(system_id);
@@ -285,5 +294,37 @@ fn test_send_multi_messages_with_target() {
         &received_messages
             .0
             .contains(&(stepper.client_entities[1], send_message.clone()))
+    );
+
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<Buffer<StringMessage>>()
+        .0
+        .clear();
+    stepper.client_apps[1]
+        .world_mut()
+        .resource_mut::<Buffer<StringMessage>>()
+        .0
+        .clear();
+
+    // Run the same system again with a narrower target. The reusable target set must not retain
+    // the second client from the previous broadcast.
+    stepper.server_app.world_mut().run_system(system_id);
+    stepper.frame_step(2);
+
+    let received_messages = stepper.client_apps[0]
+        .world()
+        .resource::<Buffer<StringMessage>>();
+    assert!(
+        received_messages
+            .0
+            .contains(&(stepper.client_entities[0], send_message))
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .resource::<Buffer<StringMessage>>()
+            .0
+            .is_empty()
     );
 }

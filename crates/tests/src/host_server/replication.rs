@@ -15,7 +15,8 @@ use lightyear_replication::send::ReplicatedFrom;
 use test_log::test;
 
 fn host_only_stepper_before_host_connect() -> ClientServerStepper {
-    let mut config = StepperConfig::from_link_types(vec![ClientType::Host], ServerType::Netcode);
+    let mut config =
+        StepperConfig::from_connection_types(vec![ClientType::Host], ServerType::Netcode);
     config.init = false;
     let mut stepper = ClientServerStepper::from_config(config);
     stepper.server_app.finish();

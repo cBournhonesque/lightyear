@@ -547,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_buffer_rewrites_future_overlap_before_last_remote_tick() {
+    fn test_update_buffer_keeps_received_overlap_before_last_remote_tick() {
         let mut input_buffer = BEIBuffer::<Context1>::default();
 
         let neutral = ActionsSnapshot {
@@ -561,13 +561,13 @@ mod tests {
             ..Default::default()
         };
 
-        // Earlier input-delay packets predicted ticks 10..=14 as neutral.
+        // Ticks 10..=14 were already received as neutral.
         for tick in 10..=14 {
             input_buffer.set(Tick(tick), neutral);
         }
         input_buffer.last_remote_tick = Some(Tick(14));
 
-        // A newer packet overlaps those ticks and corrects them to the real input.
+        // A newer packet overlaps those immutable ticks and extends the buffer to tick 15.
         let sequence = BEIStateSequence::<Context1> {
             start_state: fired,
             diffs: vec![
@@ -582,10 +582,11 @@ mod tests {
         let earliest_mismatch =
             sequence.update_buffer(&mut input_buffer, Tick(15), Duration::default());
 
-        assert_eq!(earliest_mismatch, Some(Tick(11)));
-        for tick in 11..=15 {
-            assert_eq!(input_buffer.get(Tick(tick)), Some(&fired));
+        assert_eq!(earliest_mismatch, Some(Tick(15)));
+        for tick in 11..=14 {
+            assert_eq!(input_buffer.get(Tick(tick)), Some(&neutral));
         }
+        assert_eq!(input_buffer.get(Tick(15)), Some(&fired));
         assert_eq!(input_buffer.last_remote_tick, Some(Tick(15)));
     }
 

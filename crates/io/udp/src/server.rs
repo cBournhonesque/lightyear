@@ -19,8 +19,9 @@ use tracing::{debug, error, info};
 use crate::UdpError;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_platform::collections::{HashMap, hash_map::Entry};
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 use core::net::SocketAddr;
+use lightyear_core::buffer_pool::BufferPool;
 use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
@@ -35,7 +36,8 @@ pub(crate) const MTU: usize = 1472;
 ///
 /// Insert this on a Lightyear server entity. A [`LocalAddr`] component is required before
 /// [`LinkStart`] is triggered; the plugin binds one socket to that address and creates child link
-/// entities for remote addresses as datagrams arrive.
+/// entities for remote addresses as datagrams arrive. After binding, [`LocalAddr`] is updated to
+/// the address reported by the socket, including the OS-assigned port when binding to port `0`.
 ///
 /// Each child link receives [`PeerAddr`] for its remote socket address and [`UdpLinkOfIO`] to mark
 /// it as owned by this UDP server transport.
@@ -43,7 +45,7 @@ pub(crate) const MTU: usize = 1472;
 #[require(Server)]
 pub struct ServerUdpIo {
     socket: Option<std::net::UdpSocket>,
-    buffer: BytesMut,
+    recv_buffers: BufferPool,
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
 }
 
@@ -70,9 +72,17 @@ impl Default for ServerUdpIo {
     fn default() -> Self {
         ServerUdpIo {
             socket: None,
-            buffer: BytesMut::with_capacity(MTU),
+            recv_buffers: crate::recv_buffer_pool(),
             connected_addresses: HashMap::with_capacity(1),
         }
+    }
+}
+
+impl ServerUdpIo {
+    /// Returns receive-buffer pool misses for allocation regression tests.
+    #[cfg(feature = "test_utils")]
+    pub fn recv_buffer_pool_misses(&self) -> usize {
+        self.recv_buffers.misses()
     }
 }
 
@@ -91,16 +101,17 @@ impl ServerUdpPlugin {
     fn link(
         trigger: On<LinkStart>,
         mut query: Query<
-            (&mut ServerUdpIo, Option<&LocalAddr>),
+            (&mut ServerUdpIo, Option<&mut LocalAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
     ) -> Result {
         if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.entity) {
-            let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
-            info!("Server UDP socket bound to {}", local_addr);
-            let socket = std::net::UdpSocket::bind(local_addr)?;
+            let mut local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?;
+            let socket = std::net::UdpSocket::bind(local_addr.0)?;
             socket.set_nonblocking(true)?;
+            local_addr.0 = socket.local_addr()?;
+            info!("Server UDP socket bound to {}", local_addr.0);
             udp_io.socket = Some(socket);
             commands.entity(trigger.entity).insert(Linked);
         }
@@ -162,22 +173,21 @@ impl ServerUdpPlugin {
 
                 // enable split borrows
                 let server_udp_io = &mut *server_udp_io;
+                server_udp_io.recv_buffers.reclaim_pending();
 
                 loop {
-                    // reserve additional space in the buffer
-                    // this tries to reclaim space at the start of the buffer if possible
-                    server_udp_io.buffer.reserve(crate::MTU);
+                    let mut buffer = server_udp_io.recv_buffers.take();
                     // Check how much actual uninitialized space we have at the end
-                    let capacity = server_udp_io.buffer.capacity();
-                    let current_len = server_udp_io.buffer.len();
+                    let capacity = buffer.capacity();
+                    let current_len = buffer.len();
                     assert_eq!(current_len, 0);
                     let available_uninit = capacity - current_len;
                     let max_recv_len = core::cmp::min(available_uninit, crate::MTU);
 
                     // We get a raw pointer to the start of the uninitialized region.
-                    // SAFETY: we know we have enough space to receive the data because we just reserved it
+                    // SAFETY: `take` returns a buffer with at least `MTU` bytes of writable capacity.
                     let buf_slice: &mut [u8] = unsafe {
-                        let ptr = server_udp_io.buffer.as_mut_ptr().add(current_len);
+                        let ptr = buffer.as_mut_ptr().add(current_len);
                         core::slice::from_raw_parts_mut(ptr, max_recv_len)
                     };
                     match server_udp_io.socket.as_mut().unwrap().recv_from(buf_slice) {
@@ -185,9 +195,9 @@ impl ServerUdpPlugin {
                             // Mark the received bytes as initialized
                             // SAFETY: we know that the buffer is large enough to hold the received data.
                             unsafe {
-                                server_udp_io.buffer.advance_mut(recv_len);
+                                buffer.advance_mut(recv_len);
                             }
-                            let payload = server_udp_io.buffer.split_to(recv_len).freeze();
+                            let payload = server_udp_io.recv_buffers.split_for_handoff(buffer);
                             match server_udp_io.connected_addresses.entry(address) {
                                 Entry::Occupied(mut entry) => {
                                     match *entry.get_mut() {
@@ -254,12 +264,19 @@ impl ServerUdpPlugin {
                                 }
                             };
                         }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            server_udp_io.recv_buffers.recycle(buffer);
+                            break;
+                        }
                         // Windows-specific: when a UDP client disconnects, the OS sends an
                         // ICMP "port unreachable" back, which surfaces as ConnectionReset on
                         // the next recv. This is harmless — just skip to the next packet.
-                        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                            server_udp_io.recv_buffers.recycle(buffer);
+                            continue;
+                        }
                         Err(e) => {
+                            server_udp_io.recv_buffers.recycle(buffer);
                             error!("Error receiving UDP packet: {}", e);
                             break;
                         }
@@ -285,5 +302,31 @@ impl Plugin for ServerUdpPlugin {
         app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSystems::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::net::Ipv4Addr;
+
+    #[test]
+    fn link_updates_local_addr_with_os_assigned_port() {
+        let mut app = App::new();
+        app.add_plugins(ServerUdpPlugin);
+
+        let requested_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+        let server = app
+            .world_mut()
+            .spawn((LocalAddr(requested_addr), ServerUdpIo::default()))
+            .id();
+
+        app.world_mut().trigger(LinkStart { entity: server });
+        app.world_mut().flush();
+
+        let bound_addr = app.world().get::<LocalAddr>(server).unwrap().0;
+        assert_eq!(bound_addr.ip(), requested_addr.ip());
+        assert_ne!(bound_addr.port(), 0);
+        assert!(app.world().get::<Linked>(server).is_some());
     }
 }

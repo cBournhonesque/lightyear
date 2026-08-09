@@ -2,13 +2,14 @@
 //! The client will be responsible for:
 //! - connecting to the server at Startup
 //! - sending inputs to the server
-//! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
-//!   predicted entity and the server entity)
+//! - applying inputs to predicted entities. In client/server mode this is the locally controlled
+//!   player; in P2P mode every peer predicts the complete deterministic roster.
 
 use crate::automation::{self, AutomationClientPlugin};
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::input::*;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::native::*;
@@ -34,8 +35,8 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Commands) {
-    commands.entity(client.into_inner()).insert(
+fn configure_input_delay(mut commands: Commands) {
+    commands.insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()),
     );
 }
@@ -88,18 +89,19 @@ fn buffer_input(
     }
 }
 
-/// Applies local movement only to predicted entities owned by this client.
+/// Apply movement to every entity simulated by this client.
 ///
-/// If this example predicted remote entities, ownership would need to be checked before movement.
+/// Conventional clients only have a [`Predicted`] copy of their locally controlled player. P2P
+/// peers instead give every roster member [`DeterministicPredicted`]: the local player uses captured
+/// input, while remote players repeat their latest known input and trigger rollback when corrected
+/// input arrives.
 fn player_movement(
-    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    // timeline: Single<&LocalTimeline>,
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    _input_timeline: SyncedLocalTimeline,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
-    if synced_client.is_empty() {
-        return;
-    }
-    // let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");
         // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.
@@ -108,7 +110,18 @@ fn player_movement(
 }
 
 /// System to receive messages on the client
-pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message1>>) {
+pub(crate) fn receive_message1(
+    metadata: Res<NetworkingMetadata>,
+    mut receivers: Query<&mut MessageReceiver<Message1>>,
+) {
+    let link = match &metadata.mode {
+        NetworkTopology::Client(link) => *link,
+        NetworkTopology::HostClient { client, .. } => *client,
+        _ => return,
+    };
+    let Ok(mut receiver) = receivers.get_mut(link) else {
+        return;
+    };
     for message in receiver.receive() {
         info!("Received message: {:?}", message);
     }

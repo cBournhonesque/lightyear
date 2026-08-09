@@ -13,6 +13,7 @@ use bevy::prelude::*;
 #[cfg(feature = "server")]
 use lightyear::connection::host::HostServer;
 use lightyear::input::bei::prelude::{Action, ActionOf, Actions, Bindings, Cardinal, Fire};
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
 
@@ -30,10 +31,10 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Commands) {
-    commands
-        .entity(client.into_inner())
-        .insert(InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced()));
+fn configure_input_delay(mut commands: Commands) {
+    commands.insert_resource(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced()),
+    );
 }
 
 /// Applies local movement only to predicted entities owned by this client.
@@ -41,13 +42,13 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
 /// observer is disabled.
 fn player_movement(
     trigger: On<Fire<Movement>>,
-    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    _input_timeline: SyncedLocalTimeline,
     #[cfg(feature = "server")] host_server: Query<(), With<HostServer>>,
-    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
+    mut position_query: Query<
+        &mut PlayerPosition,
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
-    if synced_client.is_empty() {
-        return;
-    }
     #[cfg(feature = "server")]
     if !host_server.is_empty() {
         return;

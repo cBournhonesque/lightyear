@@ -14,6 +14,9 @@ pub struct ServerStartupConfig {
     pub auto_spawn: bool,
 }
 
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct Headless(pub bool);
+
 impl Default for ServerStartupConfig {
     fn default() -> Self {
         Self { auto_spawn: true }
@@ -26,9 +29,11 @@ pub fn headless_enabled() -> bool {
         .unwrap_or(false)
 }
 
-pub fn build_base_app() -> App {
+pub fn build_base_app(headless: bool) -> App {
     let mut app = App::new();
-    if headless_enabled() {
+    let headless = headless || headless_enabled();
+    app.insert_resource(Headless(headless));
+    if headless {
         app.add_plugins((
             MinimalPlugins,
             LogPlugin {

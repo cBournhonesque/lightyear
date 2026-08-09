@@ -1,10 +1,8 @@
-use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
+use crate::manager::{RollbackMode, StateRollbackMetadata};
 use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
 use crate::{SyncComponent, correction};
-#[cfg(feature = "metrics")]
-use alloc::format;
 use bevy_app::App;
 use bevy_ecs::component::{ComponentId, Mutable};
 use bevy_ecs::prelude::*;
@@ -31,13 +29,15 @@ use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_frame_interpolation::FrameInterpolationPlugin;
 use lightyear_replication::checkpoint::resolve_message_tick;
-use lightyear_replication::delta::Diffable;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
+use lightyear_replication::diffable::Diffable;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_replication::registry::replication::{
     AppComponentExt, ComponentRegistration, ComponentRegistrator,
 };
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
+#[cfg(feature = "metrics")]
+use std::sync::OnceLock;
 use tracing::{debug, error, trace, trace_span};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
@@ -64,9 +64,62 @@ pub struct PredictionMetadata {
     /// Will default to a PartialEq::ne implementation, but can be overridden.
     pub(crate) should_rollback: unsafe fn(),
     pub(crate) check_rollback: CheckRollbackFn,
+    #[cfg(feature = "metrics")]
+    metric_handles: PredictionMetricHandles,
     #[cfg(feature = "deterministic")]
     /// Function to hash the value in [`PredictionHistory<C>`] at a given tick.
     pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
+}
+
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone, Default)]
+struct PredictionMetricHandles {
+    history: OnceLock<metrics::Gauge>,
+    value_mismatch: OnceLock<metrics::Counter>,
+    missing_on_predicted: OnceLock<metrics::Counter>,
+    missing_on_confirmed: OnceLock<metrics::Counter>,
+}
+
+#[cfg(feature = "metrics")]
+impl PredictionMetricHandles {
+    fn history<C: SyncComponent>(&self) -> &metrics::Gauge {
+        self.history.get_or_init(|| {
+            metrics::gauge!(
+                "prediction/rollback/history_values",
+                "component" => core::any::type_name::<C>(),
+            )
+        })
+    }
+
+    fn value_mismatch<C: SyncComponent>(&self) -> &metrics::Counter {
+        self.value_mismatch.get_or_init(|| {
+            metrics::counter!(
+                "prediction/rollback/causes",
+                "component" => core::any::type_name::<C>(),
+                "cause" => "value_mismatch",
+            )
+        })
+    }
+
+    fn missing_on_predicted<C: SyncComponent>(&self) -> &metrics::Counter {
+        self.missing_on_predicted.get_or_init(|| {
+            metrics::counter!(
+                "prediction/rollback/causes",
+                "component" => core::any::type_name::<C>(),
+                "cause" => "missing_on_predicted",
+            )
+        })
+    }
+
+    fn missing_on_confirmed<C: SyncComponent>(&self) -> &metrics::Counter {
+        self.missing_on_confirmed.get_or_init(|| {
+            metrics::counter!(
+                "prediction/rollback/causes",
+                "component" => core::any::type_name::<C>(),
+                "cause" => "missing_on_confirmed",
+            )
+        })
+    }
 }
 
 impl PredictionMetadata {
@@ -106,6 +159,8 @@ impl PredictionMetadata {
                 )
             },
             check_rollback: PredictionRegistry::check_rollback_for_unchanged_component::<C>,
+            #[cfg(feature = "metrics")]
+            metric_handles: PredictionMetricHandles::default(),
             #[cfg(feature = "deterministic")]
             pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
         }
@@ -258,11 +313,10 @@ impl PredictionRegistry {
                         "confirmed value differs from prediction history"
                     );
                     #[cfg(feature = "metrics")]
-                    metrics::counter!(format!(
-                        "prediction::rollbacks::causes::{}::value_mismatch",
-                        DebugName::type_name::<C>()
-                    ))
-                    .increment(1);
+                    self.prediction_map[&ComponentKind::of::<C>()]
+                        .metric_handles
+                        .value_mismatch::<C>()
+                        .increment(1);
                 }
                 should
             }
@@ -278,11 +332,10 @@ impl PredictionRegistry {
                     "confirmed component missing from prediction history"
                 );
                 #[cfg(feature = "metrics")]
-                metrics::counter!(format!(
-                    "prediction::rollbacks::causes::{}::missing_on_predicted",
-                    DebugName::type_name::<C>()
-                ))
-                .increment(1);
+                self.prediction_map[&ComponentKind::of::<C>()]
+                    .metric_handles
+                    .missing_on_predicted::<C>()
+                    .increment(1);
                 true
             }
             (None, Some(p)) => {
@@ -297,11 +350,10 @@ impl PredictionRegistry {
                     "predicted component missing from confirmed state"
                 );
                 #[cfg(feature = "metrics")]
-                metrics::counter!(format!(
-                    "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                    DebugName::type_name::<C>()
-                ))
-                .increment(1);
+                self.prediction_map[&ComponentKind::of::<C>()]
+                    .metric_handles
+                    .missing_on_confirmed::<C>()
+                    .increment(1);
                 true
             }
             (None, None) => false,
@@ -421,11 +473,10 @@ impl PredictionRegistry {
 
         #[cfg(feature = "metrics")]
         if let Some(predicted_history) = predicted_history.as_ref() {
-            metrics::gauge!(format!(
-                "prediction::rollbacks::history::{:?}::num_values",
-                DebugName::type_name::<C>()
-            ))
-            .set(predicted_history.len() as f64);
+            self.prediction_map[&ComponentKind::of::<C>()]
+                .metric_handles
+                .history::<C>()
+                .set(predicted_history.len() as f64);
         }
 
         // Check for mismatch if requested. Authoritative mutations can be
@@ -1158,6 +1209,29 @@ fn add_local_rollback_systems<C: Component<Mutability = Mutable> + Clone>(
         .is_some()
     {
         add_non_networked_rollback_systems::<C>(registration.app);
+
+        // Resources live on dedicated entities in Bevy. If the resource was inserted before
+        // rollback was registered, its `Add<C>` observer has already run, so backfill the history
+        // that marks the resource entity as a rollback participant.
+        let resource_entity =
+            registration
+                .app
+                .world()
+                .component_id::<C>()
+                .and_then(|component_id| {
+                    registration
+                        .app
+                        .world()
+                        .resource_entities()
+                        .get(component_id)
+                });
+        if let Some(resource_entity) = resource_entity {
+            registration
+                .app
+                .world_mut()
+                .entity_mut(resource_entity)
+                .insert_if_new(PredictionHistory::<C>::default());
+        }
     }
     registration
 }
@@ -1333,9 +1407,8 @@ fn add_resolved_confirmed_to_history<C: SyncComponent>(
         let state_metadata =
             world.resource::<StateRollbackMetadata>() as *const StateRollbackMetadata;
         let current_tick = world.resource::<LocalTimeline>().tick();
-        let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
-            .get::<PredictionManager>(prediction_link)
+            .get_resource::<PredictionManager>()
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         (unsafe { &*registry }, should_check, current_tick, unsafe {
             &*state_metadata
@@ -1372,9 +1445,8 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
         let state_metadata =
             world.resource::<StateRollbackMetadata>() as *const StateRollbackMetadata;
         let current_tick = world.resource::<LocalTimeline>().tick();
-        let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
-            .get::<PredictionManager>(prediction_link)
+            .get_resource::<PredictionManager>()
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         // SAFETY: registry lives in the World and won't be moved/dropped during this function
         (
@@ -1421,6 +1493,7 @@ mod tests {
     use super::*;
     use crate::plugin::PredictionPlugin;
     use alloc::vec::Vec;
+    use bevy_ecs::system::RunSystemOnce;
     use bevy_replicon::prelude::{
         AuthMethod, RepliconPlugins, RepliconSharedPlugin, RepliconTick, RuleFns,
     };
@@ -1432,6 +1505,7 @@ mod tests {
     use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::AppComponentExt;
+    use lightyear_sync::prelude::InputTimelineConfig;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -1446,7 +1520,7 @@ mod tests {
     #[derive(Component, Clone, Debug)]
     struct LocalRollbackOnlyComponent(u32);
 
-    #[derive(Resource, Clone, Debug)]
+    #[derive(Resource, Clone, Debug, PartialEq)]
     struct LocalRollbackOnlyResource(u32);
 
     fn prediction_app() -> App {
@@ -1458,6 +1532,8 @@ mod tests {
             },
         ));
         app.init_resource::<PredictionRegistry>();
+        app.init_resource::<PredictionManager>();
+        app.init_resource::<InputTimelineConfig>();
         app
     }
 
@@ -1590,7 +1666,7 @@ mod tests {
         app.add_plugins((StatesPlugin, RepliconPlugins, PredictionPlugin));
         app.insert_resource(LocalTimeline::default());
         app.insert_resource(ReplicationCheckpointMap::default());
-        app.world_mut().spawn(PredictionManager::default());
+        app.insert_resource(PredictionManager::default());
         app.world_mut().flush();
         app.component::<TestDiffComponent>()
             .replicate_diff()
@@ -1639,10 +1715,19 @@ mod tests {
     }
 
     #[test]
-    fn resource_builder_local_rollback_supports_non_sync_resource() {
+    fn resource_builder_local_rollback_backfills_existing_resource_history() {
         let mut app = prediction_app();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(LocalRollbackOnlyResource(42));
+        app.world_mut()
+            .spawn((PredictionManager::default(), InputTimelineConfig::default()));
 
         app.resource::<LocalRollbackOnlyResource>().local_rollback();
+        app.world_mut()
+            .run_system_once(
+                crate::predicted_history::update_prediction_history::<LocalRollbackOnlyResource>,
+            )
+            .unwrap();
 
         assert!(
             app.world()
@@ -1658,6 +1743,57 @@ mod tests {
             !app.world()
                 .resource::<PredictionRegistry>()
                 .predicted::<LocalRollbackOnlyResource>()
+        );
+
+        let resource_entity = app
+            .world()
+            .resource_entities()
+            .get(
+                app.world()
+                    .component_id::<LocalRollbackOnlyResource>()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<PredictionHistory<LocalRollbackOnlyResource>>(resource_entity)
+                .unwrap()
+                .get_state(Tick(0)),
+            Some(&HistoryState::Updated(LocalRollbackOnlyResource(42)))
+        );
+    }
+
+    #[test]
+    fn resource_builder_local_rollback_adds_history_to_late_resource() {
+        let mut app = prediction_app();
+        app.insert_resource(LocalTimeline::default());
+        app.world_mut()
+            .spawn((PredictionManager::default(), InputTimelineConfig::default()));
+
+        app.resource::<LocalRollbackOnlyResource>().local_rollback();
+        app.insert_resource(LocalRollbackOnlyResource(42));
+        app.world_mut().flush();
+        app.world_mut()
+            .run_system_once(
+                crate::predicted_history::update_prediction_history::<LocalRollbackOnlyResource>,
+            )
+            .unwrap();
+
+        let resource_entity = app
+            .world()
+            .resource_entities()
+            .get(
+                app.world()
+                    .component_id::<LocalRollbackOnlyResource>()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<PredictionHistory<LocalRollbackOnlyResource>>(resource_entity)
+                .unwrap()
+                .get_state(Tick(0)),
+            Some(&HistoryState::Updated(LocalRollbackOnlyResource(42)))
         );
     }
 

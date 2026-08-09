@@ -72,7 +72,10 @@ pub(crate) fn buffer_input(
 //
 // If this example predicted remote entities, ownership would need to be checked before movement.
 fn movement(
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);
@@ -184,7 +187,7 @@ fn confirmed_interpolation_window<C>(
 }
 
 pub(crate) fn interpolate(
-    timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
+    timeline: Res<InterpolationTimeline>,
     mut parent_query: Query<
         (&mut PlayerPosition, &ConfirmedHistory<PlayerPosition>),
         With<Interpolated>,
@@ -200,6 +203,9 @@ pub(crate) fn interpolate(
         With<Interpolated>,
     >,
 ) {
+    if !timeline.is_synced() {
+        return;
+    }
     let interpolation_tick = timeline.tick();
     let interpolation_overstep = timeline.overstep().to_f32();
     'outer: for (tail_entity, parent, tail_length, mut tail, tail_history) in tail_query.iter_mut()

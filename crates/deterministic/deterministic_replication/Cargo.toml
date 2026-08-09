@@ -22,6 +22,7 @@ client = [
   "lightyear_sync/client",
   "lightyear_transport/client",
 ]
+p2p = ["client"]
 server = [
   "lightyear_connection/server",
   "lightyear_inputs/server",

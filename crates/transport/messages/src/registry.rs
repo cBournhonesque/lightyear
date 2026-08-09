@@ -1,5 +1,10 @@
-use crate::receive::{ClearMessageFn, MessageReceiver, ReceiveMessageFn};
+use crate::receive::{
+    ClearMessageFn, MessageReceiver, ReceiveLocalMessageFn, ReceiveMessageFn,
+    ReleaseTimelineMessageFn,
+};
+use crate::receive_event::{ReceiveLocalTriggerFn, ReceiveTriggerFn, ReleaseTimelineTriggerFn};
 use crate::send::{MessageSender, SendLocalMessageFn, SendMessageFn};
+use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 use crate::{Message, MessageNetId};
 use bevy_app::App;
 use bevy_ecs::{component::ComponentId, entity::MapEntities, error::Result, resource::Resource};
@@ -10,6 +15,7 @@ use core::cell::UnsafeCell;
 use core::hash::Hash;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
+use lightyear_core::prelude::{Tick, TimelineKind};
 use lightyear_serde::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
@@ -23,6 +29,8 @@ use lightyear_utils::collections::HashMap;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+#[cfg(feature = "metrics")]
+use std::sync::OnceLock;
 #[allow(unused_imports)]
 use tracing::{debug, trace};
 
@@ -46,6 +54,20 @@ pub enum MessageError {
     UnrecognizedMessage(MessageKind),
     #[error("the message id {0:?} is not registered")]
     UnrecognizedMessageId(MessageNetId),
+    #[error("the delivery timeline {0:?} is not registered")]
+    TimelineNotRegistered(TimelineKind),
+    #[error("the receiving connection does not contain delivery timeline {0:?}")]
+    MissingTimeline(TimelineKind),
+    #[error(
+        "delivery timeline at tick {current:?} is more than {max_lag_ticks} ticks behind payload target {target:?}"
+    )]
+    TimelineTooFarBehind {
+        target: Tick,
+        current: Tick,
+        max_lag_ticks: u32,
+    },
+    #[error("timeline receiver reached its pending payload limit of {limit}")]
+    PendingTimelineOverflow { limit: usize },
     #[error(transparent)]
     TransportError(#[from] lightyear_transport::error::TransportError),
 }
@@ -69,15 +91,37 @@ impl From<TypeId> for MessageKind {
     }
 }
 
-use crate::receive_event::ReceiveTriggerFn;
-use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
+#[cfg(feature = "metrics")]
+#[derive(Debug, Default, Clone)]
+pub(crate) struct MessageMetricHandles {
+    sent: OnceLock<metrics::Counter>,
+    sent_bytes: OnceLock<metrics::Gauge>,
+}
+
+#[cfg(feature = "metrics")]
+impl MessageMetricHandles {
+    pub(crate) fn record_send<M: Message>(&self, bytes: usize) {
+        self.sent
+            .get_or_init(
+                || metrics::counter!("message/send", "message" => core::any::type_name::<M>()),
+            )
+            .increment(1);
+        self.sent_bytes
+            .get_or_init(
+                || metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()),
+            )
+            .increment(bytes as f64);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ReceiveMessageMetadata {
     /// ComponentId of the [`MessageReceiver<M>`] component (used if not a trigger)
     pub(crate) component_id: ComponentId,
     pub(crate) receive_message_fn: ReceiveMessageFn,
+    pub(crate) receive_local_message_fn: ReceiveLocalMessageFn,
     pub(crate) message_clear_fn: ClearMessageFn,
+    pub(crate) release_timeline_fn: ReleaseTimelineMessageFn,
 }
 
 #[derive(Debug, Clone, TypePath)]
@@ -96,6 +140,14 @@ pub(crate) struct SendTriggerMetadata {
     pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
 }
 
+#[derive(Debug, Clone, Copy, TypePath)]
+pub(crate) struct ReceiveTriggerMetadata {
+    pub(crate) component_id: ComponentId,
+    pub(crate) receive_trigger_fn: ReceiveTriggerFn,
+    pub(crate) receive_local_trigger_fn: ReceiveLocalTriggerFn,
+    pub(crate) release_fn: ReleaseTimelineTriggerFn,
+}
+
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
 /// A [`Message`] is any type that is serializable and deserializable.
 ///
@@ -105,7 +157,10 @@ pub(crate) struct SendTriggerMetadata {
 /// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
 ///
 /// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
-/// Messages can be sent and receives if your Link entity contains the [`MessageSender<M>`] and [`MessageReceiver<M>`] components. Adding a [`NetworkDirection`] simply registers the sender/receiver components as a required components, but you can also just add and remove them manually.
+/// Messages are sent through [`MessageSender<M>`] and read through
+/// [`MessageReceiver<M>`]. Adding a [`NetworkDirection`] installs the sender as
+/// a required component on the sending side. The receiving side gets its exact
+/// typed receiver lazily when the first payload arrives.
 ///
 ///
 /// ```rust
@@ -158,8 +213,10 @@ pub struct MessageRegistry {
     pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
     pub(crate) send_trigger_metadata: HashMap<MessageKind, SendTriggerMetadata>,
     pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
-    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerFn>,
+    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
     pub serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
+    #[cfg(feature = "metrics")]
+    metric_handles: HashMap<MessageKind, MessageMetricHandles>,
     pub kind_map: TypeMapper<MessageKind>,
     hasher: RegistryHasher,
 }
@@ -199,6 +256,9 @@ impl MessageRegistry {
         trace!("Registering message: {}", DebugName::type_name::<M>());
         self.hasher.hash::<M>();
         let message_kind = self.kind_map.add::<I>();
+        #[cfg(feature = "metrics")]
+        self.metric_handles
+            .insert(message_kind, MessageMetricHandles::default());
         self.serialize_fns_map.insert(
             message_kind,
             ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
@@ -225,7 +285,9 @@ impl MessageRegistry {
             ReceiveMessageMetadata {
                 component_id,
                 receive_message_fn: MessageReceiver::<M>::receive_message_typed,
+                receive_local_message_fn: MessageReceiver::<M>::receive_local_message_typed,
                 message_clear_fn: MessageReceiver::<M>::clear_typed,
+                release_timeline_fn: MessageReceiver::<M>::release_timeline_typed,
             },
         );
     }
@@ -237,6 +299,16 @@ impl MessageRegistry {
             .get(&kind)
             .ok_or(MessageError::MissingSerializationFns)?;
         Ok(erased_fns.map_entities.is_some())
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn metric_handles(
+        &self,
+        kind: &MessageKind,
+    ) -> core::result::Result<&MessageMetricHandles, MessageError> {
+        self.metric_handles
+            .get(kind)
+            .ok_or(MessageError::UnrecognizedMessage(*kind))
     }
 
     pub(crate) fn add_map_entities<
@@ -328,6 +400,9 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
         self
     }
 
+    /// Adds the sender component on each side that sends this message.
+    ///
+    /// Receiver components are inserted lazily when a payload arrives.
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);
@@ -340,7 +415,9 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
 /// Add messages or triggers to the list of types that can be sent.
 pub trait AppMessageExt {
     /// Register a regular message type `M`.
-    /// This adds `MessageSender<M>` and `MessageReceiver<M>` components.
+    /// This registers the sender and default receiver component types. Calling
+    /// [`MessageRegistration::add_direction`] installs senders as required
+    /// components; receivers are inserted lazily on first receive.
     fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
     ) -> MessageRegistration<'_, M>;
@@ -394,7 +471,7 @@ impl AppMessageExt for App {
         );
         // Register sender/receiver metadata for M, ensuring trigger_fn is None
         registry.register_sender::<M>(sender_id);
-        registry.register_receiver::<M>(receiver_id); // This sets trigger_fn to None by default
+        registry.register_receiver::<M>(receiver_id);
 
         MessageRegistration {
             app: self,
@@ -467,7 +544,7 @@ mod tests {
         registry
             .serialize(&message, &mut writer, &mut SendEntityMap::default())
             .unwrap();
-        let data = writer.to_bytes();
+        let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
@@ -489,7 +566,7 @@ mod tests {
         registry
             .serialize(&message, &mut writer, &mut SendEntityMap::default())
             .unwrap();
-        let data = writer.to_bytes();
+        let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
@@ -525,7 +602,7 @@ mod tests {
         registry
             .serialize(&message, &mut writer, &mut entity_map)
             .unwrap();
-        let data = writer.to_bytes();
+        let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry

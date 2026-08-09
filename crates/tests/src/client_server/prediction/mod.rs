@@ -86,10 +86,10 @@ pub(crate) fn trigger_rollback_check_without_completed_tick(
 }
 
 pub(crate) fn trigger_state_rollback(stepper: &mut ClientServerStepper, tick: Tick) {
-    stepper.client_mut(0).insert(Rollback::FromState);
+    stepper.client_app().insert_resource(Rollback::FromState);
     stepper
-        .client_mut(0)
-        .get_mut::<PredictionManager>()
-        .unwrap()
+        .client_app()
+        .world()
+        .resource::<PredictionManager>()
         .set_rollback_tick(tick);
 }

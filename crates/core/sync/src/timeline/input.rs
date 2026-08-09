@@ -1,22 +1,25 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::sync::{
-    SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
-};
+use crate::timeline::sync::{SyncConfig, SyncContext, SyncTargetTimeline, TimelineSync};
 
-use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::change_detection::Tick as ChangeTick;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::FilteredAccessSet;
+use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
-use core::time::Duration;
+use core::{marker::PhantomData, time::Duration};
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineConfig};
+use lightyear_core::timeline::{LocalTimeline, LocalTimelineShift};
 use lightyear_link::{Link, LinkStats};
 use tracing::trace;
 
-/// Timeline that is used to make sure that Inputs from this peer will arrive on time
-/// on the remote peer
-#[derive(Debug, Component, Reflect)]
-#[require(InputTimeline)]
+/// Configuration shared by local clock synchronization and input scheduling.
+///
+/// Input delay is part of the clock objective because it affects how far
+/// the local simulation must leaf the remote simulation.
+#[derive(Debug, Resource, Reflect)]
 pub struct InputTimelineConfig {
     pub(crate) sync: SyncConfig,
     pub(crate) input_delay_config: InputDelayConfig,
@@ -46,60 +49,175 @@ impl InputTimelineConfig {
     pub fn is_lockstep(&self) -> bool {
         self.input_delay_config.is_lockstep()
     }
-
-    /// Update the input delay based on the current RTT and tick duration
-    /// when there is a SyncEvent
-    pub(crate) fn recompute_input_delay_on_sync(
-        trigger: On<SyncEvent<InputTimelineConfig>>,
-        tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
-    ) {
-        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
-            let before = timeline.input_delay_ticks;
-            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
-                link.stats,
-                &config.sync,
-                tick_duration.0,
-            );
-            trace!(
-                "Recomputing input delay on sync event! Input delay ticks: {}",
-                timeline.input_delay_ticks
-            );
-            trace!(
-                target: "lightyear_debug::sync",
-                kind = "input_delay_recomputed_on_sync",
-                schedule = "PreUpdate",
-                sample_point = "PreUpdate",
-                entity = ?trigger.entity,
-                tick_delta = trigger.tick_delta,
-                input_delay_ticks_before = before,
-                input_delay_ticks_after = timeline.input_delay_ticks,
-                rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
-                "sync event: recomputed input delay"
-            );
-        }
+    /// Maximum number of ticks the local simulation may predict beyond confirmed remote input.
+    #[inline]
+    pub fn maximum_predicted_ticks(&self) -> u16 {
+        self.input_delay_config.maximum_predicted_ticks
     }
 
-    // TODO: we want to limit this when only the config updates, not the timeline itself!
-    //  disabling this for now
-    /// Update the input delay based on the current RTT and tick duration
-    /// when the InputDelayConfig is updated
-    pub(crate) fn recompute_input_delay_on_config_update(
-        trigger: On<Insert, InputTimelineConfig>,
+    /// Recompute input delay after the global local timeline shifts by whole ticks.
+    pub(crate) fn recompute_input_delay_on_local_timeline_shift(
+        _trigger: On<LocalTimelineShift>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
+        metadata: Res<NetworkingMetadata>,
+        links: Query<&Link>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<LocalTimelineSync>,
     ) {
-        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
-            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
-                link.stats,
-                &config.sync,
-                tick_duration.0,
-            );
-            trace!(
-                "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
-                timeline.input_delay_ticks, config.input_delay_config
-            );
+        let before = timeline.input_delay();
+        if !timeline.recompute_input_delay(&config, &metadata.mode, &links, tick_duration.0) {
+            return;
         }
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "input_delay_recomputed_on_sync",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            input_delay_ticks_before = before,
+            input_delay_ticks_after = timeline.input_delay(),
+            topology = ?metadata.mode,
+            "local timeline shift: recomputed global input delay"
+        );
+    }
+
+    /// Recompute input delay when the global configuration resource is inserted or replaced.
+    pub(crate) fn recompute_input_delay_on_config_update(
+        _trigger: On<Insert, InputTimelineConfig>,
+        tick_duration: Res<TickDuration>,
+        metadata: Res<NetworkingMetadata>,
+        links: Query<&Link>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<LocalTimelineSync>,
+    ) {
+        if !timeline.recompute_input_delay(&config, &metadata.mode, &links, tick_duration.0) {
+            // Configuration is commonly installed before a Client or HostClient connects. The
+            // configured minimum is topology-independent; the first LocalTimelineShift will
+            // replace it
+            // with the latency-aware aggregate once the relevant Links are ready.
+            timeline.input_delay_ticks = config.input_delay_config.minimum_input_delay_ticks;
+        }
+        trace!(
+            input_delay_ticks = timeline.input_delay(),
+            config = ?config.input_delay_config,
+            topology = ?metadata.mode,
+            "recomputed global input delay after config update"
+        );
+    }
+}
+
+/// Number of confirmed-input ticks that must be recovered before a prediction-window wait ends.
+///
+/// Waiting at the exact prediction limit and immediately resuming after one newly confirmed tick
+/// would alternate between running and waiting every fixed tick. Requiring two ticks of headroom
+/// lets the simulation make useful progress after it resumes.
+pub const PREDICTION_WINDOW_HYSTERESIS_TICKS: u16 = 2;
+
+/// Application-global signal that stops deterministic simulation at its safe prediction limit.
+///
+/// Deterministic replication updates this resource from the minimum confirmed-input frontier
+/// across all remote players and registered input types. The driving timeline synchronization
+/// system reads it when applying its speed to `Time<Virtual>`: while waiting, virtual time receives
+/// an effective relative speed of zero, but the timeline's phase-controller speed is preserved.
+///
+/// This signal is deliberately specific to confirmed-input availability. P2P phase lead continues
+/// to use the normal timeline slowdown controller and does not request a hard wait.
+#[derive(Resource, Debug, Clone, Copy, Reflect)]
+pub struct PredictionWindowWait {
+    waiting: bool,
+    origin_tick: Option<Tick>,
+    current_tick: Tick,
+    confirmed_tick: Option<Tick>,
+    prediction_depth: i32,
+    maximum_predicted_ticks: u16,
+}
+
+impl Default for PredictionWindowWait {
+    fn default() -> Self {
+        Self {
+            waiting: false,
+            origin_tick: None,
+            current_tick: Tick(0),
+            confirmed_tick: None,
+            prediction_depth: 0,
+            maximum_predicted_ticks: 0,
+        }
+    }
+}
+
+impl PredictionWindowWait {
+    /// Returns whether deterministic simulation must currently wait for remote input.
+    #[inline]
+    pub fn is_waiting(&self) -> bool {
+        self.waiting
+    }
+
+    /// Current local lead over the global confirmed-input frontier, in ticks.
+    ///
+    /// This can be negative when input delay has provided confirmed remote input for future ticks.
+    #[inline]
+    pub fn prediction_depth(&self) -> i32 {
+        self.prediction_depth
+    }
+
+    /// Latest global confirmed-input frontier used by the wait decision.
+    #[inline]
+    pub fn confirmed_tick(&self) -> Option<Tick> {
+        self.confirmed_tick
+    }
+
+    /// Effective prediction limit used by the wait decision.
+    #[inline]
+    pub fn maximum_predicted_ticks(&self) -> u16 {
+        self.maximum_predicted_ticks
+    }
+
+    /// Clear all state when there is no active deterministic input session.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Update the wait decision from the current and globally confirmed input ticks.
+    ///
+    /// `maximum_predicted_ticks` must already account for the rollback-history bound. The method
+    /// starts waiting when another fixed tick would exceed that bound, and resumes only after
+    /// [`PREDICTION_WINDOW_HYSTERESIS_TICKS`] ticks of headroom have been recovered.
+    ///
+    /// Before any remote input exists, the first observed local tick becomes the session origin.
+    /// One initial fixed tick is allowed so the fixed input pipeline can capture and send its first
+    /// sample even for a zero-sized prediction window.
+    ///
+    /// Returns `true` when the waiting state changed.
+    pub fn update(
+        &mut self,
+        current_tick: Tick,
+        confirmed_tick: Option<Tick>,
+        maximum_predicted_ticks: u16,
+    ) -> bool {
+        let origin_tick = *self.origin_tick.get_or_insert(current_tick);
+        let frontier = confirmed_tick.unwrap_or(origin_tick);
+        let prediction_depth = current_tick - frontier;
+        let maximum = i32::from(maximum_predicted_ticks);
+        // A window smaller than the preferred hysteresis cannot require future input beyond the
+        // current tick: if every peer waited there, no one could capture that future input. Fall
+        // back to resuming at zero prediction depth for those small windows.
+        let resume_at =
+            i32::from(maximum_predicted_ticks.saturating_sub(PREDICTION_WINDOW_HYSTERESIS_TICKS));
+
+        let waiting = if confirmed_tick.is_none() && current_tick == origin_tick {
+            false
+        } else if self.waiting {
+            prediction_depth > resume_at
+        } else {
+            prediction_depth >= maximum
+        };
+        let changed = waiting != self.waiting;
+
+        self.waiting = waiting;
+        self.current_tick = current_tick;
+        self.confirmed_tick = confirmed_tick;
+        self.prediction_depth = prediction_depth;
+        self.maximum_predicted_ticks = maximum_predicted_ticks;
+        changed
     }
 }
 
@@ -112,26 +230,48 @@ impl Default for InputTimelineConfig {
     }
 }
 
-#[derive(Debug, Reflect)]
-pub struct InputContext {
-    sync: SyncContext,
+/// Runtime state for synchronizing the application-global [`LocalTimeline`].
+///
+/// This resource is not a clock. The authoritative fractional simulation instant is constructed
+/// from `LocalTimeline` and `Time<Fixed>` when synchronization runs.
+#[derive(Resource, Debug, Reflect)]
+pub struct LocalTimelineSync {
+    controller: SyncContext,
     /// Current input_delay_ticks that are being applied
     input_delay_ticks: u16,
     relative_speed: f32,
     is_synced: bool,
 }
 
-impl InputContext {
+impl LocalTimelineSync {
     /// Return the input delay in number of ticks
     pub fn input_delay(&self) -> u16 {
         self.input_delay_ticks
     }
+
+    /// Return whether the local simulation clock has completed initial synchronization.
+    pub fn is_synced(&self) -> bool {
+        self.is_synced
+    }
+
+    /// Override synchronization readiness.
+    ///
+    /// This is primarily intended for session drivers that do not require remote sampling, such
+    /// as in-process host clients. Normal network clients are updated by the sync plugin.
+    pub fn set_synced(&mut self, synced: bool) {
+        self.is_synced = synced;
+    }
+
+    /// Return the pacing factor requested by network clock synchronization.
+    pub fn relative_speed(&self) -> f32 {
+        self.relative_speed
+    }
 }
 
-impl Default for InputContext {
+impl Default for LocalTimelineSync {
     fn default() -> Self {
         Self {
-            sync: SyncContext::default(),
+            controller: SyncContext::default(),
             input_delay_ticks: 0,
             relative_speed: 1.0,
             is_synced: false,
@@ -259,29 +399,168 @@ impl InputDelayConfig {
     }
 }
 
-/// Timeline that is used to keep track of when the client should buffer inputs.
+/// Read-only access to the application-global [`LocalTimeline`] after it has synchronized.
 ///
-/// This timeline is synced with the server timeline, and is the main driving timeline:
-/// any speed adjustments applied to this timeline will also be applied to the `Time<Virtual>` timeline.
-/// (and will therefore affect how fast the FixedUpdate loop runs, and how ticks are incremented)
-///
-/// This timeline is updated in PostUpdate; it CANNOT be used to get accurate `tick` in PreUpdate or Update;
-/// use `LocalTimeline` instead.
-#[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
-pub struct InputTimeline(pub Timeline<InputTimelineConfig>);
-
-impl TimelineConfig for InputTimelineConfig {
-    type Context = InputContext;
-    type Timeline = InputTimeline;
+/// This parameter combines the canonical simulation clock with its [`LocalTimelineSync`]
+/// controller. Systems using it are skipped until synchronization is ready, and can read both the
+/// current simulation tick and the input delay without fetching the controller separately.
+pub struct SyncedLocalTimeline<'w, 's> {
+    timeline: Res<'w, LocalTimeline>,
+    sync: Res<'w, LocalTimelineSync>,
+    marker: PhantomData<&'s ()>,
 }
 
-impl SyncedTimeline for InputTimeline {
-    /// We want the Predicted timeline to be:
-    /// - RTT/2 ahead of the server timeline, so that inputs sent from the server arrive on time
-    /// - On top of that, we will take a bit of margin based on the jitter
-    /// - we can reduce the ahead-delay by the input_delay
+impl core::ops::Deref for SyncedLocalTimeline<'_, '_> {
+    type Target = LocalTimeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.timeline
+    }
+}
+
+impl SyncedLocalTimeline<'_, '_> {
+    /// Return the canonical simulation tick.
+    pub fn current_tick(&self) -> Tick {
+        self.timeline.tick()
+    }
+
+    /// Return the number of ticks added when assigning local inputs to the simulation timeline.
+    pub fn input_delay(&self) -> u16 {
+        self.sync.input_delay()
+    }
+}
+
+// SAFETY: This parameter delegates all access to read-only resource parameters.
+unsafe impl SystemParam for SyncedLocalTimeline<'_, '_> {
+    type State = (
+        <Res<'static, LocalTimeline> as SystemParam>::State,
+        <Res<'static, LocalTimelineSync> as SystemParam>::State,
+    );
+    type Item<'world, 'state> = SyncedLocalTimeline<'world, 'state>;
+
+    fn init_state(world: &mut World) -> Self::State {
+        (
+            <Res<'static, LocalTimeline> as SystemParam>::init_state(world),
+            <Res<'static, LocalTimelineSync> as SystemParam>::init_state(world),
+        )
+    }
+
+    fn init_access(
+        state: &Self::State,
+        system_meta: &mut SystemMeta,
+        component_access_set: &mut FilteredAccessSet,
+        world: &mut World,
+    ) {
+        <Res<'static, LocalTimeline> as SystemParam>::init_access(
+            &state.0,
+            system_meta,
+            component_access_set,
+            world,
+        );
+        <Res<'static, LocalTimelineSync> as SystemParam>::init_access(
+            &state.1,
+            system_meta,
+            component_access_set,
+            world,
+        );
+    }
+
+    #[inline]
+    unsafe fn get_param<'world, 'state>(
+        state: &'state mut Self::State,
+        system_meta: &SystemMeta,
+        world: UnsafeWorldCell<'world>,
+        change_tick: ChangeTick,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        // SAFETY: `init_access` delegated to both read-only resources, and the caller guarantees
+        // that this is the same World used by `init_state`.
+        let timeline = unsafe {
+            <Res<'static, LocalTimeline> as SystemParam>::get_param(
+                &mut state.0,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        let sync = unsafe {
+            <Res<'static, LocalTimelineSync> as SystemParam>::get_param(
+                &mut state.1,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        if !sync.is_synced() {
+            return Err(SystemParamValidationError::skipped::<Self>(
+                "LocalTimeline is not synchronized",
+            ));
+        }
+        Ok(SyncedLocalTimeline {
+            timeline,
+            sync,
+            marker: PhantomData,
+        })
+    }
+}
+
+// SAFETY: `SyncedLocalTimeline` only delegates to read-only system parameters.
+unsafe impl ReadOnlySystemParam for SyncedLocalTimeline<'_, '_> {}
+
+impl LocalTimelineSync {
+    /// Recompute the global input delay from the Links selected by the current topology.
     ///
-    /// Because of the input-delay, the time we return might be in the past compared with the main timeline
+    /// Conventional modes use their sole client Link. P2P uses the maximum required delay across
+    /// all connected peer Links so that one tick-indexed local input stream is safe for every peer.
+    /// Returns `false` when the topology has no complete set of ready Link statistics.
+    pub(crate) fn recompute_input_delay(
+        &mut self,
+        config: &InputTimelineConfig,
+        topology: &NetworkTopology,
+        links: &Query<&Link>,
+        tick_duration: Duration,
+    ) -> bool {
+        let delay_for = |entity| {
+            links.get(entity).ok().map(|link| {
+                config
+                    .input_delay_config
+                    .input_delay_ticks(link.stats, &config.sync, tick_duration)
+            })
+        };
+        let input_delay_ticks = match topology {
+            NetworkTopology::Client(entity) => delay_for(*entity),
+            NetworkTopology::HostClient { client, .. } => delay_for(*client),
+            NetworkTopology::P2P { connected, .. } if !connected.is_empty() => connected
+                .iter()
+                .try_fold(0, |maximum, entity| Some(maximum.max(delay_for(*entity)?))),
+            NetworkTopology::Undefined
+            | NetworkTopology::Server(_)
+            | NetworkTopology::P2P { .. }
+            | NetworkTopology::Invalid(_) => None,
+        };
+        let Some(input_delay_ticks) = input_delay_ticks else {
+            return false;
+        };
+        self.input_delay_ticks = input_delay_ticks;
+        true
+    }
+}
+
+impl TimelineSync for LocalTimelineSync {
+    type Config = InputTimelineConfig;
+
+    fn sync_context(&mut self) -> &mut SyncContext {
+        &mut self.controller
+    }
+
+    fn sync_config(config: &Self::Config) -> &SyncConfig {
+        &config.sync
+    }
+
+    /// Compute the desired local simulation instant.
+    ///
+    /// The local simulation runs far enough ahead of the remote timeline for inputs to arrive,
+    /// with RTT and jitter margins. Input delay reduces that required clock lead because inputs are
+    /// assigned to later ticks without advancing the simulation clock itself.
     fn sync_objective<T: SyncTargetTimeline>(
         &self,
         remote: &T,
@@ -297,7 +576,7 @@ impl SyncedTimeline for InputTimeline {
                 .jitter_margin(ping_manager.jitter(), tick_duration),
             tick_duration,
         );
-        let input_delay: TickDelta = Tick(self.context.input_delay_ticks as u32).into();
+        let input_delay: TickDelta = Tick(self.input_delay_ticks as u32).into();
         let sync_error_margin = TickDelta::from_duration(
             tick_duration.mul_f32(config.sync.error_margin),
             tick_duration,
@@ -319,75 +598,22 @@ impl SyncedTimeline for InputTimeline {
             ?jitter_margin,
             ?sync_error_margin,
             ?input_delay,
-            "InputTimeline objective: {:?}",
+            "LocalTimeline sync objective: {:?}",
             obj
         );
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> i32 {
-        let now = self.now();
-        self.now = sync_objective;
+    fn resync(&mut self, now: TickInstant, sync_objective: TickInstant) -> i32 {
         (sync_objective - now).to_i32()
-    }
-
-    /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
-    ///
-    /// Most of the times this will just be slight nudges to modify the speed of the [`SyncedTimeline`].
-    /// If there's a big discrepancy, we will snap the [`SyncedTimeline`] to the [`RemoteTimeline`] by sending a SyncEvent
-    ///
-    /// [`RemoteTimeline`]: super::remote::RemoteTimeline
-    fn sync<T: SyncTargetTimeline>(
-        &mut self,
-        main: &T,
-        config: &Self::Config,
-        ping_manager: &PingManager,
-        tick_duration: Duration,
-    ) -> Option<i32> {
-        // skip syncing if we haven't received enough information
-        if ping_manager.latency_samples_recv() < config.sync.handshake_pings as u32 {
-            return None;
-        }
-        let now = self.now();
-        let objective = self.sync_objective(main, config, ping_manager, tick_duration);
-        let error = now - objective;
-        let error_ticks = error.to_f32();
-        let adjustment = if !self.is_synced {
-            SyncAdjustment::Resync
-        } else {
-            self.sync.speed_adjustment(&config.sync, error_ticks)
-        };
-        trace!(
-            ?now,
-            ?objective,
-            ?adjustment,
-            ?error_ticks,
-            error_margin = ?config.sync.error_margin,
-            max_error_margin = ?config.sync.max_error_margin,
-            "InputTimeline sync"
-        );
-        self.is_synced = true;
-        match adjustment {
-            SyncAdjustment::Resync => {
-                return Some(self.resync(objective));
-            }
-            SyncAdjustment::SpeedAdjust(ratio) => {
-                self.set_relative_speed(ratio);
-            }
-            SyncAdjustment::DoNothing => {
-                // within acceptable margins, gradually return to normal speed (1.0)
-                let current = self.relative_speed();
-                if (current - 1.0).abs() > 0.001 {
-                    let new_speed = current + (1.0 - current) * 0.1;
-                    self.set_relative_speed(new_speed);
-                }
-            }
-        }
-        None
     }
 
     fn is_synced(&self) -> bool {
         self.is_synced
+    }
+
+    fn set_synced(&mut self, synced: bool) {
+        self.is_synced = synced;
     }
 
     fn relative_speed(&self) -> f32 {
@@ -399,11 +625,10 @@ impl SyncedTimeline for InputTimeline {
     }
 
     fn reset(&mut self) {
-        trace!("Resetting InputTimeline");
+        trace!("Resetting LocalTimelineSync");
+        self.controller = SyncContext::default();
         self.is_synced = false;
         self.relative_speed = 1.0;
-        self.now = Default::default();
-        // TODO: also reset tick duration?
     }
 }
 
@@ -411,6 +636,7 @@ impl SyncedTimeline for InputTimeline {
 mod tests {
     use super::*;
     use crate::timeline::remote::RemoteTimeline;
+    use bevy_app::{App, Update};
     use bevy_utils::default;
     use lightyear_core::timeline::NetworkTimeline;
 
@@ -422,8 +648,78 @@ mod tests {
         );
     }
 
+    #[derive(Resource, Default)]
+    struct SyncedParamRuns(u8);
+
     #[test]
-    fn input_timeline_objective_preserves_margin_after_sync_deadband() {
+    fn prediction_window_wait_uses_hysteresis() {
+        let mut wait = PredictionWindowWait::default();
+
+        assert!(!wait.update(Tick(100), None, 4));
+        assert!(!wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 0);
+
+        assert!(wait.update(Tick(104), None, 4));
+        assert!(wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 4);
+
+        // One newly confirmed tick is not enough to resume and immediately hit the limit again.
+        assert!(!wait.update(Tick(104), Some(Tick(101)), 4));
+        assert!(wait.is_waiting());
+
+        // Two ticks of recovered headroom release the wait.
+        assert!(wait.update(Tick(104), Some(Tick(102)), 4));
+        assert!(!wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 2);
+    }
+
+    #[test]
+    fn zero_prediction_window_can_bootstrap_then_wait_for_future_input() {
+        let mut wait = PredictionWindowWait::default();
+
+        // The first fixed tick is allowed to capture and send the initial local input sample.
+        assert!(!wait.update(Tick(20), None, 0));
+        assert!(wait.update(Tick(21), None, 0));
+        assert!(wait.is_waiting());
+
+        // A zero-sized window cannot require future input beyond the current tick, or every peer
+        // could wait forever. Confirming the current tick releases this degenerate case.
+        assert!(wait.update(Tick(21), Some(Tick(21)), 0));
+        assert!(!wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 0);
+    }
+
+    #[test]
+    fn synced_local_timeline_checks_local_sync_readiness() {
+        fn require_synced_timeline(
+            timeline: SyncedLocalTimeline,
+            mut runs: ResMut<SyncedParamRuns>,
+        ) {
+            assert_eq!(timeline.current_tick(), timeline.tick());
+            assert_eq!(timeline.input_delay(), 3);
+            runs.0 += 1;
+        }
+
+        let mut app = App::new();
+        app.init_resource::<LocalTimeline>();
+        app.init_resource::<LocalTimelineSync>();
+        app.init_resource::<SyncedParamRuns>();
+        app.add_systems(Update, require_synced_timeline);
+
+        app.update();
+        assert_eq!(app.world().resource::<SyncedParamRuns>().0, 0);
+
+        let mut sync = app.world_mut().resource_mut::<LocalTimelineSync>();
+        sync.input_delay_ticks = 3;
+        sync.set_synced(true);
+        drop(sync);
+
+        app.update();
+        assert_eq!(app.world().resource::<SyncedParamRuns>().0, 1);
+    }
+
+    #[test]
+    fn local_timeline_objective_preserves_margin_after_sync_deadband() {
         let tick_duration = Duration::from_millis(10);
         let mut remote = RemoteTimeline::default();
         remote.set_now(TickInstant::from(Tick(100)));
@@ -437,8 +733,12 @@ mod tests {
         config.sync.jitter_margin = 1.0;
         config.sync.error_margin = 0.75;
 
-        let objective =
-            InputTimeline::default().sync_objective(&remote, &config, &ping_manager, tick_duration);
+        let objective = LocalTimelineSync::default().sync_objective(
+            &remote,
+            &config,
+            &ping_manager,
+            tick_duration,
+        );
 
         // remote 100 + RTT/2 2 ticks + jitter margin 2 ticks
         // + server input pipeline 1 tick + controller deadband 0.75 ticks.
@@ -452,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn input_delay_still_offsets_input_timeline_objective() {
+    fn input_delay_still_offsets_local_timeline_objective() {
         let tick_duration = Duration::from_millis(10);
         let mut remote = RemoteTimeline::default();
         remote.set_now(TickInstant::from(Tick(100)));
@@ -467,8 +767,8 @@ mod tests {
         config.sync.jitter_margin = 1.0;
         config.sync.error_margin = 0.75;
 
-        let mut timeline = InputTimeline::default();
-        timeline.context.input_delay_ticks = 2;
+        let mut timeline = LocalTimelineSync::default();
+        timeline.input_delay_ticks = 2;
 
         let objective = timeline.sync_objective(&remote, &config, &ping_manager, tick_duration);
 
@@ -506,8 +806,8 @@ mod tests {
             "test premise: error_margin is at least 1 tick"
         );
 
-        let mut timeline = InputTimeline::default();
-        timeline.context.input_delay_ticks = 2;
+        let mut timeline = LocalTimelineSync::default();
+        timeline.input_delay_ticks = 2;
         let objective = timeline.sync_objective(&remote, &config, &ping_manager, tick_duration);
 
         // Controller may legitimately let `local - objective` reach
@@ -527,6 +827,52 @@ mod tests {
              PreUpdate and advancing in FixedFirst, so the packet must contain \
              input for at least {required_input_tick:?} (= remote + 1).",
         );
+    }
+
+    #[test]
+    fn p2p_input_delay_uses_maximum_across_links() {
+        let mut app = App::new();
+        let mut fast_link = Link::default();
+        fast_link.stats.rtt = Duration::from_millis(10);
+        let fast = app.world_mut().spawn(fast_link).id();
+        let mut slow_link = Link::default();
+        slow_link.stats.rtt = Duration::from_millis(50);
+        let slow = app.world_mut().spawn(slow_link).id();
+
+        let mut metadata = NetworkingMetadata::default();
+        metadata.mode = NetworkTopology::P2P {
+            connected: [fast, slow].into_iter().collect(),
+            declared_links: 2,
+        };
+        app.insert_resource(metadata);
+        app.insert_resource(TickDuration(Duration::from_millis(10)));
+        let mut config =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced());
+        config.sync.jitter_multiple = 0;
+        config.sync.jitter_margin = 0.0;
+        app.insert_resource(config);
+        app.init_resource::<LocalTimelineSync>();
+        app.add_systems(
+            Update,
+            |mut timeline: ResMut<LocalTimelineSync>,
+             config: Res<InputTimelineConfig>,
+             metadata: Res<NetworkingMetadata>,
+             links: Query<&Link>,
+             tick_duration: Res<TickDuration>| {
+                assert!(timeline.recompute_input_delay(
+                    &config,
+                    &metadata.mode,
+                    &links,
+                    tick_duration.0,
+                ));
+            },
+        );
+
+        app.update();
+
+        // The 10ms Link needs one delayed tick, while the 50ms Link reaches the balanced
+        // configuration's three-tick pre-prediction cap. The global delay must satisfy both.
+        assert_eq!(app.world().resource::<LocalTimelineSync>().input_delay(), 3);
     }
 
     #[test]

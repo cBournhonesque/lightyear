@@ -5,9 +5,10 @@
 //! 2. Rollback to a past local state and replay the simulation
 
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
-use crate::{Predicted, SyncComponent};
+use crate::{Predicted, SyncComponent, manager::PredictionManager};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
+use bevy_ecs::resource::IsResource;
 use bevy_reflect::Reflect;
 use bevy_replicon::shared::replication::diff::{DiffBuffer, Diffable as RepliconDiffable};
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
@@ -17,7 +18,7 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, SyncEvent};
+use lightyear_core::timeline::LocalTimelineShift;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::prelude::InputTimelineConfig;
@@ -92,13 +93,21 @@ impl<C> PredictionHistory<C> {
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
+    manager: Res<PredictionManager>,
+    input_config: Res<InputTimelineConfig>,
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
+    let oldest_rollback_tick = tick
+        - u32::from(
+            manager
+                .rollback_policy
+                .effective_max_rollback_ticks(&input_config),
+        );
 
-    // update history if the predicted component changed
+    // Update history if the predicted component changed, then prune it.
     for (entity, component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
@@ -119,40 +128,39 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
                 "recorded predicted component history"
             );
         }
+        history.clear_until_tick(oldest_rollback_tick);
     }
 }
 
-/// If there is a TickEvent and the client tick suddenly changes, we need
-/// to update the ticks in the history buffer.
-pub(crate) fn handle_tick_event_prediction_history<C: Component>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+/// Shift locally indexed prediction history when the local simulation clock jumps.
+pub(crate) fn handle_local_timeline_shift_prediction_history<C: Component>(
+    trigger: On<LocalTimelineShift>,
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
-        history.update_ticks(trigger.tick_delta);
+        history.update_ticks(trigger.delta);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "prediction_history_tick_delta",
             schedule = "PostUpdate",
             sample_point = "PostUpdate",
-            entity = ?trigger.entity,
             component = ?DebugName::type_name::<C>(),
-            tick_delta = trigger.tick_delta,
+            tick_delta = trigger.delta,
             history_len = history.len(),
             "shifted prediction history ticks"
         );
     }
 }
 
-pub(crate) fn handle_tick_event_history_diff_receiver<C: RepliconDiffable>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+pub(crate) fn handle_local_timeline_shift_history_diff_receiver<C: RepliconDiffable>(
+    trigger: On<LocalTimelineShift>,
     mut storage: ResMut<ReplicationStorage>,
 ) {
     for (entity, entity_storage) in storage.entities.iter_mut() {
         let Some(receiver) = entity_storage.get_mut::<HistoryDiffReceiver<C>>() else {
             continue;
         };
-        receiver.update_ticks(trigger.tick_delta);
+        receiver.update_ticks(trigger.delta);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "confirmed_history_diff_receiver_tick_delta",
@@ -160,7 +168,7 @@ pub(crate) fn handle_tick_event_history_diff_receiver<C: RepliconDiffable>(
             sample_point = "PostUpdate",
             entity = ?entity,
             component = ?DebugName::type_name::<C>(),
-            tick_delta = trigger.tick_delta,
+            tick_delta = trigger.delta,
             "shifted confirmed history diff receiver ticks"
         );
     }
@@ -214,9 +222,13 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     }
 }
 
-/// When any of `C`, [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`],
-/// or [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`]
-/// is present, and if `C` has just been applied via an init message on a
+/// When `C` or one of [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`], or
+/// [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`] is present for predicted
+/// entities and resource entities. [`IsResource`] is an eligibility check rather than a trigger:
+/// `Add<C>` already fires when a resource is inserted, and triggering on every `IsResource`
+/// addition would wake this observer for unrelated resource types.
+///
+/// If `C` has just been applied via an init message on a
 /// marker that receives confirmed state, seed [`ConfirmedHistory<C>`] at the
 /// server tick that produced the init.
 ///
@@ -251,15 +263,18 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
         Has<PreSpawned>,
         Has<DeterministicPredicted>,
         Has<CatchUpGated>,
+        Has<IsResource>,
     )>,
     mut commands: Commands,
 ) {
-    let Ok((has_component, predicted, prespawned, deterministic, catchup_gated)) =
+    let Ok((has_component, predicted, prespawned, deterministic, catchup_gated, is_resource)) =
         query.get(trigger.entity)
     else {
         return;
     };
-    if !catchup_gated && !(has_component && (predicted || prespawned || deterministic)) {
+    if !catchup_gated
+        && !(has_component && (predicted || prespawned || deterministic || is_resource))
+    {
         return;
     }
     let should_seed_confirmed_history = has_component && (catchup_gated || predicted || prespawned);
@@ -379,13 +394,16 @@ pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
 
 /// During rollback re-simulation, check if we have a confirmed value for this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
+///
+/// [`PredictionSystems::SnapToConfirmed`](crate::plugin::PredictionSystems::SnapToConfirmed) gates
+/// this system with [`is_in_rollback`](lightyear_core::timeline::is_in_rollback), so the global
+/// [`Rollback`](lightyear_core::timeline::Rollback) resource does not need to be fetched by every
+/// monomorphized component system.
 pub(crate) fn snap_to_confirmed_during_rollback<
     C: Component<Mutability = Mutable> + Clone + PartialEq + Debug,
 >(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    // Only run during rollback
-    rollback: Single<&Rollback>,
     mut query: Query<(Entity, Option<&mut C>, &ConfirmedHistory<C>), With<Predicted>>,
 ) {
     let tick = timeline.tick();
@@ -465,12 +483,13 @@ pub(crate) fn snap_to_confirmed_during_rollback<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::StateRollbackMetadata;
+    use crate::manager::{RollbackPolicy, StateRollbackMetadata};
     use bevy_app::{App, Update};
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
+    use lightyear_sync::timeline::input::InputDelayConfig;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Clone, PartialEq, Debug)]
+    #[derive(Component, Clone, PartialEq, Debug)]
     struct TestValue(f32);
 
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -506,6 +525,51 @@ mod tests {
         let has_tick_9 = history.buffer().iter().any(|(t, _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
+    }
+
+    fn prediction_history_test_app(
+        max_rollback_ticks: u16,
+        input_delay_config: InputDelayConfig,
+        tick: i32,
+    ) -> App {
+        let mut app = App::new();
+        let mut timeline = LocalTimeline::default();
+        timeline.apply_delta(tick);
+        app.insert_resource(timeline);
+        app.insert_resource(PredictionManager {
+            rollback_policy: RollbackPolicy {
+                max_rollback_ticks,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
+        app
+    }
+
+    #[test]
+    fn prediction_history_is_pruned_to_effective_rollback_horizon() {
+        let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 100);
+        app.add_systems(Update, update_prediction_history::<TestValue>);
+
+        let mut history = PredictionHistory::default();
+        for tick in [90, 95, 100] {
+            history.add_predicted(Tick(tick), Some(TestValue(tick as f32)));
+        }
+        let entity = app.world_mut().spawn((TestValue(100.0), history)).id();
+
+        app.update();
+
+        let history = app
+            .world()
+            .get::<PredictionHistory<TestValue>>(entity)
+            .unwrap();
+        assert_eq!(history.oldest().unwrap().0, Tick(93));
+        assert_eq!(
+            history.get(Tick(93)),
+            Some(&TestValue(90.0)),
+            "balanced input delay should cap the 20-tick policy at 7 ticks"
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::client::{Client, Disconnected, Disconnecting, PeerMetadata};
+use crate::client::{Disconnected, DisconnectedReason, Disconnecting, PeerMetadata};
 use crate::client_of::ClientOf;
 use bevy_app::{App, Last, Plugin};
 use bevy_ecs::lifecycle::HookContext;
@@ -35,7 +35,10 @@ pub struct Stop {
 }
 
 #[derive(Component)]
-#[component(on_add = Starting::on_add)]
+#[component(
+    on_add = Starting::on_add,
+    on_despawn = clear_server_mapping_on_despawn
+)]
 pub struct Starting;
 
 impl Starting {
@@ -49,7 +52,10 @@ impl Starting {
 }
 
 #[derive(Component, Event, Reflect)]
-#[component(on_add = Started::on_add)]
+#[component(
+    on_add = Started::on_add,
+    on_despawn = clear_server_mapping_on_despawn
+)]
 pub struct Started;
 
 impl Started {
@@ -67,7 +73,10 @@ impl Started {
 }
 
 #[derive(Component, Event, Reflect)]
-#[component(on_add = Stopping::on_add)]
+#[component(
+    on_add = Stopping::on_add,
+    on_despawn = clear_server_mapping_on_despawn
+)]
 pub struct Stopping;
 
 impl Stopping {
@@ -81,15 +90,15 @@ impl Stopping {
 }
 
 #[derive(Component, Event, Reflect)]
-#[component(on_add = Stopped::on_add)]
+#[component(
+    on_add = Stopped::on_add,
+    on_despawn = clear_server_mapping_on_despawn
+)]
 pub struct Stopped;
 
 impl Stopped {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        world
-            .resource_mut::<PeerMetadata>()
-            .mapping
-            .remove(&PeerId::Server);
+        clear_server_mapping(&mut world.resource_mut::<PeerMetadata>(), context.entity);
         trace!("Stopped added: removing Started/Starting");
         world
             .commands()
@@ -140,34 +149,102 @@ impl ConnectionPlugin {
             // Set to Disconnected before despawning to trigger observers
             commands
                 .entity(entity)
-                .insert(Disconnected { reason: None })
+                .insert(Disconnected {
+                    reason: DisconnectedReason::UserRequested(None),
+                })
                 .despawn();
         }
     }
 }
 
-/// RunCondition to check if the app is a server.
-///
-/// Note that the app could also have a host-client
-pub fn is_server(server_query: Query<(), With<Server>>) -> bool {
-    server_query.single().is_ok()
+fn clear_server_mapping(metadata: &mut PeerMetadata, entity: Entity) {
+    if metadata.mapping.get(&PeerId::Server) == Some(&entity) {
+        metadata.mapping.remove(&PeerId::Server);
+    }
 }
 
-/// RunCondition to check if the app is a headless server:
-/// - there is an entity with the `Server` component
-/// - there are no entities with the `Client` component
-pub fn is_headless_server(
-    server_query: Query<(), With<Server>>,
-    query: Query<(), With<Client>>,
-) -> bool {
-    server_query.single().is_ok() && query.is_empty()
+fn clear_server_mapping_on_despawn(mut world: DeferredWorld, context: HookContext) {
+    clear_server_mapping(&mut world.resource_mut::<PeerMetadata>(), context.entity);
 }
+
+#[deprecated(note = "Use `crate::identity::is_server` instead")]
+pub use crate::identity::is_server;
+
+#[deprecated(note = "Use `crate::identity::is_headless_server` instead")]
+pub use crate::identity::is_headless_server;
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(Self::start);
         app.add_observer(Self::stop_if_link_fails);
         app.add_systems(Last, Self::disconnect);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Started, Stopped, Stopping};
+    use crate::client::PeerMetadata;
+    use bevy_app::App;
+    use lightyear_core::id::PeerId;
+    use lightyear_link::server::Server;
+
+    #[test]
+    fn server_mapping_is_cleared_when_stopped() {
+        let mut app = App::new();
+        app.init_resource::<PeerMetadata>();
+        let server = app.world_mut().spawn((Server::default(), Started)).id();
+
+        assert_eq!(
+            app.world()
+                .resource::<PeerMetadata>()
+                .mapping
+                .get(&PeerId::Server),
+            Some(&server)
+        );
+
+        app.world_mut().entity_mut(server).insert(Stopping);
+
+        assert_eq!(
+            app.world()
+                .resource::<PeerMetadata>()
+                .mapping
+                .get(&PeerId::Server),
+            Some(&server)
+        );
+
+        app.world_mut().entity_mut(server).insert(Stopped);
+
+        assert!(
+            !app.world()
+                .resource::<PeerMetadata>()
+                .mapping
+                .contains_key(&PeerId::Server)
+        );
+    }
+
+    #[test]
+    fn despawned_server_clears_peer_metadata() {
+        let mut app = App::new();
+        app.init_resource::<PeerMetadata>();
+        let server = app.world_mut().spawn((Server::default(), Started)).id();
+
+        assert_eq!(
+            app.world()
+                .resource::<PeerMetadata>()
+                .mapping
+                .get(&PeerId::Server),
+            Some(&server)
+        );
+
+        app.world_mut().despawn(server);
+
+        assert!(
+            !app.world()
+                .resource::<PeerMetadata>()
+                .mapping
+                .contains_key(&PeerId::Server)
+        );
     }
 }
 

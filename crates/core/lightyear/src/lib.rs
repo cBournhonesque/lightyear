@@ -395,6 +395,11 @@ pub mod connection {
     pub use lightyear_connection::*;
 }
 
+#[cfg(feature = "p2p")]
+pub mod p2p {
+    pub use lightyear_p2p::*;
+}
+
 pub mod utils {
     pub use lightyear_utils::*;
 }
@@ -407,6 +412,8 @@ pub mod prelude {
     pub use lightyear_messages::prelude::*;
     #[cfg(feature = "metrics")]
     pub use lightyear_metrics::prelude::*;
+    #[cfg(feature = "p2p")]
+    pub use lightyear_p2p::prelude::*;
     #[cfg(feature = "replication")]
     pub use lightyear_replication::prelude::*;
     pub use lightyear_serde::prelude::*;

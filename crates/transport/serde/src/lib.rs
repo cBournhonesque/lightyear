@@ -12,7 +12,7 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 extern crate std;
 
 use crate::reader::{ReadInteger, ReadVarInt, Reader};
@@ -22,9 +22,11 @@ use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::hash::{BuildHasher, Hash};
 use no_std_io2::io;
+use smallvec::{Array, SmallVec};
 
 /// Utilities for mapping entities during serialization and deserialization.
 pub mod entity_map;
+mod postcard_utils;
 /// Provides the [`Reader`] struct and traits for deserializing data from a byte stream.
 pub mod reader;
 /// Defines traits and structures for registering serializable types.
@@ -58,9 +60,7 @@ pub enum SerializationError {
     #[error("Subtraction overflow")]
     SubtractionOverflow,
     #[error(transparent)]
-    BincodeEncode(#[from] bincode::error::EncodeError),
-    #[error(transparent)]
-    BincodeDecode(#[from] bincode::error::DecodeError),
+    Postcard(#[from] postcard::Error),
 }
 
 /// Trait for types that can be serialized to and deserialized from a byte stream.
@@ -132,7 +132,7 @@ impl ToBytes for Bytes {
         Self: Sized,
     {
         let len = buffer.read_varint()? as usize;
-        let bytes = buffer.split_len(len);
+        let bytes = buffer.split_len(len)?;
         Ok(bytes)
     }
 }
@@ -227,6 +227,36 @@ impl<M: ToBytes> ToBytes for Vec<M> {
     }
 }
 
+impl<A> ToBytes for SmallVec<A>
+where
+    A: Array,
+    A::Item: ToBytes,
+{
+    // Match Vec's framing exactly so changing an in-memory collection to SmallVec does not change
+    // the wire format.
+    fn bytes_len(&self) -> usize {
+        varint_len(self.len() as u64) + self.iter().map(ToBytes::bytes_len).sum::<usize>()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        buffer.write_varint(self.len() as u64)?;
+        self.iter().try_for_each(|item| item.to_bytes(buffer))?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        let len = buffer.read_varint()? as usize;
+        let mut values = SmallVec::with_capacity(len);
+        for _ in 0..len {
+            values.push(A::Item::from_bytes(buffer)?);
+        }
+        Ok(values)
+    }
+}
+
 impl<K: ToBytes + Eq + Hash, V: ToBytes, S: Default + BuildHasher> ToBytes for HashMap<K, V, S> {
     fn bytes_len(&self) -> usize {
         varint_len(self.len() as u64)
@@ -275,9 +305,19 @@ mod tests {
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let read = Bytes::from_bytes(&mut reader).unwrap();
         assert_eq!(a, read);
+    }
+
+    #[test]
+    fn test_deserialize_truncated_bytes_returns_error() {
+        let mut writer = Writer::default();
+        writer.write_varint(10).unwrap();
+        writer.extend_from_slice(&[7]);
+
+        let mut reader = Reader::from(writer.into_bytes());
+        assert!(Bytes::from_bytes(&mut reader).is_err());
     }
 
     #[test]
@@ -288,11 +328,28 @@ mod tests {
         let b: Vec<u8> = vec![];
         b.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let a_read = Vec::<u8>::from_bytes(&mut reader).unwrap();
         let b_read = Vec::<u8>::from_bytes(&mut reader).unwrap();
         assert_eq!(a, a_read);
         assert_eq!(b, b_read);
+    }
+
+    #[test]
+    fn smallvec_uses_vec_wire_format() {
+        let vec = (0..6_u8).collect::<Vec<_>>();
+        let small = SmallVec::<[u8; 4]>::from_vec(vec.clone());
+
+        let mut vec_writer = Writer::default();
+        vec.to_bytes(&mut vec_writer).unwrap();
+        let mut small_writer = Writer::default();
+        small.to_bytes(&mut small_writer).unwrap();
+        let vec_bytes = vec_writer.into_bytes();
+        let small_bytes = small_writer.into_bytes();
+        assert_eq!(vec_bytes, small_bytes);
+
+        let mut reader = Reader::from(small_bytes);
+        assert_eq!(SmallVec::<[u8; 4]>::from_bytes(&mut reader).unwrap(), small);
     }
 
     #[test]
@@ -303,7 +360,7 @@ mod tests {
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let read = HashMap::<u8, u8>::from_bytes(&mut reader).unwrap();
         assert_eq!(a, read);
     }
@@ -318,7 +375,7 @@ mod tests {
         b.to_bytes(&mut writer).unwrap();
         c.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let read_a = Entity::from_bytes(&mut reader).unwrap();
         let read_b = Entity::from_bytes(&mut reader).unwrap();
         let read_c = Entity::from_bytes(&mut reader).unwrap();

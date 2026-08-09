@@ -27,10 +27,6 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_connected);
         app.add_observer(movement);
         app.add_systems(Update, (tick_timers, update_props).chain());
-        app.add_systems(
-            PostUpdate,
-            update_priority_maps.before(ReplicationSystems::Send),
-        );
     }
 }
 
@@ -51,23 +47,18 @@ pub(crate) fn setup(mut commands: Commands) {
     for x in -GRID_RADIUS..=GRID_RADIUS {
         for y in -GRID_RADIUS..=GRID_RADIUS {
             let position = Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE));
-            let mut entity = commands.spawn((
+            let priority = match y.abs() {
+                0 => LOW_PROP_PRIORITY,
+                1 => MEDIUM_PROP_PRIORITY,
+                _ => HIGH_PROP_PRIORITY,
+            };
+            commands.spawn((
                 position,
                 Shape::Circle,
                 ShapeChangeTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
+                ReplicatePriority(priority),
                 Replicate::to_clients(NetworkTarget::All),
             ));
-            match y.abs() {
-                0 => {
-                    entity.insert(LowPriority);
-                }
-                1 => {
-                    entity.insert(MediumPriority);
-                }
-                _ => {
-                    entity.insert(HighPriority);
-                }
-            }
         }
     }
 }
@@ -172,34 +163,6 @@ pub(crate) fn update_props(mut props: Query<(&mut Shape, &ShapeChangeTimer)>) {
             } else if shape.deref() == &Shape::Square {
                 *shape = Shape::Circle;
             }
-        }
-    }
-}
-
-fn update_priority_maps(
-    props: Query<
-        (
-            Entity,
-            Has<HighPriority>,
-            Has<MediumPriority>,
-            Has<LowPriority>,
-        ),
-        With<Shape>,
-    >,
-    mut clients: Query<&mut PriorityMap, With<ClientOf>>,
-) {
-    for mut priority_map in &mut clients {
-        for (entity, high_priority, medium_priority, low_priority) in &props {
-            let priority = if high_priority {
-                HIGH_PROP_PRIORITY
-            } else if medium_priority {
-                MEDIUM_PROP_PRIORITY
-            } else if low_priority {
-                LOW_PROP_PRIORITY
-            } else {
-                continue;
-            };
-            priority_map.insert(entity, priority);
         }
     }
 }

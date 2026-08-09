@@ -33,7 +33,7 @@ fn add_steam_server_io(stepper: &mut ClientServerStepper) {
 #[ignore]
 fn test_steam_server_with_netcode_server() {
     // the server will have both SteamServerIo and NetcodeServerIo
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::from_link_types(
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::from_connection_types(
         vec![ClientType::Steam, ClientType::Netcode],
         ServerType::Netcode,
     ));

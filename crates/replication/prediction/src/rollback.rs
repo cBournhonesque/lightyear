@@ -36,9 +36,7 @@ use super::predicted_history::PredictionHistory;
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
-use crate::manager::{
-    LastConfirmedInput, PredictionManager, PredictionResource, RollbackMode, StateRollbackMetadata,
-};
+use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, StateRollbackMetadata};
 use crate::plugin::PredictionSystems;
 use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
@@ -56,8 +54,7 @@ use bevy_replicon::shared::backend::channels::ServerChannel;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_connection::client::{Client, Connected};
-use lightyear_connection::host::HostClient;
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
@@ -67,9 +64,10 @@ use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
-use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
+use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
-use lightyear_utils::metrics::TimerGauge;
+use lightyear_utils::timer_gauge;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
@@ -98,7 +96,7 @@ pub enum RollbackSystems {
     Rollback,
     /// Logic that returns right after the rollback is done:
     /// - Setting the VisualCorrection
-    /// - Removing the Rollback component
+    /// - Removing the [`Rollback`] resource
     EndRollback,
 
     // PostUpdate
@@ -115,7 +113,17 @@ struct NoRollbackCheckTargets;
 impl Plugin for RollbackPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
+        // `PredictionPlugin` can also be installed directly in small or test applications without
+        // the full Lightyear plugin group. Keep the cached topology available to the common
+        // rollback pipeline in those applications too.
+        app.init_resource::<NetworkingMetadata>();
         app.init_resource::<StateRollbackMetadata>();
+        // Input-only prediction does not install the replication backend. Empty registries and
+        // checkpoint state keep the state-reconciliation branch dormant while allowing the common
+        // rollback decision system to operate on remote inputs.
+        app.init_resource::<ComponentRegistry>();
+        app.init_resource::<ReplicationCheckpointMap>();
+        app.init_resource::<PreSpawnedReceiver>();
 
         // SETS
         app.configure_sets(
@@ -143,7 +151,7 @@ impl Plugin for RollbackPlugin {
         app.add_systems(
             PreUpdate,
             (
-                reset_state_rollback_metadata_if_disconnected.before(RollbackSystems::Check),
+                reset_state_rollback_metadata_on_topology_change.before(RollbackSystems::Check),
                 check_received_replication_messages
                     .after(ClientSystems::ReceivePackets)
                     .before(ClientSystems::Receive),
@@ -226,6 +234,9 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -279,14 +290,7 @@ impl DeterministicPredicted {
         // TODO: avoid fetching DeterministicPredicted twice when we can convert DeferredWorld to UnsafeWorldCell (0.17.3)
         let deterministic_predicted = *world.get::<DeterministicPredicted>(context.entity).unwrap();
         let tick = world.resource::<LocalTimeline>().tick();
-        let Some(prediction_manager_entity) = world
-            .get_resource::<PredictionResource>()
-            .map(|r| r.link_entity)
-        else {
-            return;
-        };
-        let Some(mut manager) = world.get_mut::<PredictionManager>(prediction_manager_entity)
-        else {
+        let Some(mut manager) = world.get_resource_mut::<PredictionManager>() else {
             return;
         };
         if !deterministic_predicted.skip_despawn {
@@ -302,7 +306,7 @@ impl DeterministicPredicted {
 
 /// Marker component to indicate that the entity will be completely excluded from rollbacks.
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Default)]
 pub struct DisableRollback;
 
 #[derive(Component)]
@@ -313,33 +317,26 @@ pub struct DisabledDuringRollback;
 /// Set a flag if we received any replication message this frame.
 /// Also reset the per-frame state.
 fn check_received_replication_messages(
-    client_messages: Res<ClientMessages>,
+    client_messages: Option<Res<ClientMessages>>,
     mut metadata: ResMut<StateRollbackMetadata>,
 ) {
     // Reset per-frame state
     metadata.reset_frame_state();
 
     // Check if we received any replication messages
-    if client_messages.received_count(ServerChannel::Updates) > 0
-        || client_messages.received_count(ServerChannel::Mutations) > 0
-    {
+    if client_messages.is_some_and(|messages| {
+        messages.received_count(ServerChannel::Updates) > 0
+            || messages.received_count(ServerChannel::Mutations) > 0
+    }) {
         metadata.received_messages_this_frame = true;
     }
 }
 
-fn reset_state_rollback_metadata_if_disconnected(
-    query: Query<
-        (),
-        (
-            With<PredictionManager>,
-            With<Client>,
-            With<Connected>,
-            Without<HostClient>,
-        ),
-    >,
+fn reset_state_rollback_metadata_on_topology_change(
+    networking: Res<NetworkingMetadata>,
     mut metadata: ResMut<StateRollbackMetadata>,
 ) {
-    if query.single().is_err() {
+    if networking.is_changed() {
         metadata.reset_connection_state();
     }
 }
@@ -356,18 +353,13 @@ fn check_rollback(
     // we want Query<(&mut PredictionHistory<C>, &Confirmed<C>), With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<(&ConfirmHistory, FilteredEntityMut)>,
-    timeline: Res<LocalTimeline>,
+    timeline: SyncedLocalTimeline,
+    input_config: Res<InputTimelineConfig>,
+    last_confirmed_input: Res<LastConfirmedInput>,
+    mut prediction_manager: ResMut<PredictionManager>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    receiver_query: Single<
-        (
-            Entity,
-            Option<&LastConfirmedInput>,
-            &mut PredictionManager,
-            &mut PreSpawnedReceiver,
-        ),
-        (With<IsSynced<InputTimeline>>, Without<HostClient>),
-    >,
+    mut prespawned_receiver: ResMut<PreSpawnedReceiver>,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
     awaiting_catchup: Query<(), (With<CatchUpGated>, With<ConfirmHistory>)>,
@@ -376,12 +368,13 @@ fn check_rollback(
     mut commands: Commands,
 ) {
     #[cfg(feature = "metrics")]
-    let _timer = TimerGauge::new("prediction/rollback/check");
+    let _timer = timer_gauge!("prediction/rollback/check");
 
-    let (manager_entity, last_confirmed_input, mut prediction_manager, mut prespawned_receiver) =
-        receiver_query.into_inner();
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
+    let max_rollback_ticks = prediction_manager
+        .rollback_policy
+        .effective_max_rollback_ticks(&input_config);
 
     // The tick where ALL messages have been received (guaranteed complete information).
     // Explicit mismatch checks can exist before this is known, so don't return early.
@@ -392,7 +385,6 @@ fn check_rollback(
                             prediction_manager: &PredictionManager,
                             commands: &mut Commands,
                             rollback: Rollback| {
-        let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
         let delta = tick - rollback_tick;
         if delta < 0 || delta > max_rollback_ticks as i32 {
             warn!(
@@ -405,7 +397,6 @@ fn check_rollback(
                 kind = "rollback_rejected",
                 schedule = "PreUpdate",
                 sample_point = "PreUpdate",
-                entity = ?manager_entity,
                 local_tick = tick.0,
                 rollback_tick = rollback_tick.0,
                 rollback_delta = delta,
@@ -417,13 +408,12 @@ fn check_rollback(
             return;
         }
         prediction_manager.set_rollback_tick(rollback_tick);
-        commands.entity(manager_entity).insert(rollback);
+        commands.insert_resource(rollback);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "rollback_requested",
             schedule = "PreUpdate",
             sample_point = "PreUpdate",
-            entity = ?manager_entity,
             local_tick = tick.0,
             rollback_tick = rollback_tick.0,
             rollback_delta = delta,
@@ -574,7 +564,8 @@ fn check_rollback(
                             "Checking for state-based rollback at completed mutate tick"
                         );
 
-                        predicted_entities.par_iter_mut().for_each(
+                        let predicted_entities = adaptive_for_each_mut!(predicted_entities);
+                        predicted_entities.for_each(
                             |(confirm_history, mut entity_mut)| {
                             if prediction_manager.is_rollback() {
                                 return
@@ -659,14 +650,13 @@ fn check_rollback(
             RollbackMode::Always => {
                 if prediction_manager.is_rollback() {
                     debug!("Rollback was triggered by state, skipping input rollback checks");
-                } else if let Some(last_confirmed_input) = last_confirmed_input
-                    && last_confirmed_input.received_input()
+                } else if last_confirmed_input.received_input()
+                    && let Some(rollback_tick) = last_confirmed_input.previous_frame()
                 {
                     debug!(
                         ?last_confirmed_input,
                         "Rollback because we have received a new remote input. (no mismatch check)"
                     );
-                    let rollback_tick = last_confirmed_input.tick.get();
                     trace!(
                         target: "lightyear_debug::prediction",
                         kind = "input_rollback_always",
@@ -821,21 +811,22 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
-    client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<IsSynced<InputTimeline>>>,
+    _input_timeline: SyncedLocalTimeline,
+    mut last_confirmed_input: ResMut<LastConfirmedInput>,
+    prediction_manager: Option<Res<PredictionManager>>,
 ) {
-    let (last_confirmed_input, prediction_manager) = client.into_inner();
-
     // Reset to u32::MAX so the next `set_if_lower` call always wins and we
     // compute the true minimum across all remote clients for this frame.
-    if let Some(last_confirmed_input) = last_confirmed_input {
-        last_confirmed_input
-            .tick
-            .0
-            .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
-        last_confirmed_input
-            .received_any_messages
-            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    }
+    last_confirmed_input
+        .tick
+        .0
+        .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
+    last_confirmed_input
+        .received_any_messages
+        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    // Each generic input plugin ANDs its own readiness into this value in PostUpdate. Resetting
+    // once here makes the result independent of input-plugin execution order.
+    last_confirmed_input.received_for_all_clients = true;
     if let Some(prediction_manager) = prediction_manager {
         prediction_manager
             .earliest_mismatch_input
@@ -889,10 +880,10 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
         ),
         Without<DisableRollback>,
     >,
-    manager_query: Single<(&PredictionManager, &Rollback)>,
+    manager: Res<PredictionManager>,
+    rollback: Res<Rollback>,
 ) {
     let kind = DebugName::type_name::<C>();
-    let (manager, rollback) = manager_query.into_inner();
     let current_tick = timeline.tick();
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
@@ -903,7 +894,7 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
     for (entity, predicted_component, mut predicted_history, confirmed_history) in
         predicted_query.iter_mut()
     {
-        let is_state_rollback = matches!(rollback, Rollback::FromState);
+        let is_state_rollback = matches!(*rollback, Rollback::FromState);
         let is_completed_state_rollback =
             is_state_rollback && server_confirmed_tick == Some(rollback_tick);
         let is_forced_state_rollback = is_state_rollback && !is_completed_state_rollback;
@@ -939,7 +930,18 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
         // For completed state rollbacks this is the completed mutate tick; for
         // forced state and input rollbacks it may be older than the latest
         // completed mutate tick.
-        predicted_history.clear();
+        //
+        // Discard only the entries the rollback invalidates (strictly newer
+        // than the target): the replay rewrites those from the restored state.
+        // Entries at-or-before the target are still the client's canonical
+        // past — the replay never touches them — and they are exactly what a
+        // later, DEEPER rollback in the same frame window needs as its floor
+        // sample. Clearing the whole buffer here would throw them away, so a
+        // second rollback to an older tick would find no sample at-or-before
+        // its target and fall through to seeding the history with the
+        // current-tick live value — injecting a future value into the past
+        // (permanent divergence, see the Some(stale) class in issue #1511).
+        predicted_history.clear_after_tick(rollback_tick);
         if let Some(state) = restore_state.clone() {
             predicted_history.add_state(rollback_tick, state);
         }
@@ -1050,14 +1052,12 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i32
 
 pub(crate) fn run_rollback(world: &mut World) {
     #[cfg(feature = "metrics")]
-    let _timer = TimerGauge::new("prediction::rollback");
+    let _timer = timer_gauge!("prediction::rollback");
 
     let local_timeline = world.resource_mut::<LocalTimeline>();
     let current_tick = local_timeline.tick();
     let rollback_start_tick = world
-        .query::<&PredictionManager>()
-        .single(world)
-        .unwrap()
+        .resource::<PredictionManager>()
         .get_rollback_start_tick()
         .expect("we should be in rollback");
 
@@ -1174,22 +1174,22 @@ pub(crate) fn run_rollback(world: &mut World) {
 }
 
 pub(crate) fn end_rollback(
-    prediction_manager: Single<(Entity, &PredictionManager), With<Rollback>>,
+    prediction_manager: Res<PredictionManager>,
+    rollback: Res<Rollback>,
     mut commands: Commands,
 ) {
-    let (entity, prediction_manager) = prediction_manager.into_inner();
     let rollback_tick = prediction_manager.get_rollback_start_tick();
     trace!(
         target: "lightyear_debug::prediction",
         kind = "rollback_end",
         schedule = "PreUpdate",
         sample_point = "PreUpdate",
-        entity = ?entity,
+        rollback = ?*rollback,
         rollback_tick = ?rollback_tick,
         "ending rollback"
     );
     prediction_manager.set_non_rollback();
-    commands.entity(entity).remove::<Rollback>();
+    commands.remove_resource::<Rollback>();
 }
 
 #[cfg(feature = "metrics")]
@@ -1240,12 +1240,10 @@ mod tests {
         world.init_resource::<PredictionRegistry>();
         world.init_resource::<ReplicationCheckpointMap>();
 
-        let manager = world
-            .spawn((PredictionManager::default(), Rollback::FromState))
-            .id();
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromState);
         world
-            .get_mut::<PredictionManager>(manager)
-            .unwrap()
+            .resource::<PredictionManager>()
             .set_rollback_tick(rollback_tick);
 
         let mut history = PredictionHistory::<TestComponent>::default();
@@ -1259,6 +1257,73 @@ mod tests {
         assert_eq!(
             world.get::<TestComponent>(predicted),
             Some(&TestComponent(1.0))
+        );
+    }
+
+    /// Rollback churn (two rollbacks in one window, the second deeper than
+    /// the first): the first rollback must discard only the entries it
+    /// invalidates, so the deeper rollback still finds an exact per-tick
+    /// floor sample instead of falling through to seeding the history with
+    /// the current-tick live value — which would inject a future value into
+    /// the past and permanently diverge the replay.
+    #[test]
+    fn test_rollback_preserves_pre_target_history_for_deeper_rollback() {
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        world.init_resource::<ReplicationCheckpointMap>();
+
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromInputs);
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        for tick in [8, 10, 12, 15] {
+            history.add_predicted(Tick(tick), Some(TestComponent(tick as f32)));
+        }
+        let predicted = world.spawn((Predicted, TestComponent(15.0), history)).id();
+
+        // First rollback to tick 12: entries at-or-before 12 are preserved,
+        // strictly newer entries are discarded, and the component restores
+        // to the floor sample at the target.
+        world
+            .resource::<PredictionManager>()
+            .set_rollback_tick(Tick(12));
+        world
+            .run_system_once(prepare_rollback::<TestComponent>)
+            .unwrap();
+
+        let history = world
+            .get::<PredictionHistory<TestComponent>>(predicted)
+            .unwrap();
+        assert_eq!(
+            history.get_state(Tick(8)),
+            Some(&HistoryState::Updated(TestComponent(8.0))),
+            "an entry before the rollback target must be preserved"
+        );
+        assert_eq!(
+            history.get_state(Tick(15)),
+            Some(&HistoryState::Updated(TestComponent(12.0))),
+            "entries newer than the rollback target are discarded (the floor \
+             sample at a later tick is the restored target value)"
+        );
+        assert_eq!(
+            world.get::<TestComponent>(predicted),
+            Some(&TestComponent(12.0)),
+            "the component restores to the floor sample at the rollback target"
+        );
+
+        // Second, DEEPER rollback to tick 8: restores from the preserved
+        // per-tick sample, not from the live post-first-rollback value.
+        world
+            .resource::<PredictionManager>()
+            .set_rollback_tick(Tick(8));
+        world
+            .run_system_once(prepare_rollback::<TestComponent>)
+            .unwrap();
+        assert_eq!(
+            world.get::<TestComponent>(predicted),
+            Some(&TestComponent(8.0)),
+            "the deeper rollback restores the preserved per-tick sample"
         );
     }
 }

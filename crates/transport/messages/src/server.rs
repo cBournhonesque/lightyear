@@ -1,6 +1,6 @@
 use crate::Message;
 use crate::multi::MultiMessageSender;
-use crate::prelude::{MessageReceiver, MessageSender};
+use crate::prelude::MessageSender;
 use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
@@ -11,12 +11,12 @@ use bevy_ecs::{
     error::Result,
     event::Event,
     relationship::RelationshipTarget,
-    system::{Res, SystemParam},
+    system::{Local, Res, SystemParam},
 };
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_connection::network_target::NetworkTarget;
+use lightyear_connection::network_target::{NetworkTarget, NetworkTargetResolver};
 use lightyear_link::prelude::Server;
 use lightyear_transport::channel::Channel;
 
@@ -29,6 +29,7 @@ use lightyear_transport::channel::Channel;
 pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
     sender: MultiMessageSender<'w, 's, F>,
     metadata: Res<'w, PeerMetadata>,
+    resolver: Local<'s, NetworkTargetResolver>,
 }
 
 impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
@@ -52,18 +53,15 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         target: &NetworkTarget,
         priority: Priority,
     ) -> Result {
-        // Resolve the NetworkTarget to concrete entities, then delegate to
-        // MultiMessageSender which handles per-client entity mapping correctly.
-        let mut targets = bevy_ecs::entity::EntityHashSet::default();
-        target.apply_targets(
-            server.collection().iter().copied(),
+        // Resolve the NetworkTarget to concrete entities, then delegate to MultiMessageSender,
+        // which handles per-client entity mapping correctly.
+        let targets = self.resolver.resolve(
+            target,
+            server.collection().as_slice(),
             &self.metadata.mapping,
-            &mut |entity| {
-                targets.insert(entity);
-            },
         );
         self.sender
-            .send_with_priority::<M, C>(message, &targets, priority)
+            .send_with_priority::<M, C>(message, targets, priority)
     }
 
     /// Send a message to a set of  [`ClientOf`]s entities associated with the provided [`Server`]
@@ -92,13 +90,11 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
 impl<M: Message> MessageRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
-            NetworkDirection::ClientToServer => {
-                self.app
-                    .register_required_components::<ClientOf, MessageReceiver<M>>();
-            }
+            NetworkDirection::ClientToServer => {}
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<ClientOf, MessageSender<M>>();
+                    .try_register_required_components::<ClientOf, MessageSender<M>>()
+                    .ok();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);
@@ -112,11 +108,12 @@ impl<M: Event> TriggerRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
             NetworkDirection::ClientToServer => {
-                // empty because we only have a Sender component, not a Receiver component
+                // Immediate events are triggered directly and need no receiver component.
             }
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<ClientOf, EventSender<M>>();
+                    .try_register_required_components::<ClientOf, EventSender<M>>()
+                    .ok();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);

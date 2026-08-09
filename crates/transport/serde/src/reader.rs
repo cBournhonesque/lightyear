@@ -1,216 +1,136 @@
 use crate::SerializationError;
 use crate::varint::varint_parse_len;
-use bytes::Bytes;
-use no_std_io2::io::{Cursor, Error, Read, Result, Seek, SeekFrom};
+use alloc::vec::Vec;
+use bytes::{Buf, Bytes};
+use no_std_io2::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom};
 
-#[cfg(not(feature = "std"))]
-pub use no_std::Reader;
-#[cfg(feature = "std")]
-pub use std::Reader;
+#[derive(Clone)]
+pub struct Reader(Cursor<Bytes>);
 
-#[cfg(feature = "std")]
-pub(crate) mod std {
-    use super::*;
-
-    use alloc::vec::Vec;
-    use bytes::Buf;
-
-    #[derive(Clone)]
-    pub struct Reader(Cursor<Bytes>);
-
-    impl From<Bytes> for Reader {
-        fn from(value: Bytes) -> Self {
-            // TODO: check that this has no cost
-            Self(Cursor::new(value))
-        }
-    }
-
-    impl From<Vec<u8>> for Reader {
-        fn from(value: Vec<u8>) -> Self {
-            Self(Cursor::new(value.into()))
-        }
-    }
-
-    impl Seek for Reader {
-        fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-            self.0.seek(pos)
-        }
-    }
-
-    impl Read for Reader {
-        fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-            self.0.read(buf)
-        }
-    }
-
-    impl AsRef<[u8]> for Reader {
-        fn as_ref(&self) -> &[u8] {
-            self.0.get_ref().as_ref()
-        }
-    }
-
-    impl Reader {
-        /// Returns the underlying RawData
-        pub fn consume(self) -> Bytes {
-            self.0.into_inner()
-        }
-
-        pub fn len(&self) -> usize {
-            self.0.get_ref().len()
-        }
-
-        pub fn is_empty(&self) -> bool {
-            self.len() == 0
-        }
-
-        /// Split of the next `len` bytes from the reader into a separate Bytes.
-        ///
-        /// This doesn't allocate and just increases some reference counts. O(1) cost.
-        pub fn split_len(&mut self, len: usize) -> Bytes {
-            let current_pos = self.0.position() as usize;
-            let new_pos = current_pos + len;
-            // slice off the subset into a separate Bytes
-            let bytes = self.0.get_ref().slice(current_pos..new_pos);
-            // increment the position
-            self.0.set_position(new_pos as u64);
-            bytes
-        }
-
-        /// Return the remaining length of the buffer as a separate Bytes.
-        ///
-        /// This doesn't allocate and just increases some reference counts. O(1) cost.
-        pub fn split(&mut self) -> Bytes {
-            let current_pos = self.0.position() as usize;
-            self.0.get_mut().split_off(current_pos)
-        }
-
-        pub fn has_remaining(&self) -> bool {
-            self.remaining() > 0
-        }
-
-        pub fn position(&self) -> u64 {
-            self.0.position()
-        }
-
-        pub fn set_position(&mut self, pos: u64) {
-            self.0.set_position(pos)
-        }
-
-        pub fn remaining(&self) -> usize {
-            self.0.remaining()
-        }
+#[inline(always)]
+fn saturating_sub_usize_u64(a: usize, b: u64) -> usize {
+    match usize::try_from(b) {
+        Ok(b) => a.saturating_sub(b),
+        Err(_) => 0,
     }
 }
 
-#[cfg(not(feature = "std"))]
-pub(crate) mod no_std {
-    use super::*;
-    use alloc::vec::Vec;
-    use bincode::error::DecodeError;
+impl From<Bytes> for Reader {
+    fn from(value: Bytes) -> Self {
+        // TODO: check that this has no cost
+        Self(Cursor::new(value))
+    }
+}
 
-    #[derive(Clone)]
-    pub struct Reader(Cursor<Bytes>);
+impl From<Vec<u8>> for Reader {
+    fn from(value: Vec<u8>) -> Self {
+        Self(Cursor::new(value.into()))
+    }
+}
 
-    #[inline(always)]
-    fn saturating_sub_usize_u64(a: usize, b: u64) -> usize {
-        use core::convert::TryFrom;
-        match usize::try_from(b) {
-            Ok(b) => a.saturating_sub(b),
-            Err(_) => 0,
-        }
+impl Seek for Reader {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        self.0.seek(pos)
+    }
+}
+
+impl Read for Reader {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl Buf for Reader {
+    fn remaining(&self) -> usize {
+        Reader::remaining(self)
     }
 
-    impl From<Bytes> for Reader {
-        fn from(value: Bytes) -> Self {
-            // TODO: check that this has no cost
-            Self(Cursor::new(value))
-        }
+    fn chunk(&self) -> &[u8] {
+        let Ok(position) = usize::try_from(self.position()) else {
+            return &[];
+        };
+        self.as_ref().get(position..).unwrap_or_default()
     }
 
-    impl From<Vec<u8>> for Reader {
-        fn from(value: Vec<u8>) -> Self {
-            Self(Cursor::new(value.into()))
-        }
+    fn advance(&mut self, cnt: usize) {
+        assert!(
+            cnt <= Reader::remaining(self),
+            "cannot advance past the remaining bytes"
+        );
+        self.0.set_position(self.position() + cnt as u64);
+    }
+}
+
+impl AsRef<[u8]> for Reader {
+    fn as_ref(&self) -> &[u8] {
+        self.0.get_ref().as_ref()
+    }
+}
+
+impl Reader {
+    /// Consumes the reader and returns its entire underlying buffer.
+    ///
+    /// This includes bytes before the current cursor position.
+    pub fn into_bytes(self) -> Bytes {
+        self.0.into_inner()
     }
 
-    impl Seek for Reader {
-        fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-            self.0.seek(pos)
-        }
+    pub fn len(&self) -> usize {
+        self.0.get_ref().len()
     }
 
-    impl Read for Reader {
-        fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-            self.0.read(buf)
-        }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
-    impl AsRef<[u8]> for Reader {
-        fn as_ref(&self) -> &[u8] {
-            self.0.get_ref().as_ref()
-        }
+    /// Split of the next `len` bytes from the reader into a separate Bytes.
+    ///
+    /// This doesn't allocate and just increases some reference counts. O(1) cost.
+    /// Returns [`ErrorKind::UnexpectedEof`] if fewer than `len` bytes remain.
+    pub fn split_len(&mut self, len: usize) -> Result<Bytes> {
+        let current_pos = usize::try_from(self.0.position())
+            .map_err(|_| Error::from(ErrorKind::UnexpectedEof))?;
+        let new_pos = current_pos
+            .checked_add(len)
+            .filter(|&new_pos| new_pos <= self.len())
+            .ok_or_else(|| Error::from(ErrorKind::UnexpectedEof))?;
+        // slice off the subset into a separate Bytes
+        let bytes = self.0.get_ref().slice(current_pos..new_pos);
+        // increment the position
+        self.0.set_position(new_pos as u64);
+        Ok(bytes)
     }
 
-    impl Reader {
-        /// Returns the underlying RawData
-        pub fn consume(self) -> Bytes {
-            self.0.into_inner()
-        }
-
-        pub fn len(&self) -> usize {
-            self.0.get_ref().len()
-        }
-
-        pub fn is_empty(&self) -> bool {
-            self.len() == 0
-        }
-
-        /// Split of the next `len` bytes from the reader into a separate Bytes.
-        ///
-        /// This doesn't allocate and just increases some reference counts. O(1) cost.
-        pub fn split_len(&mut self, len: usize) -> Bytes {
-            let current_pos = self.0.position() as usize;
-            let new_pos = current_pos + len;
-            // slice off the subset into a separate Bytes
-            let bytes = self.0.get_ref().slice(current_pos..new_pos);
-            // increment the position
-            self.0.set_position(new_pos as u64);
-            bytes
-        }
-
-        /// Return the remaining length of the buffer as a separate Bytes.
-        ///
-        /// This doesn't allocate and just increases some reference counts. O(1) cost.
-        pub fn split(&mut self) -> Bytes {
-            let current_pos = self.0.position() as usize;
-            self.0.get_mut().split_off(current_pos)
-        }
-
-        pub fn has_remaining(&self) -> bool {
-            self.remaining() > 0
-        }
-
-        pub fn position(&self) -> u64 {
-            self.0.position()
-        }
-
-        pub fn set_position(&mut self, pos: u64) {
-            self.0.set_position(pos)
-        }
-
-        pub fn remaining(&self) -> usize {
-            // copied from the Buf implementation for std::io::Cursor in tokio::bytes
-            saturating_sub_usize_u64(self.len(), self.position())
-        }
+    /// Return the remaining length of the buffer as a separate Bytes.
+    ///
+    /// This doesn't allocate and just increases some reference counts. O(1) cost.
+    pub fn take_remaining(&mut self) -> Bytes {
+        let current_pos = self.0.position() as usize;
+        self.0.get_mut().split_off(current_pos)
     }
 
-    /// We cannot decode into a Slice because the slice is not Extendable
-    impl bincode::de::read::Reader for Reader {
-        #[inline(always)]
-        fn read(&mut self, bytes: &mut [u8]) -> core::result::Result<(), DecodeError> {
-            self.read_exact(bytes)
-                .map_err(|_| DecodeError::Other("could not decode"))
-        }
+    /// Returns the unread portion of the underlying buffer.
+    pub fn remaining_slice(&self) -> &[u8] {
+        let Ok(position) = usize::try_from(self.position()) else {
+            return &[];
+        };
+        self.as_ref().get(position..).unwrap_or_default()
+    }
+
+    pub fn has_remaining(&self) -> bool {
+        self.remaining() > 0
+    }
+
+    pub fn position(&self) -> u64 {
+        self.0.position()
+    }
+
+    pub fn set_position(&mut self, pos: u64) {
+        self.0.set_position(pos)
+    }
+
+    pub fn remaining(&self) -> usize {
+        saturating_sub_usize_u64(self.len(), self.position())
     }
 }
 
@@ -272,7 +192,7 @@ pub trait ReadInteger: Read {
     }
 }
 
-pub trait ReadVarInt: ReadInteger + Seek {
+pub trait ReadVarInt: ReadInteger {
     /// Reads an unsigned variable-length integer in network byte-order from
     /// the current offset and advances the buffer.
     fn read_varint(&mut self) -> core::result::Result<u64, SerializationError> {
@@ -281,18 +201,19 @@ pub trait ReadVarInt: ReadInteger + Seek {
         let out = match len {
             1 => u64::from(first),
             2 => {
-                // TODO: we actually don't need seek, no? we can just read the next few bytes ...
-                // go back 1 byte because we read the first byte above
-                self.seek(SeekFrom::Current(-1))?;
-                u64::from(self.read_u16()? & 0x3fff)
+                let mut bytes = [first, 0];
+                self.read_exact(&mut bytes[1..])?;
+                u64::from(u16::from_be_bytes(bytes) & 0x3fff)
             }
             4 => {
-                self.seek(SeekFrom::Current(-1))?;
-                u64::from(self.read_u32()? & 0x3fffffff)
+                let mut bytes = [first, 0, 0, 0];
+                self.read_exact(&mut bytes[1..])?;
+                u64::from(u32::from_be_bytes(bytes) & 0x3fffffff)
             }
             8 => {
-                self.seek(SeekFrom::Current(-1))?;
-                self.read_u64()? & 0x3fffffffffffffff
+                let mut bytes = [first, 0, 0, 0, 0, 0, 0, 0];
+                self.read_exact(&mut bytes[1..])?;
+                u64::from_be_bytes(bytes) & 0x3fffffffffffffff
             }
             _ => return Err(Error::other("value is too large for varint").into()),
         };
@@ -301,7 +222,7 @@ pub trait ReadVarInt: ReadInteger + Seek {
 }
 
 impl<T: Read> ReadInteger for T {}
-impl<T: Read + Seek> ReadVarInt for T {}
+impl<T: Read> ReadVarInt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -333,5 +254,28 @@ mod tests {
         assert_eq!(reader.read_i16().unwrap(), -2);
         assert_eq!(reader.read_i32().unwrap(), -3);
         assert_eq!(reader.read_i64().unwrap(), -4);
+    }
+
+    #[test]
+    fn test_read_varint_without_seek() {
+        let values = [
+            0,
+            63,
+            64,
+            16_383,
+            16_384,
+            1_073_741_823,
+            1_073_741_824,
+            4_611_686_018_427_387_903,
+        ];
+        let mut writer = vec![];
+        for value in values {
+            writer.write_varint(value).unwrap();
+        }
+
+        let mut reader = writer.as_slice();
+        for value in values {
+            assert_eq!(reader.read_varint().unwrap(), value);
+        }
     }
 }

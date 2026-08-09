@@ -14,6 +14,7 @@ use lightyear_sync::client::ClientPlugin as LightyearClientPlugin;
 use crate::input_message::LeafwingSequence;
 #[cfg(any(feature = "client", feature = "server"))]
 use leafwing_input_manager::plugin::InputManagerPlugin;
+#[cfg(any(feature = "client", feature = "server"))]
 use tracing::trace;
 
 pub struct InputPlugin<A> {

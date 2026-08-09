@@ -82,20 +82,16 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 
 ## Next Steps
 
-### Priority 1: Prespawn Matching Integration
+### Resolved: Prespawn Matching Integration
 
-**Affects**: 5 prespawn tests + 1 history test
-
-The `PreSpawnedReceiver::matches()` method exists but is never called. In the old lightyear, prespawn matching happened during the custom receive path. With replicon, we need a new integration point.
-
-**Problem**: When a server entity with `PreSpawned` is replicated to the client, replicon creates a NEW entity. But the client already has a pre-spawned entity with the same hash. The entity map needs to point to the existing pre-spawned entity instead.
-
-**Possible approaches**:
-- **Modify replicon**: Add a `PrePopulatedEntityMappings` resource or entity-resolver callback that replicon checks before spawning new entities in `apply_changes`. Requires knowing the server entity → hash mapping before message processing.
-- **Post-processing**: After replicon creates the entity, detect `(Added<ConfirmHistory>, PreSpawned)` entities, match by hash, transfer components to the pre-spawned entity, update entity maps, despawn the replicon entity. Complex because transferring all components generically is hard in bevy.
-- **Custom `write_fn` for `PreSpawned`**: Use replicon's `replicate_with` to provide a custom deserialize function that does the matching during component application. The `WriteCtx` has access to `entity_map` but not to redirect which entity receives components.
-
-**Ignored tests**: `test_compute_hash`, `test_multiple_prespawn`, `test_prespawn_success`, `test_prespawn_local_despawn_match`, `test_prespawn_local_despawn_no_match`, `test_history_added_when_prespawned_added`
+Prespawn matching is handled by Replicon's `Signature`. Adding `PreSpawned`
+inserts the corresponding signature on both peers, and Replicon maps the
+server entity directly to the existing local entity before applying component
+updates. `PreSpawnedReceiver` only retains Lightyear-specific lifecycle data
+needed for timeout cleanup, timeline synchronization, and rollback. It is a
+world-global resource, matching the global `LocalTimeline` and Replicon
+`SignatureMap`. `PreSpawned::for_client` forwards sender-side client scoping to
+`Signature::for_client`; it scopes the mapping message, not entity visibility.
 
 ### Priority 2: Rollback Detection
 
@@ -104,7 +100,7 @@ The `PreSpawnedReceiver::matches()` method exists but is never called. In the ol
 Rollback via `write_history` → `StateRollbackMetadata` → `check_rollback` is not triggering. Possible causes:
 
 - `PredictionManager.rollback_policy.state` may not be `RollbackMode::Check` — verify it's set correctly during test setup
-- `PredictionResource.link_entity` may point to the wrong entity
+- the application may not contain the global `PredictionManager` resource
 - `ServerMutateTicks.last_tick()` may not be advancing (replicon may not be calling `confirm()` in the test stepper's transport path)
 - `check_received_replication_messages` uses `ClientMessages.received_count()` which may not reflect messages received through the lightyear transport bridge
 
@@ -112,7 +108,7 @@ Rollback via `write_history` → `StateRollbackMetadata` → `check_rollback` is
 1. Add trace logging to `write_history` to confirm it's being called and `should_check` is true
 2. Check that `StateRollbackMetadata.should_rollback` is set after a server mutation
 3. Verify `ServerMutateTicks.last_tick()` advances when mutation messages arrive
-4. Check that the `check_rollback` system's `Single` query succeeds (entity has `PredictionManager + IsSynced<InputTimeline> + !HostClient`)
+4. Check that the global `LocalTimelineSync` resource is synced and the application contains its global `PredictionManager`
 
 **Ignored tests**: `test_rollback_time_resource`, `test_deterministic_predicted_skip_despawn`, `test_despawned_predicted_rollback`, `test_update_history` (also has tick timing issue)
 
@@ -142,5 +138,5 @@ Action entities (spawned by `bevy_enhanced_input`) need to be replicated via the
 
 ### Future Work
 
-- **Delta compression**: The old delta compression system was removed. If needed, investigate replicon's built-in delta support or re-implement on top of replicon's `RuleFns`.
+- **Delta compression**: The old `DeltaManager`, component history, and `add_delta_compression` API were removed. Network diffs now use Replicon's `Diffable` trait with `replicate_diff()`. Lightyear's separate `Diffable` trait remains available from `lightyear_replication::diffable` for prediction correction.
 - **Multi-threaded test stability**: Tests crash with SIGABRT when run multi-threaded due to bevy's shared `ComputeTaskPool`. Currently requires `--test-threads=1`.

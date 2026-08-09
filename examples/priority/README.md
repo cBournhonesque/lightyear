@@ -6,10 +6,9 @@ quota.
 
 To not starve lower priority entities, their priority is accumulated over time, so that they can eventually be sent.
 
-In this example, rows have static priority marker components. The server writes Replicon's `PriorityMap`
-for each connected client: the center row is low priority, the next rows are medium priority, and the
-outer rows are high priority. `PriorityMap` only affects component mutations, so initial spawns are still
-sent immediately.
+In this example, the server assigns Replicon's `ReplicatePriority` to each prop: the center row is low
+priority, the next rows are medium priority, and the outer rows are high priority. Replication priority
+only affects component mutations, so initial spawns are still sent immediately.
 
 You can find more information in
 the [book](https://github.com/cBournhonesque/lightyear/blob/main/book/src/concepts/advanced_replication/bandwidth_management.md)
@@ -18,7 +17,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/0efcd974-b181-4910-93
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -34,5 +33,5 @@ NOTE: I am using the [bevy cli](https://github.com/TheBevyFlock/bevy_cli) to bui
 
 To test the example in wasm, you can run the following commands: `bevy run web`
 
-The repo includes a pre-generated self-signed WebTransport certificate and digest, so `certificates/generate.sh` is not required for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
-- `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)
+The repo includes a pre-generated self-signed WebTransport certificate and digest, so you do not need to run the certificate generator for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
+- `cargo run -p generate_certificate` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)

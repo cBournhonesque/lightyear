@@ -6,9 +6,7 @@ use super::{
     ClientId, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
     bytes::Bytes,
     error::{Error, Result},
-    packet::{
-        DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket, RequestPacket, ResponsePacket,
-    },
+    packet::{DisconnectPacket, KeepAlivePacket, Packet, RequestPacket, ResponsePacket},
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken},
     utils,
@@ -358,7 +356,27 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
+        self.last_send_time = self.time;
+        self.sequence += 1;
+        Ok(())
+    }
+
+    fn send_payload_packet(
+        &mut self,
+        payload: &SendPayload,
+        sender: &mut LinkSender,
+    ) -> Result<()> {
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = Packet::write_payload(
+            payload,
+            &mut buf,
+            self.sequence,
+            &self.token.client_to_server_key,
+            self.token.protocol_id,
+        )?;
+        self.writer.extend_from_slice(&buf[..size]);
+        sender.push(self.writer.take_written());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -374,7 +392,7 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        self.send_queue.push(self.writer.split());
+        self.send_queue.push(self.writer.take_written());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -422,7 +440,7 @@ impl<Ctx> Client<Ctx> {
             (Packet::Payload(pkt), ClientState::Connected) => {
                 // trace!(?pkt.buf, "client received payload packet from server");
                 // TODO: control the size of the packet queue?
-                Some(pkt.buf)
+                Some(pkt.into_recv())
             }
             (Packet::Disconnect(_), ClientState::Connected) => {
                 debug!("client received disconnect packet from server");
@@ -592,7 +610,7 @@ impl<Ctx> Client<Ctx> {
         if buf.len() > MAX_PACKET_SIZE {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
-        self.send_packet(PayloadPacket::create(buf), sender)?;
+        self.send_payload_packet(&buf, sender)?;
         Ok(())
     }
     /// Disconnects the client from the server.

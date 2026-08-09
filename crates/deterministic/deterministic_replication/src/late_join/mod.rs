@@ -30,7 +30,7 @@
 //!    with the catch-up snapshot.
 //!
 //! 2. On the client, catch-up entities are replicated with the `CatchUpGated`
-//!    marker component. Once the `InputTimeline` is synced and we have received
+//!    marker component. Once the `LocalTimeline` is synced and we have received
 //!    inputs from all clients, the plugin
 //!    sends `CatchUpRequest` with that `input_safe_tick`.
 //!

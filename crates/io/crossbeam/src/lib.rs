@@ -42,7 +42,7 @@
 extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
-use alloc::string::ToString;
+use alloc::string::String;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
@@ -51,7 +51,8 @@ use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use lightyear_core::time::Instant;
 use lightyear_link::{
-    Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Unlink,
+    Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Unlink, UnlinkReason,
+    recv_payload_from_bytes,
 };
 use tracing::{error, trace};
 
@@ -162,7 +163,9 @@ impl CrossbeamPlugin {
                         let _ = io.link.send.drain();
                         commands.trigger(Unlink {
                             entity,
-                            reason: "Crossbeam channel disconnected".to_string(),
+                            reason: UnlinkReason::TransportError(String::from(
+                                "Crossbeam channel disconnected",
+                            )),
                         });
                         break;
                     }
@@ -191,7 +194,8 @@ impl CrossbeamPlugin {
                 match crossbeam_io.receiver.try_recv() {
                     Ok(data) => {
                         trace!("recv data: {data:?}");
-                        link.recv.push(data, Instant::now())
+                        link.recv
+                            .push(recv_payload_from_bytes(data), Instant::now())
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
@@ -200,7 +204,9 @@ impl CrossbeamPlugin {
                         );
                         commands.trigger(Unlink {
                             entity,
-                            reason: "Crossbeam channel disconnected".to_string(),
+                            reason: UnlinkReason::TransportError(String::from(
+                                "Crossbeam channel disconnected",
+                            )),
                         });
                         break;
                     }

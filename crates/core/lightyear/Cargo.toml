@@ -37,6 +37,7 @@ std = [
   "lightyear_link/std",
   "lightyear_metrics?/std",
   "lightyear_messages/std",
+  "lightyear_p2p?/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
   "lightyear_replication?/std",
@@ -93,10 +94,17 @@ deterministic = [
   "lightyear_avian2d?/deterministic",
   "lightyear_avian3d?/deterministic",
 ]
+## Enables peer-to-peer topology, synchronization, input routing, and deterministic sessions.
+p2p = [
+  "client",
+  "dep:lightyear_p2p",
+  "lightyear_deterministic_replication?/p2p",
+]
 ## Enables replicating entities between two peers
 replication = [
   "dep:lightyear_replication",
   "lightyear_deterministic_replication?/replication",
+  "lightyear_tools?/replication",
 ]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
@@ -153,6 +161,11 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 avian2d = ["dep:lightyear_avian2d", "lightyear_replication?/avian2d"]
 ## Use avian3d
 avian3d = ["dep:lightyear_avian3d", "lightyear_replication?/avian3d"]
+## Enable Avian's XPBD joint solver and rollback its persistent motor warm-start state
+avian_xpbd_joints = [
+  "lightyear_avian2d?/xpbd_joints",
+  "lightyear_avian3d?/xpbd_joints",
+]
 
 # IO LAYERS
 ## Enables UDP as an IO layer
@@ -194,6 +207,7 @@ lightyear_netcode = { workspace = true, optional = true }
 lightyear_interpolation = { workspace = true, optional = true }
 lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
+lightyear_p2p = { workspace = true, optional = true }
 lightyear_metrics = { workspace = true, optional = true }
 lightyear_replication = { workspace = true, optional = true }
 lightyear_sync.workspace = true

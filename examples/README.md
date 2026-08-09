@@ -8,7 +8,7 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 ## Easy
 
 - `simple_setup`: minimal example that just shows how to create the lightyear client and server plugins
-- `simple_box`: example that showcases how to send inputs from client to server, and how to add client-prediction and interpolation
+- `simple_box`: example that showcases client/server prediction and interpolation, plus an optional deterministic input-only P2P mode
 - `bevy_enhanced_input`: example that shows how to integrate lightyear with the `bevy_enhanced_input` crate to handle inputs.
 
 ## Medium
@@ -36,15 +36,21 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server headlessly (the default): `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
-- Run the server without a gui: `cargo run --no-default-features --features=server -- server`
+- Build and run the server without GUI support: `cargo run --no-default-features --features=server -- server`
 - Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
+
+To build all compatible examples, use `just build_examples features=client,server`. Add
+`headless=true` to omit the GUI from client/P2P builds, or `headless=false` to include it explicitly.
+Use `names=avian_3d` or a comma-separated list such as `names=avian_2d,avian_3d` to build only
+those example/demo packages.
 
 ### Testing in wasm with webtransport
 
@@ -52,5 +58,5 @@ NOTE: I am using the [bevy cli](https://github.com/TheBevyFlock/bevy_cli) to bui
 
 To test the example in wasm, you can run the following commands: `bevy run web`
 
-The repo includes a pre-generated self-signed WebTransport certificate and digest, so `certificates/generate.sh` is not required for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
-- `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)
+The repo includes a pre-generated self-signed WebTransport certificate and digest, so you do not need to run the certificate generator for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
+- `cargo run -p generate_certificate` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)

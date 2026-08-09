@@ -53,8 +53,8 @@ impl PriorityConfig {
 
 /// Reusable scheduler scratch for ordering channel-owned send candidates.
 ///
-/// This type never owns channel queues and does not decide whether a packet was sent. Bandwidth is
-/// consumed separately by [`BandwidthLimiter`] after packet staging and compression.
+/// This type never owns channel queues and does not decide whether a packet was sent. The transport
+/// consumes bandwidth separately after packet staging and compression.
 #[derive(Debug)]
 pub struct PriorityManager {
     pub(crate) config: PriorityConfig,
@@ -135,6 +135,14 @@ impl PriorityManager {
         );
     }
 
+    /// Orders candidates which have the same effective priority for efficient, deterministic
+    /// packet packing.
+    ///
+    /// Fragments come first so the packet builder can append smaller single messages to the final,
+    /// partially filled fragment packet. Singles are then ordered from smallest to largest.
+    /// `send_order`, channel ID, and
+    /// [`SendMessageKey::packing_tiebreaker`](crate::packet::message::SendMessageKey::packing_tiebreaker)
+    /// preserve deterministic order without comparing wrapping message IDs.
     fn packing_order(a: &SendCandidate, b: &SendCandidate) -> core::cmp::Ordering {
         match (&a.message.data, &b.message.data) {
             (MessageData::Fragment(_), MessageData::Single(_)) => core::cmp::Ordering::Less,
@@ -142,13 +150,11 @@ impl PriorityManager {
             (MessageData::Single(a_message), MessageData::Single(b_message)) => a_message
                 .bytes_len()
                 .cmp(&b_message.bytes_len())
-                .then_with(|| a.key.send_order().cmp(&b.key.send_order())),
-            (MessageData::Fragment(a_fragment), MessageData::Fragment(b_fragment)) => {
-                a_fragment.message_id.cmp(&b_fragment.message_id)
-            }
+                .then_with(|| a.send_order.cmp(&b.send_order)),
+            (MessageData::Fragment(_), MessageData::Fragment(_)) => a.send_order.cmp(&b.send_order),
         }
         .then_with(|| a.channel_id.cmp(&b.channel_id))
-        .then_with(|| a.key.cmp(&b.key))
+        .then_with(|| a.key.packing_tiebreaker().cmp(&b.key.packing_tiebreaker()))
     }
 }
 
@@ -404,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn fragment_order_uses_existing_message_and_fragment_ids() {
+    fn fragment_order_uses_channel_queue_and_fragment_order() {
         let mut registry = ChannelRegistry::default();
         let (kind, channel) = registry.add_channel::<FragmentChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
@@ -444,6 +450,44 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(order, [(0, 0), (0, 1), (1, 0), (1, 1)]);
+    }
+
+    #[test]
+    fn reliable_fragment_order_survives_message_id_rollover() {
+        let mut registry = ChannelRegistry::default();
+        let (kind, channel) = registry.add_channel::<FragmentChannel>(ChannelSettings {
+            mode: ChannelMode::SequencedReliable(Default::default()),
+            ..Default::default()
+        });
+        let mut manager = PriorityManager::default();
+        for (message_id, send_order) in [(MessageId(0), 1), (MessageId(u32::MAX), 0)] {
+            manager.candidates_mut().push(SendCandidate::new_reliable(
+                kind,
+                channel,
+                SendMessageKey::ReliableFragment(message_id, FragmentIndex(0)),
+                send_order,
+                SendMessage {
+                    priority: 1.0,
+                    data: FragmentData {
+                        message_id,
+                        fragment_id: FragmentIndex(0),
+                        num_fragments: FragmentIndex(1),
+                        compression: Some(FragmentCompression::None),
+                        bytes: Bytes::new(),
+                    }
+                    .into(),
+                },
+            ));
+        }
+
+        manager.prioritize(&registry);
+
+        let ids = manager
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.message.data.message_id().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, [MessageId(u32::MAX), MessageId(0)]);
     }
 
     #[test]

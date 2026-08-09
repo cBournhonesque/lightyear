@@ -45,15 +45,16 @@ impl ExampleClient {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
         world.commands().queue(move |world: &mut World| -> Result {
+            world.insert_resource(PredictionManager::default());
             let mut entity_mut = world.entity_mut(entity);
             let settings = entity_mut.take::<ExampleClient>().unwrap();
             let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client_port);
             entity_mut.insert((
                 Client,
+                ReplicationReceiver,
                 Link::default().with_conditioner(settings.conditioner.clone()),
                 LocalAddr(client_addr),
                 PeerAddr(settings.server_addr),
-                PredictionManager::default(),
                 Name::from("Client"),
             ));
 

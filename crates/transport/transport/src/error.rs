@@ -1,5 +1,5 @@
 use crate::channel::ChannelKind;
-use crate::channel::receivers::error::ChannelReceiveError;
+use crate::channel::receive::ChannelReceiveError;
 use crate::channel::registry::ChannelId;
 use crate::packet::error::PacketError;
 use bytes::Bytes;

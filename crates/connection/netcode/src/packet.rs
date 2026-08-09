@@ -1,5 +1,4 @@
 use alloc::{borrow::ToOwned, boxed::Box, string::String, vec};
-use bytes::BytesMut;
 use core::mem::size_of;
 #[cfg(not(feature = "std"))]
 use no_std_io2::{
@@ -18,7 +17,7 @@ use super::{
     token::{ChallengeToken, ConnectTokenPrivate},
 };
 use chacha20poly1305::XNonce;
-use lightyear_link::{RecvPayload, SendPayload};
+use lightyear_link::RecvPayload;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -359,13 +358,18 @@ impl Bytes for KeepAlivePacket {
     }
 }
 
+/// An application payload parsed from an inbound Netcode packet.
+///
+/// Outbound application payloads are written directly by [`Packet::write_payload`] instead of
+/// constructing this receive-side representation.
 pub struct PayloadPacket {
-    pub buf: SendPayload,
+    buf: RecvPayload,
 }
 
 impl PayloadPacket {
-    pub fn create(buf: SendPayload) -> Packet {
-        Packet::Payload(PayloadPacket { buf })
+    /// Consumes the parsed packet and returns its mutable application payload.
+    pub fn into_recv(self) -> RecvPayload {
+        self.buf
     }
 }
 
@@ -434,8 +438,8 @@ impl Packet {
             Packet::Disconnect(_) => Packet::DISCONNECT,
         }
     }
-    fn set_prefix(&self, sequence: u64) -> u8 {
-        sequence_len(sequence) << 4 | self.kind()
+    fn prefix(kind: PacketKind, sequence: u64) -> u8 {
+        sequence_len(sequence) << 4 | kind
     }
     fn aead(
         protocol_id: u64,
@@ -461,33 +465,77 @@ impl Packet {
         packet_key: &Key,
         protocol_id: u64,
     ) -> Result<usize, NetcodeError> {
-        let len = out.len();
-        let mut cursor = io::Cursor::new(&mut out[..]);
         if let Packet::Request(pkt) = self {
+            let mut cursor = io::Cursor::new(&mut out[..]);
             cursor.write_u8(Packet::REQUEST)?;
             pkt.write_to(&mut cursor)?;
             return Ok(cursor.position() as usize);
         }
-        cursor.write_u8(self.set_prefix(sequence))?;
-        cursor.write_sequence(sequence)?;
-        let encryption_start = cursor.position() as usize;
-        match self {
-            Packet::Denied(pkt) => pkt.write_to(&mut cursor)?,
-            Packet::Challenge(pkt) => pkt.write_to(&mut cursor)?,
-            Packet::Response(pkt) => pkt.write_to(&mut cursor)?,
-            Packet::KeepAlive(pkt) => pkt.write_to(&mut cursor)?,
-            Packet::Disconnect(pkt) => pkt.write_to(&mut cursor)?,
-            Packet::Payload(PayloadPacket { buf }) => cursor.write_all(buf)?,
-            _ => unreachable!(), // Packet::Request variant is handled above
-        }
-        if cursor.position() as usize > len - MAC_BYTES {
-            return Err(Error::TooLarge.into());
-        }
-        let encryption_end = cursor.position() as usize + MAC_BYTES;
+
+        Self::write_encrypted(
+            out,
+            self.kind(),
+            sequence,
+            packet_key,
+            protocol_id,
+            |cursor| {
+                match self {
+                    Packet::Denied(pkt) => pkt.write_to(cursor)?,
+                    Packet::Challenge(pkt) => pkt.write_to(cursor)?,
+                    Packet::Response(pkt) => pkt.write_to(cursor)?,
+                    Packet::KeepAlive(pkt) => pkt.write_to(cursor)?,
+                    Packet::Disconnect(pkt) => pkt.write_to(cursor)?,
+                    Packet::Payload(pkt) => cursor.write_all(&pkt.buf)?,
+                    Packet::Request(_) => unreachable!("request packets are written above"),
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// Writes and encrypts an outbound application payload without constructing a parsed packet.
+    pub fn write_payload(
+        payload: &[u8],
+        out: &mut [u8],
+        sequence: u64,
+        packet_key: &Key,
+        protocol_id: u64,
+    ) -> Result<usize, NetcodeError> {
+        Self::write_encrypted(
+            out,
+            Self::PAYLOAD,
+            sequence,
+            packet_key,
+            protocol_id,
+            |cursor| cursor.write_all(payload),
+        )
+    }
+
+    fn write_encrypted(
+        out: &mut [u8],
+        kind: PacketKind,
+        sequence: u64,
+        packet_key: &Key,
+        protocol_id: u64,
+        write_body: impl FnOnce(&mut io::Cursor<&mut [u8]>) -> io::Result<()>,
+    ) -> Result<usize, NetcodeError> {
+        let len = out.len();
+        let prefix = Self::prefix(kind, sequence);
+        let (encryption_start, encryption_end) = {
+            let mut cursor = io::Cursor::new(&mut out[..]);
+            cursor.write_u8(prefix)?;
+            cursor.write_sequence(sequence)?;
+            let encryption_start = cursor.position() as usize;
+            write_body(&mut cursor)?;
+            if cursor.position() as usize > len - MAC_BYTES {
+                return Err(Error::TooLarge.into());
+            }
+            (encryption_start, cursor.position() as usize + MAC_BYTES)
+        };
 
         crypto::chacha_encrypt(
             &mut out[encryption_start..encryption_end],
-            Some(&Packet::aead(protocol_id, self.set_prefix(sequence))?),
+            Some(&Packet::aead(protocol_id, prefix)?),
             sequence,
             packet_key,
         )?;
@@ -538,9 +586,12 @@ impl Packet {
 
         let decryption_start = cursor.position() as usize;
 
-        // suffix starts at `decryption_start`
-        // this should not make a copy since we should only have one owner of the bytes
-        let mut suffix = BytesMut::from(cursor.into_inner().split_off(decryption_start));
+        let mut encrypted_packet = cursor.into_inner();
+        let mut suffix = encrypted_packet.split_off(decryption_start);
+        // The cleartext prefix has already been parsed into `prefix_byte` and `sequence`, so no
+        // later stage needs to retain it. Dropping this disjoint `BytesMut` view also lets the IO
+        // buffer pool recover the entire allocation as soon as the decrypted suffix is consumed.
+        drop(encrypted_packet);
         crypto::chacha_decrypt(
             suffix.as_mut(),
             Some(&Packet::aead(protocol_id, prefix_byte)?),
@@ -548,8 +599,7 @@ impl Packet {
             &key,
         )?;
 
-        // remove the last
-        let mut cursor = io::Cursor::new(suffix.freeze());
+        let mut cursor = io::Cursor::new(suffix);
 
         if let Some(replay_protection) = replay_protection
             && pkt_kind >= Packet::KEEP_ALIVE
@@ -585,6 +635,7 @@ mod tests {
 
     use alloc::vec::Vec;
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::OsRng};
+    use lightyear_link::recv_payload_from_bytes;
     use lightyear_serde::writer::Writer;
     use std::dbg;
 
@@ -652,7 +703,7 @@ mod tests {
         dbg!(size);
 
         let packet = Packet::read(
-            buf.split_to(size),
+            recv_payload_from_bytes(buf.split_to(size)),
             protocol_id,
             0,
             private_key,
@@ -701,7 +752,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            buf.split_to(size),
+            recv_payload_from_bytes(buf.split_to(size)),
             protocol_id,
             0,
             packet_key,
@@ -733,7 +784,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            buf.split_to(size),
+            recv_payload_from_bytes(buf.split_to(size)),
             protocol_id,
             0,
             packet_key,
@@ -764,7 +815,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            buf.split_to(size),
+            recv_payload_from_bytes(buf.split_to(size)),
             protocol_id,
             0,
             packet_key,
@@ -797,7 +848,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            buf.split_to(size),
+            recv_payload_from_bytes(buf.split_to(size)),
             protocol_id,
             0,
             packet_key,
@@ -827,7 +878,7 @@ mod tests {
             .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
-        let received = buf.split_to(size);
+        let received = recv_payload_from_bytes(buf.split_to(size));
         let packet = Packet::read(
             received,
             protocol_id,
@@ -851,15 +902,21 @@ mod tests {
         let mut replay_protection = ReplayProtection::new();
 
         let payload = bytes::Bytes::from(vec![0u8; 100]);
-        let packet = Packet::Payload(PayloadPacket { buf: payload });
 
         let mut writer = Writer::from([0; MAX_PACKET_SIZE]);
-        let size = packet
-            .write(writer.as_mut(), sequence, &packet_key, protocol_id)
-            .unwrap();
+        let size = Packet::write_payload(
+            &payload,
+            writer.as_mut(),
+            sequence,
+            &packet_key,
+            protocol_id,
+        )
+        .unwrap();
 
+        let received = recv_payload_from_bytes(writer.split_to(size));
+        let received_range = received.as_ptr_range();
         let packet = Packet::read(
-            writer.split_to(size),
+            received,
             protocol_id,
             0,
             packet_key,
@@ -868,10 +925,12 @@ mod tests {
         )
         .unwrap();
 
-        let Packet::Payload(data_pkt) = packet else {
+        let Packet::Payload(PayloadPacket { buf: payload }) = packet else {
             panic!("wrong packet type");
         };
 
-        assert_eq!(data_pkt.buf.len(), 100);
+        assert_eq!(payload.len(), 100);
+        assert!(payload.as_ptr() >= received_range.start);
+        assert!(payload.as_ptr_range().end <= received_range.end);
     }
 }

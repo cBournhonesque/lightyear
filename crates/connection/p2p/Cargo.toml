@@ -1,0 +1,41 @@
+[package]
+name = "lightyear_p2p"
+version = "0.28.0"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Deterministic peer-to-peer session lifecycle for Lightyear"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = [
+  "lightyear_link/std",
+  "lightyear_messages/std",
+  "lightyear_sync/std",
+  "lightyear_transport/std",
+]
+
+[dependencies]
+lightyear_connection = { workspace = true, features = ["client"] }
+lightyear_core.workspace = true
+lightyear_link.workspace = true
+lightyear_messages = { workspace = true, features = ["client"] }
+lightyear_sync = { workspace = true, features = ["client"] }
+lightyear_transport = { workspace = true, features = ["client"] }
+
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+serde.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+tracing.workspace = true
+
+[dev-dependencies]
+bevy_ecs = { workspace = true, features = ["serialize"] }
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

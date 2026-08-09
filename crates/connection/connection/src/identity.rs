@@ -1,26 +1,33 @@
-use crate::client::Client;
-use crate::host::HostClient;
-use bevy_ecs::query::{With, Without};
-use bevy_ecs::system::Query;
-use lightyear_link::server::Server;
+use crate::network_topology::NetworkingMetadata;
+use bevy_ecs::system::Res;
 
-/// Returns true if the peer is a client (host-server counts as a server)
-pub fn is_client(query: Query<(), (With<Client>, Without<HostClient>)>) -> bool {
-    !query.is_empty()
+/// Returns true for a connected conventional client topology.
+///
+/// Direct peers are reported by [`is_p2p`], not as conventional clients, even though every
+/// [`crate::p2p::P2P`] Link carries the internal [`crate::client::Client`] role marker.
+pub fn is_client(metadata: Res<NetworkingMetadata>) -> bool {
+    metadata.mode.is_client()
 }
 
-/// Returns true if the peer is a server
-pub fn is_server(query: Query<(), With<Server>>) -> bool {
-    !query.is_empty()
+/// Returns true for a started server, including the server side of a ready host-client topology.
+pub fn is_server(metadata: Res<NetworkingMetadata>) -> bool {
+    metadata.mode.is_server()
+}
+
+/// Returns true for a started server without a connected in-process client.
+pub fn is_headless_server(metadata: Res<NetworkingMetadata>) -> bool {
+    metadata.mode.is_headless_server()
 }
 
 /// Returns true if we are running in host-server mode, i.e. the server is acting as a client
 /// (in which case we can disable the networking/prediction/interpolation systems on the client)
 ///
-/// We are in HostServer mode if the mode is set to HostServer AND the server is running.
-/// (checking if the mode is set to HostServer is not enough, it just means that the server plugin
-/// and client plugin are running in the same App)
-pub fn is_host_server() -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer)
+/// We are in host-server mode when both sides form a ready cached host-client topology.
+pub fn is_host_server(metadata: Res<NetworkingMetadata>) -> bool {
+    metadata.mode.is_host_server()
+}
+
+/// Returns true when the cached topology contains direct P2P Links.
+pub fn is_p2p(metadata: Res<NetworkingMetadata>) -> bool {
+    metadata.mode.is_p2p()
 }

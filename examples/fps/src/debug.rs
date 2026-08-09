@@ -119,7 +119,7 @@ fn emit_fixed_last_entities(
 
 fn emit_bullet_post_update_state(
     timeline: Res<LocalTimeline>,
-    interpolation_timeline: Query<&InterpolationTimeline>,
+    interpolation_timeline: Option<Res<InterpolationTimeline>>,
     bullets: Query<
         (
             Entity,
@@ -140,8 +140,7 @@ fn emit_bullet_post_update_state(
 ) {
     let tick = timeline.tick();
     let interpolation_tick = interpolation_timeline
-        .iter()
-        .next()
+        .filter(|timeline| timeline.is_synced())
         .map(|timeline| timeline.tick().0 as i64);
     for (
         entity,
@@ -213,10 +212,10 @@ fn track_bullet_lifecycle_added(
         ),
         Added<BulletMarker>,
     >,
-    rollback: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
 ) {
     let tick = timeline.tick();
-    let in_rollback = !rollback.is_empty();
+    let in_rollback = rollback.is_some();
     for (
         entity,
         marker,
@@ -258,10 +257,10 @@ fn track_bullet_lifecycle_removed(
     timeline: Res<LocalTimeline>,
     mut registry: ResMut<BulletDebugRegistry>,
     mut removed: RemovedComponents<BulletMarker>,
-    rollback: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
 ) {
     let tick = timeline.tick();
-    let in_rollback = !rollback.is_empty();
+    let in_rollback = rollback.is_some();
     for entity in removed.read() {
         let marker = registry.bullets.remove(&entity);
         lightyear_debug_event!(
@@ -298,7 +297,7 @@ fn detect_duplicate_bullets(
         ),
         With<BulletMarker>,
     >,
-    rollback: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
 ) {
     #[derive(Debug)]
     struct BulletDuplicateState {
@@ -314,7 +313,7 @@ fn detect_duplicate_bullets(
     }
 
     let tick = timeline.tick();
-    let in_rollback = !rollback.is_empty();
+    let in_rollback = rollback.is_some();
     let mut groups: HashMap<u64, Vec<BulletDuplicateState>> = HashMap::new();
     for (
         entity,

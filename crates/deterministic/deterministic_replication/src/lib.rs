@@ -5,7 +5,7 @@
 //!   client/server checksum systems for whichever Lightyear side plugins are
 //!   present.
 //! - [`ChecksumSendPlugin`] / [`ChecksumReceivePlugin`] compute and verify
-//!   XOR checksums of prediction history across client and server.
+//!   XOR checksums of prediction history across client/server or all-to-all P2P topologies.
 //! - [`LateJoinCatchUpPlugin`] lets a client that connects mid-game request
 //!   a one-time snapshot of a remote entity's state so it can fast-forward
 //!   to the current tick via a forced rollback.
@@ -37,13 +37,17 @@ pub mod late_join;
 /// Configuration mode for catch-up (state-based vs input-only).
 pub mod mode;
 mod plugin;
+#[cfg(feature = "client")]
+mod prediction_window;
 
 /// Commonly used items from the `lightyear_deterministic_replication` crate.
 pub mod prelude {
+    #[cfg(feature = "server")]
+    pub use crate::checksum::ChecksumHistory;
+    #[cfg(any(feature = "p2p", feature = "server"))]
+    pub use crate::checksum::ChecksumReceivePlugin;
     #[cfg(feature = "client")]
     pub use crate::checksum::ChecksumSendPlugin;
-    #[cfg(feature = "server")]
-    pub use crate::checksum::{ChecksumHistory, ChecksumReceivePlugin};
     pub use crate::checksum::{ChecksumMessage, ChecksumPlugin};
     #[cfg(feature = "replication")]
     pub use crate::late_join::{

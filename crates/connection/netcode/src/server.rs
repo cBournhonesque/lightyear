@@ -3,7 +3,7 @@ use bevy_ecs::{entity::Entity, system::EntityCommands};
 use core::net::SocketAddr;
 use lightyear_utils::collections::HashMap;
 use no_std_io2::io;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::{
     ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC, USER_DATA_BYTES,
@@ -11,8 +11,8 @@ use super::{
     crypto::{self, Key},
     error::{Error, Result},
     packet::{
-        ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
-        RequestPacket, ResponsePacket,
+        ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, RequestPacket,
+        ResponsePacket,
     },
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
@@ -115,6 +115,9 @@ struct ConnectionCache {
     // the main difference being that `Connection` includes the encryption mapping as well.
     clients: HashMap<ClientId, Connection>,
 
+    /// Reusable snapshot for loops that mutate `clients` while visiting its IDs.
+    client_ids_scratch: Vec<ClientId>,
+
     // map from client entity to client id
     client_id_map: HashMap<Entity, ClientId>,
 
@@ -129,6 +132,7 @@ impl ConnectionCache {
     fn new(server_time: f64) -> Self {
         Self {
             clients: HashMap::default(),
+            client_ids_scratch: Vec::new(),
             client_id_map: HashMap::default(),
             replay_protection: HashMap::default(),
             time: server_time,
@@ -185,8 +189,22 @@ impl ConnectionCache {
         self.clients.remove(&client_id);
     }
 
-    fn ids(&self) -> Vec<ClientId> {
-        self.clients.keys().cloned().collect()
+    fn clear(&mut self) {
+        self.clients.clear();
+        self.client_ids_scratch.clear();
+        self.client_id_map.clear();
+        self.replay_protection.clear();
+    }
+
+    fn take_client_ids(&mut self) -> Vec<ClientId> {
+        let mut client_ids = core::mem::take(&mut self.client_ids_scratch);
+        client_ids.clear();
+        client_ids.extend(self.clients.keys().copied());
+        client_ids
+    }
+
+    fn recycle_client_ids(&mut self, client_ids: Vec<ClientId>) {
+        self.client_ids_scratch = client_ids;
     }
 
     fn find_by_entity(&self, entity: &Entity) -> Option<&Connection> {
@@ -225,6 +243,16 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, Entity, &mut Ctx) + Send + Sync
 pub type ConnectCallback<Ctx> =
     Box<dyn FnMut(ClientId, Entity, [u8; USER_DATA_BYTES], &mut Ctx) + Send + Sync + 'static>;
 
+fn server_addr_matches(local_addr: SocketAddr, token_addr: SocketAddr) -> bool {
+    if local_addr.port() != token_addr.port() || local_addr.is_ipv4() != token_addr.is_ipv4() {
+        return false;
+    }
+
+    local_addr.ip() == token_addr.ip()
+        || (local_addr.ip().is_unspecified() && token_addr.ip().is_loopback())
+        || (local_addr.ip().is_loopback() && token_addr.ip().is_unspecified())
+}
+
 /// Configuration for a server.
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
@@ -234,7 +262,6 @@ pub type ConnectCallback<Ctx> =
 ///
 /// # Example
 /// ```
-/// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 40005));
 /// # let protocol_id = 0x123456789ABCDEF0;
 /// # let private_key = [42u8; 32];
 /// use std::sync::{Arc, Mutex};
@@ -254,7 +281,6 @@ pub struct ServerConfig<Ctx> {
     token_expire_secs: i32,
     client_timeout_secs: i32,
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
-    server_addr: SocketAddr,
     pub(crate) context: Ctx,
     on_connect: Option<ConnectCallback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
@@ -268,7 +294,6 @@ impl Default for ServerConfig<()> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: (),
             on_connect: None,
             on_disconnect: None,
@@ -289,7 +314,6 @@ impl<Ctx> ServerConfig<Ctx> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            server_addr: SocketAddr::from(([0, 0, 0, 0], 0)),
             context: ctx,
             on_connect: None,
             on_disconnect: None,
@@ -319,13 +343,6 @@ impl<Ctx> ServerConfig<Ctx> {
         self.token_expire_secs = expire_secs;
         self
     }
-    /// Set the socket address of the server.
-    // TODO: This actually NEEDS to be set, change the API to force this
-    pub fn server_addr(mut self, server_addr: SocketAddr) -> Self {
-        self.server_addr = server_addr;
-        self
-    }
-
     /// Set the handler used to accept or deny incoming connection requests.
     pub fn connection_request_handler(
         mut self,
@@ -390,7 +407,8 @@ pub struct Server<Ctx = ()> {
 impl Server {
     /// Create a new server with a default configuration.
     ///
-    /// For a custom configuration, use [`Server::with_config`](Server::with_config) instead.
+    /// The caller provides the server address used for connect-token validation to
+    /// [`Server::receive`].
     pub fn new(protocol_id: u64, private_key: Key) -> Result<Self> {
         let server: Server<()> = Server {
             time: 0.0,
@@ -407,7 +425,6 @@ impl Server {
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             client_errors: vec![],
         };
-        // info!("server started on {}", server.io.local_addr());
         Ok(server)
     }
 }
@@ -451,6 +468,23 @@ impl<Ctx> Server<Ctx> {
     pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
         self.cfg.connection_request_handler = handler;
     }
+
+    /// Clears all connection and pending packet state so this server can be started again.
+    ///
+    /// Configuration, callback context, elapsed time, and packet sequence counters are preserved.
+    /// Keeping the counters monotonic avoids reusing cryptographic nonces with the same keys. The
+    /// challenge key is rotated so responses from before the reset cannot be accepted afterward.
+    ///
+    /// This does not notify or send disconnect packets to clients. Disconnect active clients before
+    /// resetting when a graceful shutdown is required.
+    pub fn reset(&mut self) {
+        self.challenge_key = crypto::generate_key();
+        self.conn_cache.clear();
+        self.token_entries.inner.clear();
+        self.send_queue.clear();
+        self.writer.reset();
+        self.client_errors.clear();
+    }
 }
 
 impl<Ctx> Server<Ctx> {
@@ -490,11 +524,12 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         packet: Packet,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<Option<RecvPayload>> {
         let entity = entity_mut.id();
         match packet {
             Packet::Request(packet) => {
-                self.process_connection_request(packet, entity_mut)?;
+                self.process_connection_request(packet, entity_mut, server_addr)?;
                 Ok(None)
             }
             Packet::Response(packet) => {
@@ -514,7 +549,7 @@ impl<Ctx> Server<Ctx> {
                     self.conn_cache.find_by_entity(&entity).map(|c| c.client_id)
                 {
                     self.touch_client(client_id);
-                    Ok(Some(packet.buf))
+                    Ok(Some(packet.into_recv()))
                 } else {
                     Ok(None)
                 }
@@ -537,7 +572,7 @@ impl<Ctx> Server<Ctx> {
         self.send_queue
             .entry(entity)
             .or_default()
-            .push(self.writer.split());
+            .push(self.writer.take_written());
         self.sequence += 1;
         Ok(())
     }
@@ -545,7 +580,7 @@ impl<Ctx> Server<Ctx> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
         self.sequence += 1;
         Ok(())
     }
@@ -564,7 +599,36 @@ impl<Ctx> Server<Ctx> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
+
+        conn.last_access_time = self.time;
+        conn.last_send_time = self.time;
+        conn.sequence += 1;
+        Ok(())
+    }
+
+    fn send_payload_to_client(
+        &mut self,
+        payload: &SendPayload,
+        id: ClientId,
+        sender: &mut LinkSender,
+    ) -> Result<()> {
+        let conn = &mut self
+            .conn_cache
+            .clients
+            .get_mut(&id)
+            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = Packet::write_payload(
+            payload,
+            &mut buf,
+            conn.sequence,
+            &conn.send_key,
+            self.protocol_id,
+        )?;
+        self.writer.extend_from_slice(&buf[..size]);
+        sender.push(self.writer.take_written());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -590,7 +654,7 @@ impl<Ctx> Server<Ctx> {
         self.send_queue
             .entry(entity)
             .or_default()
-            .push(self.writer.split());
+            .push(self.writer.take_written());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -602,26 +666,26 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         mut packet: RequestPacket,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<()> {
         trace!("Server received connection request packet");
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
         let entity = entity_mut.id();
 
-        // TODO: this doesn't work with local hosts because the local bind_addr is often 0.0.0.0, even though
-        //  the tokens contain 127.0.0.1
-        // if !token
-        //     .server_addresses
-        //     .iter()
-        //     .any(|(_, addr)| addr == self.local_addr())
-        // {
-        //     info!(
-        //         token_addr = ?token.server_addresses,
-        //         server_addr = ?self.local_addr(),
-        //         "server ignored connection request. server address not in connect token whitelist"
-        //     );
-        //     return Ok(());
-        // };
+        if let Some(server_addr) = server_addr
+            && !token
+                .server_addresses
+                .iter()
+                .any(|(_, token_addr)| server_addr_matches(server_addr, token_addr))
+        {
+            info!(
+                token_addresses = ?token.server_addresses,
+                ?server_addr,
+                "server ignored connection request. server address not in connect token whitelist"
+            );
+            return Ok(());
+        };
         if self
             .conn_cache
             .find_by_entity(&entity)
@@ -748,7 +812,8 @@ impl<Ctx> Server<Ctx> {
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
-        for id in self.conn_cache.ids() {
+        let client_ids = self.conn_cache.take_client_ids();
+        for &id in &client_ids {
             let Some(client) = self.conn_cache.clients.get_mut(&id) else {
                 continue;
             };
@@ -764,6 +829,7 @@ impl<Ctx> Server<Ctx> {
                 self.conn_cache.remove(id);
             }
         }
+        self.conn_cache.recycle_client_ids(client_ids);
     }
 
     // fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
@@ -815,6 +881,7 @@ impl<Ctx> Server<Ctx> {
         buf: RecvPayload,
         now: u64,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<Option<RecvPayload>> {
         if buf.len() <= 1 {
             // Too small to be a packet
@@ -855,13 +922,14 @@ impl<Ctx> Server<Ctx> {
             Self::ALLOWED_PACKETS,
         )?;
 
-        self.process_packet(packet, entity_mut)
+        self.process_packet(packet, entity_mut, server_addr)
     }
 
     fn recv_packets(
         &mut self,
         receiver: &mut LinkReceiver,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<()> {
         let now = super::utils::now()?;
 
@@ -870,7 +938,7 @@ impl<Ctx> Server<Ctx> {
         // the Transport can read them later
         for _ in 0..receiver.len() {
             if let Some(recv_packet) = receiver.pop() {
-                match self.recv_packet(recv_packet, now, entity_mut) {
+                match self.recv_packet(recv_packet, now, entity_mut, server_addr) {
                     Ok(Some(payload)) => receiver.push_raw(payload),
                     Err(e) => self.handle_client_error(e),
                     _ => {}
@@ -887,14 +955,18 @@ impl<Ctx> Server<Ctx> {
         self.check_for_timeouts();
     }
 
-    /// Receive packets from the links, process them.
-    /// We might buffer some packets to the link as well (for Timeouts or ConnectionRequests, etc.)
+    /// Receive and process packets from a link.
+    ///
+    /// When `server_addr` is `Some`, connection requests are accepted only when their private
+    /// connect token contains a matching address. Passing `None` disables server-address checking.
+    /// Wildcard and loopback addresses of the same address family and port match each other.
     pub fn receive(
         &mut self,
         link: &mut Link,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<Vec<Error>> {
-        self.recv_packets(&mut link.recv, entity_mut)?;
+        self.recv_packets(&mut link.recv, entity_mut, server_addr)?;
         Ok(self.client_errors.drain(..).collect())
     }
 
@@ -924,23 +996,28 @@ impl<Ctx> Server<Ctx> {
             // send a keep-alive packet to the client to confirm the connection
             self.send_to_client(KeepAlivePacket::create(client_id), client_id, sender)?;
         }
-        let packet = PayloadPacket::create(buf);
-        self.send_to_client(packet, client_id, sender)
+        self.send_payload_to_client(&buf, client_id, sender)
     }
 
     /// Sends a packet to all connected clients.
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
     pub fn send_all(&mut self, buf: SendPayload, sender: &mut LinkSender) -> Result<()> {
-        for id in self.conn_cache.ids() {
+        let client_ids = self.conn_cache.take_client_ids();
+        let mut result = Ok(());
+        for &id in &client_ids {
             match self.send(buf.clone(), id, sender) {
                 Ok(_) | Err(Error::ClientNotConnected(_)) | Err(Error::ClientNotFound(_)) => {
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
             }
         }
-        Ok(())
+        self.conn_cache.recycle_client_ids(client_ids);
+        result
     }
 
     /// Creates a connect token builder for a given client ID.
@@ -956,11 +1033,11 @@ impl<Ctx> Server<Ctx> {
     ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
-    /// let bind_addr = "0.0.0.0:0";
+    /// let server_addr = SocketAddr::from_str("127.0.0.1:40005").unwrap();
     /// let mut server = Server::new(protocol_id, private_key).unwrap();
     ///
     /// let client_id = 123u64;
-    /// let token = server.token(client_id, SocketAddr::from_str(bind_addr).unwrap())
+    /// let token = server.token(client_id, server_addr)
     ///     .expire_seconds(60)  // defaults to 30 seconds, negative for no expiry
     ///     .timeout_seconds(-1) // defaults to 15 seconds, negative for no timeout
     ///     .generate()
@@ -1022,17 +1099,23 @@ impl<Ctx> Server<Ctx> {
     /// Disconnects all clients.
     pub fn disconnect_all(&mut self, sender: &mut LinkSender) -> Result<()> {
         debug!("Server preparing to disconnect all clients");
-        for id in self.conn_cache.ids() {
+        let client_ids = self.conn_cache.take_client_ids();
+        let mut result = Ok(());
+        for &id in &client_ids {
             let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
                 warn!("Could not disconnect client {id:?} because the connection was not found");
                 continue;
             };
             if conn.is_connected() {
                 debug!("Server preparing to disconnect client {id:?}");
-                self.disconnect(id, sender)?;
+                if let Err(error) = self.disconnect(id, sender) {
+                    result = Err(error);
+                    break;
+                }
             }
         }
-        Ok(())
+        self.conn_cache.recycle_client_ids(client_ids);
+        result
     }
 
     pub fn connected_client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
@@ -1059,18 +1142,248 @@ impl<Ctx> Server<Ctx> {
     pub fn client_entity(&self, client_id: ClientId) -> Option<Entity> {
         self.conn_cache.clients.get(&client_id).map(|c| c.entity)
     }
-
-    /// Gets the address of the server
-    pub fn local_addr(&self) -> SocketAddr {
-        self.cfg.server_addr
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PRIVATE_KEY_BYTES;
     use alloc::sync::Arc;
+    use bevy_app::App;
+    use bevy_ecs::{
+        system::Commands,
+        world::{CommandQueue, World},
+    };
     use core::sync::atomic::{AtomicBool, Ordering};
+    use lightyear_connection::server::Stopped;
+
+    use crate::server_plugin::{NetcodeConfig, NetcodeServer, NetcodeServerPlugin};
+
+    #[test]
+    fn stopped_resets_netcode_runtime_state() {
+        let mut app = App::new();
+        app.add_plugins(NetcodeServerPlugin);
+
+        let server = app
+            .world_mut()
+            .spawn(NetcodeServer::new(NetcodeConfig::default()))
+            .id();
+        let client = app.world_mut().spawn_empty().id();
+
+        {
+            let mut netcode = app.world_mut().get_mut::<NetcodeServer>(server).unwrap();
+            let inner = &mut netcode.inner;
+
+            // A connection request creates this state before the client is fully connected. The
+            // normal Stop path only disconnects Connected clients, so this entry used to survive
+            // server shutdown and keep its ID and entity mapping alive across a restart.
+            inner.conn_cache.add(
+                1,
+                client,
+                10,
+                [1; PRIVATE_KEY_BYTES],
+                [2; PRIVATE_KEY_BYTES],
+                [0; USER_DATA_BYTES],
+            );
+            inner.token_entries.inner.push(TokenEntry {
+                time: inner.time,
+                mac: [3; MAC_BYTES],
+                entity: client,
+            });
+            inner
+                .send_queue
+                .insert(client, vec![SendPayload::from_static(&[4])]);
+            inner.writer.extend_from_slice(&[5]);
+            inner
+                .client_errors
+                .push(Error::ClientIdInUse(id::PeerId::Netcode(1)));
+            inner
+                .cfg
+                .context
+                .connections
+                .push((1, client, [0; USER_DATA_BYTES]));
+            inner.cfg.context.disconnections.push((1, client));
+        }
+
+        app.world_mut().entity_mut(server).insert(Stopped);
+        app.world_mut().flush();
+
+        let netcode = app.world().get::<NetcodeServer>(server).unwrap();
+        let inner = &netcode.inner;
+        assert!(inner.conn_cache.clients.is_empty());
+        assert!(inner.conn_cache.client_id_map.is_empty());
+        assert!(inner.conn_cache.replay_protection.is_empty());
+        assert!(inner.token_entries.inner.is_empty());
+        assert!(inner.send_queue.is_empty());
+        assert!(inner.writer.is_empty());
+        assert!(inner.client_errors.is_empty());
+        assert!(inner.cfg.context.connections.is_empty());
+        assert!(inner.cfg.context.disconnections.is_empty());
+    }
+
+    const TEST_PROTOCOL_ID: u64 = 0x1122334455667788;
+    const TEST_PRIVATE_KEY: Key = [0x42; PRIVATE_KEY_BYTES];
+
+    fn connection_request(
+        public_server_addresses: &[SocketAddr],
+        internal_server_addresses: Option<&[SocketAddr]>,
+    ) -> RequestPacket {
+        let mut token_builder = ConnectToken::build(
+            public_server_addresses,
+            TEST_PROTOCOL_ID,
+            1,
+            TEST_PRIVATE_KEY,
+        )
+        .expire_seconds(-1);
+        if let Some(internal_server_addresses) = internal_server_addresses {
+            token_builder = token_builder
+                .internal_addresses(internal_server_addresses)
+                .unwrap();
+        }
+        let token = token_builder.generate().unwrap();
+        let Packet::Request(mut request) = RequestPacket::create(
+            token.protocol_id,
+            token.expire_timestamp,
+            token.nonce,
+            token.private_data,
+        ) else {
+            unreachable!()
+        };
+        request.decrypt_token_data(TEST_PRIVATE_KEY).unwrap();
+        request
+    }
+
+    fn process_request(
+        server_addr: Option<SocketAddr>,
+        public_server_addresses: &[SocketAddr],
+        internal_server_addresses: Option<&[SocketAddr]>,
+    ) -> (Server, World, Entity) {
+        let mut server = Server::new(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY).unwrap();
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let mut command_queue = CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut command_queue, &world);
+            let mut client_commands = commands.entity(client);
+            server
+                .process_connection_request(
+                    connection_request(public_server_addresses, internal_server_addresses),
+                    &mut client_commands,
+                    server_addr,
+                )
+                .unwrap();
+        }
+        command_queue.apply(&mut world);
+        (server, world, client)
+    }
+
+    #[test]
+    fn connection_request_requires_server_addr_in_token() {
+        let server_addr = SocketAddr::from(([192, 0, 2, 1], 5000));
+        let token_addr = SocketAddr::from(([192, 0, 2, 2], 5000));
+
+        let (server, world, client) = process_request(Some(server_addr), &[token_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.conn_cache.find_by_entity(&client).is_none());
+        assert!(!server.send_queue.contains_key(&client));
+        assert!(server.token_entries.inner.is_empty());
+    }
+
+    #[test]
+    fn connection_request_accepts_token_for_server_addr() {
+        let server_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+
+        let (server, world, client) = process_request(Some(server_addr), &[server_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+        assert!(server.send_queue.contains_key(&client));
+    }
+
+    #[test]
+    fn connection_request_accepts_match_later_in_token_address_list() {
+        let first_token_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let server_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+
+        let (server, world, client) =
+            process_request(Some(server_addr), &[first_token_addr, server_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
+
+    #[test]
+    fn connection_request_validates_private_internal_addresses() {
+        let public_addr = SocketAddr::from(([203, 0, 113, 10], 5000));
+        let internal_addr = SocketAddr::from(([10, 0, 0, 10], 5000));
+
+        let (server, world, client) =
+            process_request(Some(internal_addr), &[public_addr], Some(&[internal_addr]));
+
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
+
+    #[test]
+    fn connection_request_accepts_ipv4_wildcard_and_loopback_for_each_other() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let loopback_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[loopback_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+
+        let (server, world, client) = process_request(Some(loopback_addr), &[wildcard_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
+
+    #[test]
+    fn connection_request_accepts_ipv6_wildcard_and_loopback_for_each_other() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 5000));
+        let loopback_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 5000));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[loopback_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+
+        let (server, world, client) = process_request(Some(loopback_addr), &[wildcard_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
+
+    #[test]
+    fn connection_request_rejects_wildcard_and_loopback_with_different_ports() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let loopback_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[loopback_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.conn_cache.find_by_entity(&client).is_none());
+    }
+
+    #[test]
+    fn connection_request_rejects_wildcard_and_non_loopback() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let public_addr = SocketAddr::from(([192, 0, 2, 1], 5000));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[public_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.conn_cache.find_by_entity(&client).is_none());
+    }
+
+    #[test]
+    fn connection_request_skips_address_check_without_server_addr() {
+        let token_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+
+        let (server, world, client) = process_request(None, &[token_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
 
     #[test]
     fn on_connect_callback_receives_user_data() {

@@ -1,3 +1,5 @@
+#[cfg(feature = "metrics")]
+use crate::registry::MessageKind;
 use crate::registry::MessageRegistry;
 use crate::send::Priority;
 use crate::{Message, MessageManager};
@@ -33,6 +35,8 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
         senders: impl EntitySet,
         priority: Priority,
     ) -> Result {
+        #[cfg(feature = "metrics")]
+        let metric_handles = self.registry.metric_handles(&MessageKind::of::<M>())?;
         // if the message is not map-entities, we can serialize it once and clone the bytes
         if !self.registry.is_map_entities::<M>()? {
             // TODO: serialize once for all senders. Figure out how to get a shared writer. Maybe on Server? Or as a global resource?
@@ -42,16 +46,13 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                 &mut self.writer,
                 &mut SendEntityMap::default(),
             )?;
-            let bytes = self.writer.split();
+            let bytes = self.writer.take_written();
             let bytes_len = bytes.len();
             self.query
                 .iter_many_unique_mut(senders)
                 .try_for_each(|(_, transport)| {
                     #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
-                        metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes_len as f64);
-                    }
+                    metric_handles.record_send::<M>(bytes_len);
                     transport.send_with_priority::<C>(bytes.clone(), priority)
                 })?;
         } else {
@@ -64,12 +65,9 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                         // TODO: ideally we could do entity mapping without Mut!!!
                         &mut manager.entity_mapper.local_to_remote,
                     )?;
-                    let bytes = self.writer.split();
+                    let bytes = self.writer.take_written();
                     #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("message/send", "message" => core::any::type_name::<M>()).increment(1);
-                        metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes.len() as f64);
-                    }
+                    metric_handles.record_send::<M>(bytes.len());
                     transport.send_with_priority::<C>(bytes, priority)?;
                     Ok::<(), BevyError>(())
                 })?;

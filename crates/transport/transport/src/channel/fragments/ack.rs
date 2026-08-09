@@ -1,29 +1,35 @@
+//! Fragment acknowledgement tracking for channel sends.
+
 use crate::packet::message::{FragmentIndex, MessageId};
 use alloc::{vec, vec::Vec};
 use bevy_platform::collections::HashMap;
 use core::time::Duration;
-use tracing::{error, trace};
+use tracing::trace;
 
-/// `FragmentReceiver` is used to reconstruct fragmented messages
+/// Tracks acknowledgements for the fragments of one or more messages.
 #[derive(Debug, PartialEq)]
-pub struct FragmentAckReceiver {
+pub(crate) struct FragmentAckReceiver {
     fragment_messages: HashMap<MessageId, FragmentAckTracker>,
 }
 
 impl FragmentAckReceiver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             fragment_messages: HashMap::default(),
         }
     }
 
-    pub fn add_new_fragment_to_wait_for(&mut self, message_id: MessageId, num_fragments: usize) {
+    pub(crate) fn add_new_fragment_to_wait_for(
+        &mut self,
+        message_id: MessageId,
+        num_fragments: usize,
+    ) {
         self.fragment_messages
             .entry(message_id)
             .or_insert_with(|| FragmentAckTracker::new(num_fragments));
     }
 
-    pub fn discard_message(&mut self, message_id: MessageId) {
+    pub(crate) fn discard_message(&mut self, message_id: MessageId) {
         self.fragment_messages.remove(&message_id);
     }
 
@@ -31,7 +37,7 @@ impl FragmentAckReceiver {
     /// (i.e. we probably lost some fragments and we will never get all the acks for this fragmented message)
     ///
     /// If we don't keep track of the last received time, we will never clean up the messages.
-    pub fn cleanup(&mut self, cleanup_time: Duration) {
+    pub(crate) fn cleanup(&mut self, cleanup_time: Duration) {
         self.fragment_messages.retain(|_, c| {
             c.last_received
                 .map(|t| t > cleanup_time)
@@ -40,14 +46,14 @@ impl FragmentAckReceiver {
     }
 
     /// We receive a fragment ack, and return true if the entire fragment was acked.
-    pub fn receive_fragment_ack(
+    pub(crate) fn receive_fragment_ack(
         &mut self,
         message_id: MessageId,
         fragment_index: FragmentIndex,
         current_time: Option<Duration>,
     ) -> bool {
         let Some(fragment_ack_tracker) = self.fragment_messages.get_mut(&message_id) else {
-            error!("Received fragment ack for unknown message id");
+            trace!(?message_id, "ignoring fragment ACK without pending state");
             return false;
         };
 
@@ -63,7 +69,7 @@ impl FragmentAckReceiver {
 
 #[derive(Debug, Clone, PartialEq)]
 /// Data structure to keep track of when an entire fragment message is acked
-pub struct FragmentAckTracker {
+struct FragmentAckTracker {
     num_fragments: usize,
     num_received_fragments: usize,
     received: Vec<bool>,
@@ -71,7 +77,7 @@ pub struct FragmentAckTracker {
 }
 
 impl FragmentAckTracker {
-    pub fn new(num_fragments: usize) -> Self {
+    fn new(num_fragments: usize) -> Self {
         Self {
             num_fragments,
             num_received_fragments: 0,
@@ -81,7 +87,7 @@ impl FragmentAckTracker {
     }
 
     /// Receive a fragment index ack, and return true if the entire fragment was acked.
-    pub fn receive_ack(&mut self, fragment_index: usize, received_time: Option<Duration>) -> bool {
+    fn receive_ack(&mut self, fragment_index: usize, received_time: Option<Duration>) -> bool {
         self.last_received = received_time;
 
         if !self.received[fragment_index] {

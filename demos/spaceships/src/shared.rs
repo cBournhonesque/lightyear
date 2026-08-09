@@ -9,7 +9,7 @@ use crate::protocol::*;
 #[cfg(feature = "gui")]
 use crate::renderer::ExampleRendererPlugin;
 use avian2d::prelude::{forces::ForcesItem, *};
-use leafwing_input_manager::prelude::ActionState;
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
@@ -26,6 +26,13 @@ pub struct SharedPlugin {
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "p2p")]
+        let rollback_resources = app
+            .world()
+            .contains_resource::<lightyear_examples_common::p2p::P2PSettings>();
+        #[cfg(not(feature = "p2p"))]
+        let rollback_resources = false;
+
         app.add_plugins(ProtocolPlugin);
         app.init_resource::<BulletDebugRegistry>();
 
@@ -37,6 +44,11 @@ impl Plugin for SharedPlugin {
             replication_mode: AvianReplicationMode::Position {
                 sync_to_transform: false,
             },
+            // `ProtocolPlugin` owns the physics component registrations so it can use the
+            // demo's tighter rollback tolerances. Registering Avian's defaults as well would
+            // install the same prediction receive-marker functions twice.
+            register_physics_components: false,
+            rollback_resources,
             ..default()
         });
         app.add_plugins(
@@ -82,7 +94,7 @@ struct BulletDebugRegistry {
 
 fn emit_bullet_post_update_state(
     timeline: Res<LocalTimeline>,
-    interpolation_timeline: Query<&InterpolationTimeline>,
+    interpolation_timeline: Option<Res<InterpolationTimeline>>,
     bullets: Query<
         (
             Entity,
@@ -103,10 +115,7 @@ fn emit_bullet_post_update_state(
     >,
 ) {
     let tick = timeline.tick();
-    let interpolation_tick = interpolation_timeline
-        .iter()
-        .next()
-        .map(|timeline| timeline.tick().0 as i64);
+    let interpolation_tick = interpolation_timeline.map(|timeline| timeline.tick().0 as i64);
     for (
         entity,
         marker,
@@ -259,17 +268,20 @@ pub fn shared_player_firing(
         &mut Weapon,
         Option<&ConfirmedHistory<Weapon>>,
         Has<Controlled>,
+        Has<InputMap<PlayerActions>>,
         Has<Predicted>,
+        Has<DeterministicPredicted>,
         Has<Interpolated>,
         Option<&ControlledBy>,
         &Player,
     )>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline: Option<SyncedLocalTimeline>,
+    metadata: Res<NetworkingMetadata>,
     server: Query<(), With<Server>>,
 ) {
-    let client_is_synced = !synced_client.is_empty();
+    let client_is_synced = input_timeline.is_some();
     let is_server = !server.is_empty();
     if q.is_empty() {
         return;
@@ -286,7 +298,9 @@ pub fn shared_player_firing(
         mut weapon,
         weapon_history,
         is_local,
+        has_input_map,
         is_predicted,
+        is_deterministic,
         is_interpolated,
         controlled_by,
         player,
@@ -296,9 +310,10 @@ pub fn shared_player_firing(
             if controlled_by.is_none() {
                 continue;
             }
-        } else if !client_is_synced || !is_predicted || is_interpolated {
+        } else if !client_is_synced || !(is_predicted || is_deterministic) || is_interpolated {
             continue;
         }
+        let is_local = is_local || has_input_map;
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
         // relying on a frame-edge `just_pressed`, and the weapon cooldown already
         // guarantees we only spawn bullets at the intended rate.
@@ -362,6 +377,11 @@ pub fn shared_player_firing(
                 prespawned,
             ))
             .id();
+        if matches!(metadata.mode, NetworkTopology::P2P { .. }) {
+            commands
+                .entity(bullet_entity)
+                .insert(DeterministicPredicted::default());
+        }
         lightyear_debug_event!(
             DebugCategory::Prediction,
             DebugSamplePoint::FixedUpdate,
@@ -668,28 +688,31 @@ pub(crate) fn process_collisions(
         &Position,
         Has<PreSpawned>,
         Has<Predicted>,
+        Has<DeterministicPredicted>,
     )>,
     player_q: Query<&Player>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
     server: Query<(), With<Server>>,
+    metadata: Res<NetworkingMetadata>,
     mut hit_ev_writer: MessageWriter<BulletHitMessage>,
 ) {
     let is_server = !server.is_empty();
+    let is_p2p = matches!(metadata.mode, NetworkTopology::P2P { .. });
     let tick = timeline.tick();
     // when A and B collide, it can be reported as one of:
     // * A collides with B
     // * B collides with A
     // which is why logic is duplicated twice here
     for contacts in collisions.iter() {
-        if let Ok((bullet, col, bullet_pos, is_prespawned, is_predicted)) =
+        if let Ok((bullet, col, bullet_pos, is_prespawned, is_predicted, is_deterministic)) =
             bullet_q.get(contacts.collider1)
         {
             // Keep unconfirmed client prespawns alive until the server entity can match them.
-            if !is_server && is_prespawned {
+            if !is_server && !is_p2p && is_prespawned {
                 continue;
             }
-            if !is_server && !is_predicted {
+            if !is_server && !(is_predicted || is_deterministic) {
                 info!(
                     ?tick,
                     bullet = ?contacts.collider1,
@@ -719,14 +742,14 @@ pub(crate) fn process_collisions(
             };
             hit_ev_writer.write(ev);
         }
-        if let Ok((bullet, col, bullet_pos, is_prespawned, is_predicted)) =
+        if let Ok((bullet, col, bullet_pos, is_prespawned, is_predicted, is_deterministic)) =
             bullet_q.get(contacts.collider2)
         {
             // Keep unconfirmed client prespawns alive until the server entity can match them.
-            if !is_server && is_prespawned {
+            if !is_server && !is_p2p && is_prespawned {
                 continue;
             }
-            if !is_server && !is_predicted {
+            if !is_server && !(is_predicted || is_deterministic) {
                 info!(
                     ?tick,
                     bullet = ?contacts.collider2,

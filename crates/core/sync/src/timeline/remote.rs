@@ -252,8 +252,12 @@ pub(crate) fn update_remote_timeline(
 pub(crate) fn advance_remote_timeline(
     fixed_time: Res<Time<Real>>,
     tick_duration: Res<TickDuration>,
-    mut query: Query<&mut RemoteTimeline, (With<Linked>, Without<Rollback>)>,
+    rollback: Option<Res<Rollback>>,
+    mut query: Query<&mut RemoteTimeline, With<Linked>>,
 ) {
+    if rollback.is_some() {
+        return;
+    }
     let delta = fixed_time.delta();
     query.iter_mut().for_each(|mut t| {
         t.apply_duration(delta, tick_duration.0);
@@ -272,6 +276,10 @@ pub(crate) fn reset_received_packet_remote_timeline(
 impl SyncTargetTimeline for RemoteTimeline {
     fn current_estimate(&self) -> TickInstant {
         self.now + self.offset
+    }
+
+    fn is_initialized(&self) -> bool {
+        self.last_received_tick.is_some()
     }
 
     fn received_packet(&self) -> bool {

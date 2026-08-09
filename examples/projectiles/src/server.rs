@@ -451,6 +451,12 @@ mod bot {
         };
         let conditioner = LinkConditionerConfig::average_condition().half();
 
+        app.insert_resource(
+            InputTimelineConfig::default()
+                .with_input_delay(InputDelayConfig::fixed_input_delay(BOT_INPUT_DELAY_TICKS)),
+        );
+        app.insert_resource(PredictionManager::default());
+
         app.world_mut().spawn((
             Client,
             BotClient,
@@ -463,9 +469,6 @@ mod bot {
             )
             .unwrap(),
             crossbeam_client,
-            PredictionManager::default(),
-            InputTimelineConfig::default()
-                .with_input_delay(InputDelayConfig::fixed_input_delay(BOT_INPUT_DELAY_TICKS)),
             Name::from("BotClient"),
         ));
         let server = server.into_inner();

@@ -28,6 +28,17 @@ pub struct PlayerColor(pub(crate) Color);
 // Marker component
 pub struct CircleMarker;
 
+/// Selects the visibility lifetime demonstrated by a circle.
+#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VisibilityPolicy {
+    /// Despawn the remote entity whenever it leaves the client's interest radius.
+    WhileVisible,
+    /// Keep a remote entity that the client has already seen, but pause its updates.
+    Retained,
+    /// Send the initial remote entity even while hidden, then pause its updates.
+    AlwaysPresent,
+}
+
 // Inputs
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone, Reflect)]
@@ -64,5 +75,6 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation();
         app.component::<PlayerColor>().replicate();
         app.component::<CircleMarker>().replicate();
+        app.component::<VisibilityPolicy>().replicate();
     }
 }

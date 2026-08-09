@@ -7,8 +7,8 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
 use lightyear::prelude::{
-    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline, Interpolated,
-    IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server,
+    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, Interpolated, LocalTimeline,
+    PreSpawned, Predicted, Replicate, Replicated, Server,
 };
 #[cfg(feature = "client")]
 use lightyear::prelude::{
@@ -148,7 +148,7 @@ fn add_bullet_visuals(
 
 #[cfg(feature = "client")]
 fn add_ready_interpolated_bullet_visuals(
-    timeline: Option<Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>>,
+    timeline: Option<Res<InterpolationTimeline>>,
     query: Query<
         (
             Entity,
@@ -163,7 +163,7 @@ fn add_ready_interpolated_bullet_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let Some(timeline) = timeline else {
+    let Some(timeline) = timeline.filter(|timeline| timeline.is_synced()) else {
         return;
     };
     let interpolation_tick = timeline.tick();

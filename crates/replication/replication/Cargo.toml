@@ -13,7 +13,6 @@ default = ["std"]
 std = ["lightyear_transport/std"]
 client = ["lightyear_sync/client"]
 server = ["lightyear_connection/server"]
-delta = ["dep:dashmap"]
 prediction = []
 interpolation = []
 deterministic = []
@@ -34,7 +33,6 @@ lightyear_transport.workspace = true
 lightyear_sync = { workspace = true, optional = true }
 
 # utils
-dashmap = { workspace = true, optional = true }
 indexmap.workspace = true
 metrics = { workspace = true, optional = true }
 smallvec.workspace = true

@@ -153,11 +153,10 @@ fn test_replicate_position_child_rigidbody() {
 ///
 /// The child's world Position should be parent Position + child Transform offset.
 ///
-/// The test adds client-only physics components from PostUpdate after transform
-/// propagation. Doing this from `Add<Remote>`/`Add<Replicated>` is
-/// order-sensitive: even when `ChildOf` is received in the same replication
-/// batch, Avian collider hooks run before the replicated hierarchy's
-/// Transform/GlobalTransform state has been propagated.
+/// Position mode does not replicate the derived pose of non-rigid child
+/// colliders. The test materializes the child's fixed local transform on the
+/// client, then adds client-only physics components from `PostUpdate` after
+/// transform propagation.
 #[test]
 fn test_replicate_position_child_collider() {
     let mut config = StepperConfig::single();
@@ -215,6 +214,11 @@ fn test_replicate_position_child_collider() {
         .get_local(server_child)
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_child)
+        .insert(Transform::from_xyz(2.0, 2.0, 0.0));
 
     // Step enough frames for:
     // 1. client collider hierarchy setup
@@ -290,8 +294,6 @@ fn add_client_physics_after_transform_propagate(
         (Entity, Option<&ChildOf>),
         (
             With<Remote>,
-            With<Position>,
-            With<Rotation>,
             With<Transform>,
             With<GlobalTransform>,
             Without<ClientPhysicsAdded>,
@@ -299,10 +301,14 @@ fn add_client_physics_after_transform_propagate(
     >,
 ) {
     for (entity, child_of) in &query {
-        if child_of.is_some() {
-            commands
-                .entity(entity)
-                .insert((Collider::circle(1.0), ClientPhysicsAdded));
+        if let Some(child_of) = child_of {
+            commands.entity(entity).insert((
+                Collider::circle(1.0),
+                ColliderOf {
+                    body: child_of.parent(),
+                },
+                ClientPhysicsAdded,
+            ));
         } else {
             commands.entity(entity).insert((
                 Collider::circle(1.0),

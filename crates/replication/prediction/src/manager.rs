@@ -7,20 +7,10 @@ use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
 use alloc::vec::Vec;
 use bevy_ecs::entity::EntityHash;
-use bevy_ecs::lifecycle::HookContext;
-use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
-use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
-
-#[derive(Resource)]
-pub struct PredictionResource {
-    // entity that holds the InputTimeline
-    // We use this to avoid having to run a mutable query in component hook
-    pub(crate) link_entity: Entity,
-}
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
@@ -52,8 +42,10 @@ pub enum RollbackMode {
 pub struct RollbackPolicy {
     pub state: RollbackMode,
     pub input: RollbackMode,
-    /// Maximum number of ticks we can rollback to. If we receive some packets that would make us rollback more than
-    /// this number of ticks, we just do nothing.
+    /// Upper bound on the number of ticks we can roll back.
+    ///
+    /// A non-zero [`InputTimelineConfig::maximum_predicted_ticks`] can lower the effective bound.
+    /// Rollback requests beyond the effective bound are ignored.
     pub max_rollback_ticks: u16,
 }
 
@@ -62,12 +54,26 @@ impl Default for RollbackPolicy {
         Self {
             state: RollbackMode::Check,
             input: RollbackMode::Check,
-            max_rollback_ticks: 100,
+            max_rollback_ticks: 20,
         }
     }
 }
 
 impl RollbackPolicy {
+    /// Maximum rollback depth after applying the input timing configuration's prediction limit.
+    ///
+    /// A non-zero `maximum_predicted_ticks` bounds how far ahead the local simulation can be, so
+    /// rollback state older than that cannot be needed. Zero denotes lockstep and does not cap
+    /// explicit or forced state rollbacks.
+    pub fn effective_max_rollback_ticks(&self, input_config: &InputTimelineConfig) -> u16 {
+        let maximum_predicted_ticks = input_config.maximum_predicted_ticks();
+        if maximum_predicted_ticks == 0 {
+            self.max_rollback_ticks
+        } else {
+            self.max_rollback_ticks.min(maximum_predicted_ticks)
+        }
+    }
+
     /// Returns true if we don't need to store a prediction history.
     ///
     /// PredictionHistory is not needed if we always rollback on new states
@@ -77,17 +83,14 @@ impl RollbackPolicy {
     }
 }
 
-/// Component that enables prediction and rollback for a local client.
+/// Application-global state that enables prediction and rollback.
 ///
 /// [`PredictionPlugin`](crate::prelude::PredictionPlugin) installs the prediction systems, but
-/// those systems only run for a connected, non-host [`Client`](lightyear_connection::client::Client)
-/// entity that also has `PredictionManager`. Add this to your client entity when it should create
-/// predicted entities, record prediction history, and perform rollback/reconciliation.
-#[derive(Component, Debug, Reflect)]
-#[component(on_insert = PredictionManager::on_insert)]
-#[require(InputTimelineConfig)]
-#[require(PreSpawnedReceiver)]
-#[require(LastConfirmedInput)]
+/// those systems only run when this resource is present and the cached network topology is a
+/// conventional client or P2P session. Insert one manager into the application when it should
+/// create predicted entities, record prediction history, and perform one global
+/// rollback/reconciliation pipeline.
+#[derive(Resource, Debug, Reflect)]
 pub struct PredictionManager {
     /// Configuration for how rollbacks are triggered
     pub rollback_policy: RollbackPolicy,
@@ -105,18 +108,26 @@ pub struct PredictionManager {
     pub rollback: RwLock<RollbackState>,
 }
 
-/// Store the most recent confirmed input across all remote clients.
-#[derive(Component, Debug, Reflect)]
+/// Application-global frontier of confirmed input across all remote players.
+///
+/// This is a resource because the rollback decision combines every remote input stream in the
+/// application; it does not belong to any one network link.
+#[derive(Resource, Debug, Reflect)]
 pub struct LastConfirmedInput {
-    /// Updated via [`AtomicTick::set_if_lower`] to track the minimum last-confirmed tick
-    /// across all remote clients. Reset to a high value each frame by
+    /// Current frame's aggregate, updated via [`AtomicTick::set_if_lower`] to track the minimum
+    /// last-confirmed tick across all remote clients. Reset to a high value each frame by
     /// [`reset_input_rollback_tracker`] so the minimum is computed correctly.
     ///
     /// [`AtomicTick::set_if_lower`]: lightyear_core::tick::AtomicTick::set_if_lower
     /// [`reset_input_rollback_tracker`]: crate::rollback::reset_input_rollback_tracker
     pub tick: lightyear_core::tick::AtomicTick,
+    /// Completed aggregate from the previous frame.
+    ///
+    /// Rollback uses this explicitly so inputs received in the current frame are replayed from the
+    /// frontier that was known before those inputs arrived.
+    pub previous_frame_tick: Tick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
-    /// Set to true if we have received inputs from all remote clients.
+    /// Set to true if the current aggregate contains inputs from all remote clients.
     pub received_for_all_clients: bool,
 }
 
@@ -124,6 +135,7 @@ impl Default for LastConfirmedInput {
     fn default() -> Self {
         Self {
             tick: lightyear_core::tick::AtomicTick::new_max(),
+            previous_frame_tick: Tick(u32::MAX),
             received_any_messages: bevy_platform::sync::atomic::AtomicBool::new(false),
             received_for_all_clients: false,
         }
@@ -143,6 +155,19 @@ impl LastConfirmedInput {
             tick if tick == Tick(u32::MAX) => None,
             tick => Some(tick),
         }
+    }
+
+    /// Return the confirmed-input frontier completed during the previous frame.
+    pub fn previous_frame(&self) -> Option<Tick> {
+        match self.previous_frame_tick {
+            tick if tick == Tick(u32::MAX) => None,
+            tick => Some(tick),
+        }
+    }
+
+    /// Preserve the current aggregate for systems that must consume the previous frame's view.
+    pub fn finalize_frame(&mut self) {
+        self.previous_frame_tick = self.tick.get();
     }
 }
 
@@ -343,13 +368,38 @@ impl StateRollbackMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_sync::timeline::input::InputDelayConfig;
+
+    #[test]
+    fn effective_max_rollback_ticks_respects_prediction_limit() {
+        let mut policy = RollbackPolicy::default();
+        assert_eq!(policy.max_rollback_ticks, 20);
+
+        let balanced =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced());
+        assert_eq!(policy.effective_max_rollback_ticks(&balanced), 7);
+
+        policy.max_rollback_ticks = 5;
+        assert_eq!(policy.effective_max_rollback_ticks(&balanced), 5);
+
+        let lockstep =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_prediction());
+        assert_eq!(policy.effective_max_rollback_ticks(&lockstep), 5);
+    }
 
     #[test]
     fn last_confirmed_input_default_starts_unset() {
-        let last_confirmed_input = LastConfirmedInput::default();
+        let mut last_confirmed_input = LastConfirmedInput::default();
 
         assert_eq!(last_confirmed_input.tick.get(), Tick(u32::MAX));
+        assert_eq!(last_confirmed_input.get(), None);
+        assert_eq!(last_confirmed_input.previous_frame(), None);
         assert!(!last_confirmed_input.received_input());
+
+        last_confirmed_input.tick.set_if_lower(Tick(12));
+        last_confirmed_input.received_for_all_clients = true;
+        last_confirmed_input.finalize_frame();
+        assert_eq!(last_confirmed_input.previous_frame(), Some(Tick(12)));
     }
 
     #[test]
@@ -472,17 +522,6 @@ impl Default for PredictionManager {
             deterministic_despawn: Vec::default(),
             rollback: RwLock::new(RollbackState::Default),
         }
-    }
-}
-
-impl PredictionManager {
-    fn on_insert(mut deferred: DeferredWorld, context: HookContext) {
-        let entity = context.entity;
-        deferred.commands().queue(move |world: &mut World| {
-            world.insert_resource(PredictionResource {
-                link_entity: entity,
-            });
-        })
     }
 }
 

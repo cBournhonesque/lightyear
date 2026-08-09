@@ -19,7 +19,7 @@ use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
 use bevy_replicon::prelude::{
-    AppRuleExt, FilterScope, Replicated, SingleComponent, VisibilityFilter,
+    AppRuleExt, FilterScope, Replicated, ScopeLifetime, SingleComponent, VisibilityFilter,
 };
 use bevy_replicon::server::ServerSystems;
 use bevy_replicon::server::server_tick::ServerTick;
@@ -41,7 +41,7 @@ use tracing::{error, trace, warn};
 use crate::ReplicationSystems;
 use crate::metadata::ReplicationMetadata;
 use crate::registry::ComponentRegistry;
-use crate::visibility::immediate::VisibilityBit;
+use crate::visibility::immediate::VisibilityBits;
 #[cfg(feature = "interpolation")]
 pub use interpolation::*;
 use lightyear_core::prelude::LocalTimeline;
@@ -287,38 +287,41 @@ impl ReplicationTargetT for () {
             });
     }
 
-    fn on_discard(mut world: DeferredWorld, context: HookContext) {
-        let Ok(entity_ref) = world.get_entity(context.entity) else {
-            return;
-        };
-        let is_replacement = entity_ref.contains::<Replicate>();
-        let Some(visibility_bit) = world.get_resource::<ReplicateBit>().map(|bit| bit.0) else {
-            warn!(
-                entity = ?context.entity,
-                "Skipping replication target replacement because the visibility resource is missing"
-            );
-            return;
-        };
-        let unsafe_world = world.as_unsafe_world_cell();
-        if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity)
-        {
-            state.per_sender_state.keys().for_each(|sender_entity| {
-                if let Some(mut visibility) =
-                    unsafe { unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity)
-                {
-                    visibility.set(context.entity, visibility_bit, false);
-                }
-            });
-        }
-        if !is_replacement {
-            world.commands().queue(move |world: &mut World| {
-                let Ok(mut entity_mut) = world.get_entity_mut(context.entity) else {
-                    return;
-                };
-                entity_mut.remove::<Replicated>();
-            });
+    fn on_discard(_: DeferredWorld, _: HookContext) {}
+}
+
+/// Clear the replication visibility only when `Replicate` is replaced or removed.
+///
+/// A component hook cannot distinguish those operations from an entity despawn. Marking an entity
+/// hidden while it is being despawned makes Replicon suppress the actual despawn message.
+fn on_replicate_discard(
+    trigger: On<Discard, Replicate>,
+    replicate_bit: Res<ReplicateBit>,
+    states: Query<&ReplicationState>,
+    mut senders: Query<&mut ClientVisibility>,
+    mut commands: Commands,
+) {
+    if trigger.trigger().new_archetype.is_none() {
+        return;
+    }
+    let entity = trigger.entity;
+
+    if let Ok(state) = states.get(entity) {
+        for &sender_entity in state.per_sender_state.keys() {
+            if let Ok(mut visibility) = senders.get_mut(sender_entity) {
+                visibility.set(entity, replicate_bit.0, false);
+            }
         }
     }
+
+    commands.queue(move |world: &mut World| {
+        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            return;
+        };
+        if !entity_mut.contains::<Replicate>() {
+            entity_mut.remove::<Replicated>();
+        }
+    });
 }
 
 /// Entity-level visibility for [`Replicate`]
@@ -330,7 +333,11 @@ impl FromWorld for ReplicateBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<Entity>(world, &mut registry)
+                filter_registry.register_scope::<Entity>(
+                    world,
+                    &mut registry,
+                    ScopeLifetime::WhileVisible,
+                )
             })
         });
         Self(bit)
@@ -410,8 +417,11 @@ mod prediction {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry
-                        .register_scope::<SingleComponent<Predicted>>(world, &mut registry)
+                    filter_registry.register_scope::<SingleComponent<Predicted>>(
+                        world,
+                        &mut registry,
+                        ScopeLifetime::WhileVisible,
+                    )
                 })
             });
             Self(bit)
@@ -481,8 +491,11 @@ mod interpolation {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry
-                        .register_scope::<SingleComponent<Interpolated>>(world, &mut registry)
+                    filter_registry.register_scope::<SingleComponent<Interpolated>>(
+                        world,
+                        &mut registry,
+                        ScopeLifetime::WhileVisible,
+                    )
                 })
             });
             Self(bit)
@@ -1086,6 +1099,7 @@ impl Plugin for SendPlugin {
         );
         #[cfg(feature = "server")]
         app.add_observer(emulate_replicate_on_host_client_added);
+        app.add_observer(on_replicate_discard);
 
         // make sure that any ordering relative to ReplicationSystems is also applied to ServerSystems
         app.configure_sets(
@@ -1095,7 +1109,7 @@ impl Plugin for SendPlugin {
 
         app.register_required_components::<Replicate, Replicated>();
         app.init_resource::<ReplicateBit>();
-        app.init_resource::<VisibilityBit>();
+        app.init_resource::<VisibilityBits>();
         #[cfg(feature = "prediction")]
         {
             app.register_required_components::<PredictionTarget, Predicted>();

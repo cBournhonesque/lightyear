@@ -34,7 +34,7 @@ fn handle_character_actions(
     spatial_query: SpatialQuery,
     mut query: Query<
         (Entity, &ComputedMass, &ActionState<CharacterAction>, Forces),
-        With<Predicted>,
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
     >,
     // In host-server mode, the server portion is already applying the
     // character actions and so we don't want to apply the character
@@ -44,11 +44,8 @@ fn handle_character_actions(
 ) {
     let tick = timeline.tick();
     for (entity, computed_mass, action_state, forces) in &mut query {
-        // lightyear handles correctly both inputs from the local player or the remote player, during rollback
-        // or out of rollback.
-        // The ActionState is always updated to contain the correct action for the current tick.
-        //
-        // For remote players, we use the most recent input received
+        // Lightyear restores the correct local or rebroadcast ActionState for every predicted
+        // character, both during ordinary prediction and rollback replay.
         apply_character_action(
             entity,
             computed_mass,
@@ -60,8 +57,7 @@ fn handle_character_actions(
     }
 }
 
-/// Add physics to characters that are newly predicted. If the client controls
-/// the character then add an input component.
+/// Add physics to characters when their predicted entities are created.
 fn handle_new_character(
     mut commands: Commands,
     mut character_query: Query<
@@ -88,13 +84,15 @@ fn handle_controlled_character(
         return;
     };
     info!("Adding InputMap to controlled character {entity:?}");
-    commands.entity(entity).insert(
-        InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-            .with(CharacterAction::Jump, GamepadButton::South)
-            .with(CharacterAction::Shoot, KeyCode::KeyQ)
-            .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
-            .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
-    );
+    commands.entity(entity).insert(character_input_map());
+}
+
+pub(crate) fn character_input_map() -> InputMap<CharacterAction> {
+    InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
+        .with(CharacterAction::Jump, GamepadButton::South)
+        .with(CharacterAction::Shoot, KeyCode::KeyQ)
+        .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
+        .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd())
 }
 
 /// Add physics to floors that are newly replicated. The query checks for

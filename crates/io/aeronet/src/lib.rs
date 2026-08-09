@@ -21,13 +21,14 @@ pub mod server;
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSystems, Session, SessionEndpoint};
-use alloc::format;
+use alloc::{format, string::ToString};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use lightyear_link::{
-    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, Linked, Linking, Unlink, Unlinked,
+    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, Linked, Linking, Unlink, UnlinkReason,
+    Unlinked, recv_payload_from_bytes,
 };
 use tracing::trace;
 
@@ -143,14 +144,10 @@ impl AeronetPlugin {
         {
             let reason = match &trigger.reason {
                 DisconnectReason::ByUser(reason) => {
-                    format!("Disconnected by user: {reason}")
+                    UnlinkReason::UserRequested((!reason.is_empty()).then(|| reason.to_string()))
                 }
-                DisconnectReason::ByPeer(reason) => {
-                    format!("Disconnected by remote: {reason}")
-                }
-                DisconnectReason::ByError(err) => {
-                    format!("Disconnected due to error: {err:?}")
-                }
+                DisconnectReason::ByPeer(reason) => UnlinkReason::ByPeer(reason.to_string()),
+                DisconnectReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };
             trace!(
                 "Disconnected (reason: {reason:?}) triggered added on AeronetLink {:?}. Adding Unlinked on Link entity {:?}",
@@ -171,7 +168,7 @@ impl AeronetPlugin {
             // get the aeronet session entity
             && let Ok(is_server) = aeronet_query.get(aeronet_link.0)
         {
-            let reason = core::mem::take(&mut trigger.reason);
+            let reason = core::mem::take(&mut trigger.reason).to_string();
             trace!(
                 "Unlink triggered on Link entity {:?} (reason: {reason:?}). Closing/Disconnecting AeronetLink entity {:?}",
                 trigger.entity, aeronet_link.0
@@ -193,10 +190,13 @@ impl AeronetPlugin {
                 trace!("Received {:?} packets", session.recv.len());
                 session.recv.drain(..).for_each(|recv| {
                     #[cfg(feature = "test_utils")]
-                    link.recv
-                        .push(recv.payload, lightyear_core::time::Instant::now());
+                    link.recv.push(
+                        recv_payload_from_bytes(recv.payload),
+                        lightyear_core::time::Instant::now(),
+                    );
                     #[cfg(not(feature = "test_utils"))]
-                    link.recv.push(recv.payload, recv.recv_at);
+                    link.recv
+                        .push(recv_payload_from_bytes(recv.payload), recv.recv_at);
                 });
             }
         });

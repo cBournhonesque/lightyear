@@ -69,43 +69,20 @@ to canonical physics state.
 Position mode automatically registers velocity-aware Hermite interpolation for the
 `(Position, Rotation, LinearVelocity, AngularVelocity)` bundle. Delayed interpolation, frame
 interpolation, and visual correction select it whenever all four components are present. The
-per-component rules remain useful for archetypes that do not contain the complete bundle. This
-does not implicitly replicate those components; the application protocol still chooses which
-components are sent over the network.
+per-component rules remain useful for archetypes that do not contain the complete bundle.
+
+By default, Position mode also registers `Position`, `Rotation`, `LinearVelocity`, and
+`AngularVelocity` for filtered rigid-body replication and prediction. Position and Rotation get
+linear interpolation, correction, and a small default rollback tolerance. Set
+[`LightyearAvianPlugin::register_physics_components`] to `false` when the application owns these
+registrations, for example to use
+`app.component::<C>().replicate().predict().with_rollback_condition(...)` or deterministic
+input-only replication.
 !*/
-use alloc::vec::Vec;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
-use avian2d::{
-    collider_tree::{
-        ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees, MovedProxies,
-    },
-    collision::collider::{ColliderAabb, EnlargedAabb},
-    collision::contact_types::ContactEdgeFlags,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
-    },
-    math::*,
-    physics_transform::*,
-    prelude::*,
-};
+use avian2d::{math::*, physics_transform::*, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
-use avian3d::{
-    collider_tree::{
-        ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees, MovedProxies,
-    },
-    collision::collider::{ColliderAabb, EnlargedAabb},
-    collision::contact_types::ContactEdgeFlags,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
-    },
-    math::*,
-    physics_transform::*,
-    prelude::*,
-};
+use avian3d::{math::*, physics_transform::*, prelude::*};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
@@ -118,14 +95,15 @@ use bevy_transform::{TransformSystems, components::Transform};
 use tracing::info;
 use tracing::trace;
 
-use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::prelude::{AppInterpolationExt, Interpolated, InterpolationFns};
-use lightyear_prediction::plugin::PredictionSystems;
-use lightyear_prediction::prelude::{
-    PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, RollbackSystems,
+use lightyear_interpolation::prelude::{
+    AppInterpolationExt, Interpolated, InterpolationFns, InterpolationRegistrationExt,
 };
-use lightyear_replication::prelude::{AppComponentExt, TransformLinearInterpolation};
+use lightyear_prediction::plugin::PredictionSystems;
+use lightyear_prediction::prelude::{PredictionBuilderExt, RollbackSystems};
+use lightyear_replication::prelude::{
+    AppComponentExt, ComponentRegistry, TransformLinearInterpolation,
+};
 
 /// Indicate which components you are replicating over the network
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -168,7 +146,7 @@ impl Default for AvianReplicationMode {
 /// Plugin that integrates Avian with Lightyear for networked physics replication.
 ///
 /// NOTE: this plugin is NOT added automatically by ClientPlugins/ServerPlugins, you have to add it manually!
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LightyearAvianPlugin {
     /// The replication mode to use for the Avian plugin.
     pub replication_mode: AvianReplicationMode,
@@ -176,29 +154,81 @@ pub struct LightyearAvianPlugin {
     ///
     /// Enable this if you are an advanced user and want to handle all synchronization manually.
     pub update_syncs_manually: bool,
-    /// If True, the plugin will rollback resources that are not replicated, such as Collisions.
-    /// Enable this if you are using deterministic replication (i.e. are not replicating state).
+    /// Register the standard Position-mode Avian components for networking.
+    ///
+    /// The default registration replicates `Position`, `Rotation`, `LinearVelocity`, and
+    /// `AngularVelocity` only on entities with [`RigidBody`], predicts all four components, and
+    /// enables interpolation and correction for the pose components. Disable this when the
+    /// application uses custom replication rules, such as replicate-once deterministic state.
+    ///
+    /// Add the Lightyear networking plugins or another component protocol before this plugin so
+    /// the replication registry exists when these defaults are installed.
+    pub register_physics_components: bool,
+    /// Roll back Avian's persistent derived simulation state.
+    ///
+    /// This includes contact and constraint graphs (including cached impulses), the joint graph,
+    /// persistent collider-tree and moved-proxy state, collider AABBs and proxy keys, the
+    /// physics/substep clocks, joint-motor warm-start state when the integration's `xpbd_joints`
+    /// feature is enabled
+    /// (`avian_xpbd_joints` on the `lightyear` facade), and optional island/sleeping state.
+    /// `CollidingEntities` is rebuilt from the restored contact graph before replay.
+    ///
+    /// Enable this for deterministic or input-only replication. Persistent collider-tree data is
+    /// cloned into prediction history every tick, which can still be expensive for very large
+    /// scenes. Avian's collider-tree workspaces are scratch allocation caches and are excluded from
+    /// history. The integration uses a custom snapshot only for that exclusion; directly storing
+    /// `ColliderTrees` and `MovedProxies` would otherwise provide equivalent rollback state.
+    ///
+    /// This does not register authoritative body or application-owned state such as `RigidBody`,
+    /// `Position`, `Rotation`, velocities, forces, impulses, collider/joint configuration, or
+    /// gameplay side effects. Register or deterministically recreate every such value that can
+    /// change during predicted simulation. Collision events can be emitted again during replay, so
+    /// irreversible event consumers must also be rollback-aware.
     ///
     /// If Avian's `IslandPlugin` is enabled, island rollback state is registered automatically
     /// during `finish()`. If `IslandSleepingPlugin` is also enabled, sleeping state is rolled back too.
     pub rollback_resources: bool,
 }
 
-#[derive(Resource, Clone, Debug, Default)]
-struct RollbackMovedProxies {
-    // Avian's `MovedProxies` resource is not `Clone`; keep a cloneable snapshot
-    // so rollback replay uses the same broad-phase update set as the first run.
-    proxies: Vec<ColliderTreeProxyKey>,
+impl Default for LightyearAvianPlugin {
+    fn default() -> Self {
+        Self {
+            replication_mode: AvianReplicationMode::default(),
+            update_syncs_manually: false,
+            register_physics_components: true,
+            rollback_resources: false,
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
-struct RollbackColliderProxy {
-    proxy_key: ColliderTreeProxyKey,
-    collider: Entity,
-    body: Option<Entity>,
-    aabb: ColliderAabb,
-    layers: CollisionLayers,
-    flags: ColliderTreeProxyFlags,
+const DEFAULT_ROLLBACK_TOLERANCE: f32 = 0.01;
+
+fn position_should_rollback(confirmed: &Position, predicted: &Position) -> bool {
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+fn rotation_should_rollback(confirmed: &Rotation, predicted: &Rotation) -> bool {
+    confirmed.angle_between(*predicted) >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+fn linear_velocity_should_rollback(confirmed: &LinearVelocity, predicted: &LinearVelocity) -> bool {
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+fn angular_velocity_should_rollback(
+    confirmed: &AngularVelocity,
+    predicted: &AngularVelocity,
+) -> bool {
+    (confirmed.0 - predicted.0).abs() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+fn angular_velocity_should_rollback(
+    confirmed: &AngularVelocity,
+    predicted: &AngularVelocity,
+) -> bool {
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
 }
 
 impl Plugin for LightyearAvianPlugin {
@@ -207,6 +237,11 @@ impl Plugin for LightyearAvianPlugin {
         Self::install_position_to_transform_markers(app);
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
+                if self.register_physics_components
+                    && app.world().contains_resource::<ComponentRegistry>()
+                {
+                    Self::register_position_mode_components(app);
+                }
                 Self::add_position_rotation_hermite_rule(app);
                 if !self.update_syncs_manually {
                     let mut config = app.world_mut().resource_mut::<PhysicsTransformConfig>();
@@ -351,43 +386,46 @@ impl Plugin for LightyearAvianPlugin {
             .ok();
 
         if self.rollback_resources {
-            app.resource::<ContactGraph>().local_rollback();
-            app.resource::<ConstraintGraph>().local_rollback();
-            app.resource::<RollbackMovedProxies>().local_rollback();
-            app.resource::<PhysicsIslands>().local_rollback();
-            app.init_resource::<ContactGraph>();
-            app.init_resource::<ConstraintGraph>();
-            app.local_rollback::<CollidingEntities>();
-            // `ColliderTrees` cannot be cloned for rollback, but its leaf AABBs
-            // are derived from these cloneable collider components.
-            app.local_rollback::<ColliderAabb>();
-            app.local_rollback::<EnlargedAabb>();
-            app.init_resource::<RollbackMovedProxies>();
-            app.add_systems(
-                FixedPostUpdate,
-                Self::record_moved_proxies_for_rollback
-                    .after(PhysicsSystems::StepSimulation)
-                    .before(PredictionSystems::UpdateHistory),
-            );
-            app.add_systems(
-                PreUpdate,
-                Self::restore_collider_tree_from_enlarged_aabbs
-                    .after(RollbackSystems::Prepare)
-                    .before(RollbackSystems::Rollback)
-                    .run_if(is_in_rollback),
-            );
+            crate::rollback::register_rollback(app);
         }
     }
 
     fn finish(&self, app: &mut App) {
         if self.rollback_resources && app.is_plugin_added::<IslandPlugin>() {
             let rollback_sleeping = app.is_plugin_added::<IslandSleepingPlugin>();
-            Self::add_island_rollback(app, rollback_sleeping);
+            crate::rollback::register_island_rollback(app, rollback_sleeping);
         }
     }
 }
 
 impl LightyearAvianPlugin {
+    /// Register the standard network protocol for Avian's canonical Position-mode state.
+    fn register_position_mode_components(app: &mut App) {
+        app.component::<Position>()
+            .replicate_filtered::<With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(position_should_rollback)
+            .add_linear_interpolation()
+            .add_correction();
+
+        app.component::<Rotation>()
+            .replicate_filtered::<With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(rotation_should_rollback)
+            .add_linear_interpolation()
+            .add_correction();
+
+        app.component::<LinearVelocity>()
+            .replicate_filtered::<With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(linear_velocity_should_rollback);
+
+        app.component::<AngularVelocity>()
+            .replicate_filtered::<With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(angular_velocity_should_rollback);
+    }
+
     /// Opt non-rigid interpolated entities into Avian's Position-to-Transform sync.
     ///
     /// Avian's [`position_to_transform`] normally only synchronizes entities with a
@@ -396,15 +434,18 @@ impl LightyearAvianPlugin {
     /// [`Transform`] for rendering. [`ApplyPosToTransform`] opts those entities into Avian's
     /// system.
     ///
-    /// A non-rigid [`ColliderOf`] is different: its `Position` and `Rotation` are derived world
-    /// state computed from the rigid-body root and its [`ColliderTransform`], while its
+    /// A non-rigid child [`ColliderOf`] is different: its `Position` and `Rotation` are derived
+    /// world state computed from the body root and its [`ColliderTransform`], while its
     /// `Transform` stores the fixed local offset from that root. Applying the derived world pose
     /// to the local transform would apply the hierarchy twice and move the collider away from the
-    /// body. Transform synchronization must therefore start at the rigid-body root, and compound
-    /// child colliders must not receive [`ApplyPosToTransform`]. The removal observer handles
-    /// either component insertion order. Avian can also give the root collider a self-referential
-    /// [`ColliderOf`], but that root is still synchronized by the system's [`RigidBody`] branch and
-    /// does not need the opt-in marker.
+    /// body. Transform synchronization must therefore start at the body root, and compound child
+    /// colliders must not receive [`ApplyPosToTransform`].
+    ///
+    /// Avian can also give a collider root a self-referential [`ColliderOf`]. Such an entity is not
+    /// a child collider: if it is [`Interpolated`] and has no [`RigidBody`], it still needs
+    /// [`ApplyPosToTransform`] so its sampled pose reaches [`Transform`]. The observers therefore
+    /// distinguish roots (`ColliderOf::body == entity`) from actual child colliders. The removal
+    /// observer handles either component insertion order.
     fn install_position_to_transform_markers(app: &mut App) {
         app.add_observer(Self::add_apply_pos_to_transform);
         app.add_observer(Self::remove_apply_pos_to_transform_from_child_collider);
@@ -413,19 +454,20 @@ impl LightyearAvianPlugin {
     fn add_apply_pos_to_transform(
         trigger: On<Add, (Position, Rotation, Interpolated)>,
         query: Query<
-            (),
+            Option<&ColliderOf>,
             (
                 With<Position>,
                 With<Rotation>,
                 With<Interpolated>,
                 Without<ApplyPosToTransform>,
                 Without<RigidBody>,
-                Without<ColliderOf>,
             ),
         >,
         mut commands: Commands,
     ) {
-        if query.contains(trigger.entity) {
+        if query.get(trigger.entity).is_ok_and(|collider_of| {
+            collider_of.is_none_or(|collider_of| collider_of.body == trigger.entity)
+        }) {
             commands.entity(trigger.entity).insert(ApplyPosToTransform);
         }
     }
@@ -433,7 +475,7 @@ impl LightyearAvianPlugin {
     fn remove_apply_pos_to_transform_from_child_collider(
         trigger: On<Insert, (ColliderOf, ApplyPosToTransform)>,
         query: Query<
-            (),
+            &ColliderOf,
             (
                 With<ColliderOf>,
                 With<ApplyPosToTransform>,
@@ -442,7 +484,10 @@ impl LightyearAvianPlugin {
         >,
         mut commands: Commands,
     ) {
-        if query.contains(trigger.entity) {
+        if query
+            .get(trigger.entity)
+            .is_ok_and(|collider_of| collider_of.body != trigger.entity)
+        {
             commands
                 .entity(trigger.entity)
                 .remove::<ApplyPosToTransform>();
@@ -466,185 +511,6 @@ impl LightyearAvianPlugin {
             0,
             InterpolationFns::no_history(TransformLinearInterpolation::lerp),
         );
-    }
-
-    fn add_island_rollback(app: &mut App, rollback_sleeping: bool) {
-        app.local_rollback::<BodyIslandNode>();
-        if rollback_sleeping {
-            app.local_rollback::<Sleeping>();
-            app.local_rollback::<SleepTimer>();
-        }
-    }
-
-    fn record_moved_proxies_for_rollback(
-        moved_proxies: Res<MovedProxies>,
-        mut rollback_moved_proxies: ResMut<RollbackMovedProxies>,
-    ) {
-        rollback_moved_proxies.proxies.clear();
-        rollback_moved_proxies
-            .proxies
-            .extend_from_slice(moved_proxies.proxies());
-    }
-
-    fn restore_collider_tree_from_enlarged_aabbs(
-        prediction_manager: Single<&PredictionManager, With<lightyear_core::timeline::Rollback>>,
-        mut trees: ResMut<ColliderTrees>,
-        mut moved_proxies: ResMut<MovedProxies>,
-        rollback_moved_proxies: Res<RollbackMovedProxies>,
-        mut contact_graph: ResMut<ContactGraph>,
-        joint_graph: Option<Res<JointGraph>>,
-        colliders: Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
-    ) {
-        if prediction_manager.get_rollback_start_tick().is_none() {
-            return;
-        }
-        // The rollback just restored `EnlargedAabb`; rebuild Avian's tree
-        // leaves from that state before replaying physics. A stale tree can
-        // miss contacts even when Position/Velocity were rolled back correctly.
-        moved_proxies.clear();
-        for tree in trees.iter_trees_mut() {
-            tree.moved_proxies.clear();
-        }
-
-        for (proxy_key, enlarged_aabb) in &colliders {
-            if *proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
-                continue;
-            }
-            let tree = trees.tree_for_type_mut(proxy_key.tree_type());
-            if tree.get_proxy(proxy_key.id()).is_none() {
-                continue;
-            }
-            tree.set_proxy_aabb(proxy_key.id(), enlarged_aabb.get().into());
-        }
-
-        for tree in trees.iter_trees_mut() {
-            tree.refit_all();
-        }
-
-        Self::repair_missing_contact_pairs_from_restored_aabbs(
-            &trees,
-            &colliders,
-            &mut contact_graph,
-            joint_graph.as_deref(),
-        );
-
-        // Preserve the original moved-proxy set instead of marking every proxy
-        // moved; extra pairs can perturb contact ordering and produce tiny
-        // floating point differences.
-        for proxy_key in rollback_moved_proxies.proxies.iter().copied() {
-            if proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
-                continue;
-            }
-            let tree = trees.tree_for_type_mut(proxy_key.tree_type());
-            if tree.get_proxy(proxy_key.id()).is_some() && moved_proxies.insert(proxy_key) {
-                tree.moved_proxies.push(proxy_key.id());
-            }
-        }
-    }
-
-    fn repair_missing_contact_pairs_from_restored_aabbs(
-        trees: &ColliderTrees,
-        colliders: &Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
-        contact_graph: &mut ContactGraph,
-        joint_graph: Option<&JointGraph>,
-    ) {
-        // `ColliderTrees` is not cloneable, and a stale or incomplete tree can
-        // miss contacts during replay. Preserve restored graph state and only
-        // repair pairs that should exist according to the restored AABBs.
-
-        let mut proxies = Vec::new();
-        for (proxy_key, enlarged_aabb) in colliders {
-            if *proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
-                continue;
-            }
-            let Some(proxy) = trees.get_proxy(*proxy_key) else {
-                continue;
-            };
-            proxies.push(RollbackColliderProxy {
-                proxy_key: *proxy_key,
-                collider: proxy.collider,
-                body: proxy.body,
-                aabb: enlarged_aabb.get(),
-                layers: proxy.layers,
-                flags: proxy.flags,
-            });
-        }
-
-        proxies.sort_by_key(|proxy| (proxy.proxy_key.tree_type() as u8, proxy.proxy_key.id().id()));
-
-        let mut pairs = Vec::new();
-        for (index, proxy1) in proxies.iter().enumerate() {
-            for proxy2 in &proxies[index + 1..] {
-                if !proxy1.aabb.intersects(&proxy2.aabb) {
-                    continue;
-                }
-                if !proxy1.layers.interacts_with(proxy2.layers) {
-                    continue;
-                }
-                if proxy1.body == proxy2.body {
-                    continue;
-                }
-                let flags_union = proxy1.flags.union(proxy2.flags);
-                if proxy1.proxy_key.tree_type() == ColliderTreeType::Static
-                    && proxy2.proxy_key.tree_type() == ColliderTreeType::Static
-                    && !flags_union.contains(ColliderTreeProxyFlags::SENSOR)
-                {
-                    continue;
-                }
-                if let (Some(joint_graph), Some(body1), Some(body2)) =
-                    (joint_graph, proxy1.body, proxy2.body)
-                    && joint_graph
-                        .joints_between(body1, body2)
-                        .any(|edge| edge.collision_disabled)
-                {
-                    continue;
-                }
-                pairs.push((*proxy1, *proxy2, flags_union));
-            }
-        }
-
-        let mut repaired_pairs = 0;
-        let mut skipped_custom_filter_pairs = 0;
-        for (proxy1, proxy2, flags_union) in pairs {
-            if contact_graph.contains(proxy1.collider, proxy2.collider) {
-                continue;
-            }
-            if flags_union.contains(ColliderTreeProxyFlags::CUSTOM_FILTER) {
-                skipped_custom_filter_pairs += 1;
-                continue;
-            }
-
-            let mut contact_edge = ContactEdge::new(proxy1.collider, proxy2.collider);
-            contact_edge.body1 = proxy1.body;
-            contact_edge.body2 = proxy2.body;
-            contact_edge.flags.set(
-                ContactEdgeFlags::CONTACT_EVENTS,
-                flags_union.contains(ColliderTreeProxyFlags::CONTACT_EVENTS),
-            );
-
-            contact_graph.add_edge_with(contact_edge, |contact_pair| {
-                contact_pair.body1 = proxy1.body;
-                contact_pair.body2 = proxy2.body;
-                contact_pair.flags.set(
-                    ContactPairFlags::MODIFY_CONTACTS,
-                    flags_union.contains(ColliderTreeProxyFlags::MODIFY_CONTACTS),
-                );
-                contact_pair.flags.set(
-                    ContactPairFlags::GENERATE_CONSTRAINTS,
-                    !flags_union.contains(ColliderTreeProxyFlags::BODY_DISABLED)
-                        && !flags_union.contains(ColliderTreeProxyFlags::SENSOR),
-                );
-            });
-            repaired_pairs += 1;
-        }
-
-        if repaired_pairs > 0 || skipped_custom_filter_pairs > 0 {
-            trace!(
-                repaired_pairs,
-                skipped_custom_filter_pairs,
-                "Repaired Avian ContactGraph from restored rollback AABBs"
-            );
-        }
     }
 
     fn propagate_transform(app: &mut App, schedule: impl ScheduleLabel) {
@@ -1017,8 +883,12 @@ impl LightyearAvianPlugin {
 #[cfg(test)]
 mod mode_tests {
     use super::*;
+    use bevy_state::app::StatesPlugin;
+    use bevy_transform::TransformPlugin;
     use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_interpolation::registry::InterpolationRegistry;
+    use lightyear_prediction::prelude::PredictionRegistry;
+    use lightyear_replication::LightyearRepliconBackend;
 
     #[test]
     fn position_mode_defaults_to_sync_to_transform_disabled() {
@@ -1027,6 +897,146 @@ mod mode_tests {
             AvianReplicationMode::Position {
                 sync_to_transform: false
             }
+        );
+    }
+
+    #[test]
+    fn interpolated_collider_root_keeps_position_to_transform_marker() {
+        let mut app = App::new();
+        app.add_plugins(LightyearAvianPlugin {
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+
+        let root = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(root).is_some());
+
+        // Avian uses a self-referential ColliderOf for a collider on the body root. This must not
+        // make the root look like a compound child collider.
+        app.world_mut()
+            .entity_mut(root)
+            .insert(ColliderOf { body: root });
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(root).is_some());
+
+        // The same insertion order on a real child must remove the marker so its fixed local
+        // Transform is preserved.
+        let child = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(child).is_some());
+        app.world_mut()
+            .entity_mut(child)
+            .insert(ColliderOf { body: root });
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(child).is_none());
+    }
+
+    #[test]
+    fn interpolated_pose_propagates_to_fixed_offset_child_collider() {
+        let mut app = App::new();
+        app.add_plugins(TransformPlugin);
+        app.add_plugins(LightyearAvianPlugin {
+            register_physics_components: false,
+            ..Default::default()
+        });
+
+        let root = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let child_local = Transform::from_xyz(0.75, 0.25, 0.0);
+        let child = app
+            .world_mut()
+            .spawn((
+                ChildOf(root),
+                ColliderOf { body: root },
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                child_local,
+                GlobalTransform::default(),
+            ))
+            .id();
+
+        app.update();
+
+        // Delayed interpolation writes its sampled pose into Position/Rotation. Exercise the
+        // downstream Avian sync and Bevy hierarchy propagation with an existing child collider.
+        let sampled_position =
+            Position(Vector::X * Scalar::from(3.0_f32) + Vector::Y * Scalar::from(2.0_f32));
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        let sampled_rotation = Rotation::radians(Scalar::from(0.4_f32));
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        let sampled_rotation = Rotation(Quaternion::from_rotation_z(Scalar::from(0.4_f32)));
+
+        *app.world_mut().get_mut::<Position>(root).unwrap() = sampled_position;
+        *app.world_mut().get_mut::<Rotation>(root).unwrap() = sampled_rotation;
+        app.update();
+
+        assert!(app.world().get::<ApplyPosToTransform>(root).is_some());
+        assert!(app.world().get::<ApplyPosToTransform>(child).is_none());
+        assert_eq!(*app.world().get::<Transform>(child).unwrap(), child_local);
+
+        let root_transform = app.world().get::<Transform>(root).unwrap();
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        let expected_root_translation = sampled_position.0.f32().extend(0.0);
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        let expected_root_translation = sampled_position.0.f32();
+        let expected_root_rotation = Quaternion::from(sampled_rotation).f32();
+        assert!(
+            root_transform
+                .translation
+                .distance(expected_root_translation)
+                < 1e-5
+        );
+        assert!(
+            root_transform
+                .rotation
+                .angle_between(expected_root_rotation)
+                < 1e-5
+        );
+
+        let child_global = app
+            .world()
+            .get::<GlobalTransform>(child)
+            .unwrap()
+            .compute_transform();
+        let expected_child_translation = root_transform.transform_point(child_local.translation);
+        assert!(
+            child_global
+                .translation
+                .distance(expected_child_translation)
+                < 1e-5
+        );
+        assert!(
+            (child_global.rotation * bevy_math::Vec3::X)
+                .distance(root_transform.rotation * bevy_math::Vec3::X)
+                < 1e-5
         );
     }
 
@@ -1054,13 +1064,119 @@ mod mode_tests {
             "the automatic rule must own delayed-interpolation history"
         );
     }
+
+    #[test]
+    fn position_mode_registers_the_default_physics_protocol() {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin);
+        app.add_plugins(LightyearRepliconBackend);
+        app.init_resource::<PredictionRegistry>();
+        app.add_plugins(LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+
+        let components = app.world().resource::<ComponentRegistry>();
+        assert!(components.is_registered::<Position>());
+        assert!(components.is_registered::<Rotation>());
+        assert!(components.is_registered::<LinearVelocity>());
+        assert!(components.is_registered::<AngularVelocity>());
+
+        let prediction = app.world().resource::<PredictionRegistry>();
+        assert!(!prediction.should_rollback(&Position::default(), &Position::default()));
+        assert!(prediction.should_rollback(
+            &Position::default(),
+            &Position(Vector::X * Scalar::from(0.02_f32))
+        ));
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation::radians(Scalar::from(0.005_f32))
+            ));
+            assert!(prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation::radians(Scalar::from(0.02_f32))
+            ));
+        }
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation(Quaternion::from_rotation_x(Scalar::from(0.005_f32)))
+            ));
+            assert!(prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation(Quaternion::from_rotation_x(Scalar::from(0.02_f32)))
+            ));
+        }
+        assert!(!prediction.should_rollback(
+            &LinearVelocity::default(),
+            &LinearVelocity(Vector::X * Scalar::from(0.005_f32))
+        ));
+        assert!(prediction.should_rollback(
+            &LinearVelocity::default(),
+            &LinearVelocity(Vector::X * Scalar::from(0.02_f32))
+        ));
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Scalar::from(0.005_f32))
+            ));
+            assert!(prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Scalar::from(0.02_f32))
+            ));
+        }
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Vector::X * Scalar::from(0.005_f32))
+            ));
+            assert!(prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Vector::X * Scalar::from(0.02_f32))
+            ));
+        }
+    }
+
+    #[test]
+    fn custom_physics_protocol_uses_normal_rollback_builder() {
+        fn never_rollback(_confirmed: &Position, _predicted: &Position) -> bool {
+            false
+        }
+
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin);
+        app.add_plugins(LightyearRepliconBackend);
+        app.init_resource::<PredictionRegistry>();
+        app.add_plugins(LightyearAvianPlugin {
+            register_physics_components: false,
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+        app.component::<Position>()
+            .replicate_filtered::<With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(never_rollback);
+
+        let prediction = app.world().resource::<PredictionRegistry>();
+        assert!(!prediction.should_rollback(
+            &Position::default(),
+            &Position(Vector::X * Scalar::from(100.0_f32))
+        ));
+    }
 }
 
 #[cfg(all(test, feature = "2d", not(feature = "3d")))]
 mod tests {
     use super::*;
 
-    use avian2d::collider_tree::ColliderTreeProxy;
     use bevy_ecs::system::RunSystemOnce;
     use bevy_time::{Fixed, Time};
     use core::time::Duration;
@@ -1269,243 +1385,6 @@ mod tests {
         assert_eq!(
             app.world().get::<Position>(entity),
             Some(&authored_position)
-        );
-    }
-
-    fn add_dynamic_proxy(app: &mut App, collider: Entity, body: Entity, aabb: ColliderAabb) {
-        add_dynamic_proxy_with(
-            app,
-            collider,
-            body,
-            aabb,
-            CollisionLayers::default(),
-            ColliderTreeProxyFlags::empty(),
-        );
-    }
-
-    fn add_dynamic_proxy_with(
-        app: &mut App,
-        collider: Entity,
-        body: Entity,
-        aabb: ColliderAabb,
-        layers: CollisionLayers,
-        flags: ColliderTreeProxyFlags,
-    ) {
-        let proxy_id = app
-            .world_mut()
-            .resource_mut::<ColliderTrees>()
-            .dynamic_tree
-            .add_proxy(
-                aabb.into(),
-                ColliderTreeProxy {
-                    collider,
-                    body: Some(body),
-                    layers,
-                    flags,
-                },
-            );
-        let proxy_key = ColliderTreeProxyKey::new(proxy_id, ColliderTreeType::Dynamic);
-        app.world_mut()
-            .entity_mut(collider)
-            .insert((proxy_key, EnlargedAabb::new(aabb)));
-    }
-
-    fn repair_contact_graph_system(
-        trees: Res<ColliderTrees>,
-        mut contact_graph: ResMut<ContactGraph>,
-        colliders: Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
-    ) {
-        LightyearAvianPlugin::repair_missing_contact_pairs_from_restored_aabbs(
-            &trees,
-            &colliders,
-            &mut contact_graph,
-            None,
-        );
-    }
-
-    #[test]
-    fn repairs_missing_contact_pair_from_restored_aabbs() {
-        let mut app = App::new();
-        app.init_resource::<ColliderTrees>();
-        app.init_resource::<ContactGraph>();
-
-        let body1 = app.world_mut().spawn_empty().id();
-        let body2 = app.world_mut().spawn_empty().id();
-        let collider1 = app.world_mut().spawn_empty().id();
-        let collider2 = app.world_mut().spawn_empty().id();
-
-        add_dynamic_proxy(
-            &mut app,
-            collider1,
-            body1,
-            ColliderAabb::new(Vector::ZERO, Vector::splat(1.0)),
-        );
-        add_dynamic_proxy(
-            &mut app,
-            collider2,
-            body2,
-            ColliderAabb::new(Vector::new(1.5, 0.0), Vector::splat(1.0)),
-        );
-
-        app.world_mut()
-            .run_system_once(repair_contact_graph_system)
-            .unwrap();
-
-        assert!(
-            app.world()
-                .resource::<ContactGraph>()
-                .contains(collider1, collider2)
-        );
-    }
-
-    fn overlapping_aabb(center: Vector) -> ColliderAabb {
-        ColliderAabb::new(center, Vector::splat(1.0))
-    }
-
-    fn repair_fixture() -> (App, Entity, Entity, Entity, Entity) {
-        let mut app = App::new();
-        app.init_resource::<ColliderTrees>();
-        app.init_resource::<ContactGraph>();
-        let body1 = app.world_mut().spawn_empty().id();
-        let body2 = app.world_mut().spawn_empty().id();
-        let collider1 = app.world_mut().spawn_empty().id();
-        let collider2 = app.world_mut().spawn_empty().id();
-        (app, body1, body2, collider1, collider2)
-    }
-
-    #[test]
-    fn repair_respects_collision_layers() {
-        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
-        add_dynamic_proxy_with(
-            &mut app,
-            collider1,
-            body1,
-            overlapping_aabb(Vector::ZERO),
-            CollisionLayers::from_bits(0b0001, 0b0001),
-            ColliderTreeProxyFlags::empty(),
-        );
-        add_dynamic_proxy_with(
-            &mut app,
-            collider2,
-            body2,
-            overlapping_aabb(Vector::new(1.5, 0.0)),
-            CollisionLayers::from_bits(0b0010, 0b0010),
-            ColliderTreeProxyFlags::empty(),
-        );
-
-        app.world_mut()
-            .run_system_once(repair_contact_graph_system)
-            .unwrap();
-
-        assert!(
-            !app.world()
-                .resource::<ContactGraph>()
-                .contains(collider1, collider2)
-        );
-    }
-
-    #[test]
-    fn repair_restores_sensor_pair_without_constraints() {
-        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
-        add_dynamic_proxy_with(
-            &mut app,
-            collider1,
-            body1,
-            overlapping_aabb(Vector::ZERO),
-            CollisionLayers::default(),
-            ColliderTreeProxyFlags::SENSOR,
-        );
-        add_dynamic_proxy(
-            &mut app,
-            collider2,
-            body2,
-            overlapping_aabb(Vector::new(1.5, 0.0)),
-        );
-
-        app.world_mut()
-            .run_system_once(repair_contact_graph_system)
-            .unwrap();
-
-        let graph = app.world().resource::<ContactGraph>();
-        let (_, pair) = graph
-            .get(collider1, collider2)
-            .expect("sensor pair not repaired");
-        assert!(!pair.generates_constraints());
-    }
-
-    #[test]
-    fn repair_skips_custom_filter_pairs() {
-        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
-        add_dynamic_proxy_with(
-            &mut app,
-            collider1,
-            body1,
-            overlapping_aabb(Vector::ZERO),
-            CollisionLayers::default(),
-            ColliderTreeProxyFlags::CUSTOM_FILTER,
-        );
-        add_dynamic_proxy(
-            &mut app,
-            collider2,
-            body2,
-            overlapping_aabb(Vector::new(1.5, 0.0)),
-        );
-
-        app.world_mut()
-            .run_system_once(repair_contact_graph_system)
-            .unwrap();
-
-        assert!(
-            !app.world()
-                .resource::<ContactGraph>()
-                .contains(collider1, collider2)
-        );
-    }
-
-    #[test]
-    fn repair_skips_colliders_on_same_compound_body() {
-        let (mut app, body, _, collider1, collider2) = repair_fixture();
-        add_dynamic_proxy(&mut app, collider1, body, overlapping_aabb(Vector::ZERO));
-        add_dynamic_proxy(
-            &mut app,
-            collider2,
-            body,
-            overlapping_aabb(Vector::new(1.5, 0.0)),
-        );
-
-        app.world_mut()
-            .run_system_once(repair_contact_graph_system)
-            .unwrap();
-
-        assert!(
-            !app.world()
-                .resource::<ContactGraph>()
-                .contains(collider1, collider2)
-        );
-    }
-
-    #[test]
-    fn repair_excludes_disabled_colliders() {
-        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
-        add_dynamic_proxy(&mut app, collider1, body1, overlapping_aabb(Vector::ZERO));
-        add_dynamic_proxy(
-            &mut app,
-            collider2,
-            body2,
-            overlapping_aabb(Vector::new(1.5, 0.0)),
-        );
-        app.world_mut()
-            .entity_mut(collider2)
-            .insert(ColliderDisabled);
-
-        app.world_mut()
-            .run_system_once(repair_contact_graph_system)
-            .unwrap();
-
-        assert!(
-            !app.world()
-                .resource::<ContactGraph>()
-                .contains(collider1, collider2)
         );
     }
 

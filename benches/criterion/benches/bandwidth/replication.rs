@@ -15,7 +15,10 @@ use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
 
 criterion_group!(
     name = replication_bandwidth;
-    config = Criterion::default().with_measurement(Bandwidth);
+    // Exact byte counts commonly have zero variance, which Criterion 0.8's
+    // KDE plotter cannot handle. These benchmarks report totals, not a
+    // statistical timing distribution, so plots are not useful here.
+    config = Criterion::default().without_plots().with_measurement(Bandwidth);
     targets = send_float_insert_one_client,
     send_float_update_one_client,
 );
@@ -50,7 +53,12 @@ fn send_float_insert_one_client(criterion: &mut Criterion<Bandwidth>) {
             false,
             BandwidthChannel::Replication,
         );
-        end - start
+        let bytes = end - start;
+        assert!(
+            bytes > 0.0,
+            "replication send-byte metrics did not increase"
+        );
+        bytes
     }
 
     for n in NUM_ENTITIES.iter() {
@@ -114,7 +122,12 @@ fn send_float_update_one_client(criterion: &mut Criterion<Bandwidth>) {
             false,
             BandwidthChannel::Replication,
         );
-        end - start
+        let bytes = end - start;
+        assert!(
+            bytes > 0.0,
+            "replication send-byte metrics did not increase"
+        );
+        bytes
     }
 
     for n in NUM_ENTITIES.iter() {

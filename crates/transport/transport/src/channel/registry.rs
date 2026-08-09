@@ -1,5 +1,5 @@
 use crate::channel::Channel;
-use crate::channel::builder::ChannelSettings;
+use crate::channel::builder::{ChannelSettings, TimelineChannelSettings};
 use bevy_app::App;
 use bevy_ecs::resource::Resource;
 use bevy_platform::collections::HashMap;
@@ -7,7 +7,42 @@ use bevy_reflect::TypePath;
 use core::any::TypeId;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
+use lightyear_core::prelude::{IntoMessageTimeline, LocalTimeline};
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
+#[cfg(feature = "metrics")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "metrics")]
+#[derive(Clone, Debug, Default)]
+struct ChannelMetricHandles {
+    recv_messages: OnceLock<metrics::Gauge>,
+    recv_bytes: OnceLock<metrics::Gauge>,
+    send_messages: OnceLock<metrics::Gauge>,
+    send_bytes: OnceLock<metrics::Gauge>,
+}
+
+#[cfg(feature = "metrics")]
+impl ChannelMetricHandles {
+    fn recv_messages(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.recv_messages
+            .get_or_init(|| metrics::gauge!("channel/recv_messages", "channel" => channel_name))
+    }
+
+    fn recv_bytes(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.recv_bytes
+            .get_or_init(|| metrics::gauge!("channel/recv_bytes", "channel" => channel_name))
+    }
+
+    fn send_messages(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.send_messages
+            .get_or_init(|| metrics::gauge!("channel/send_messages", "channel" => channel_name))
+    }
+
+    fn send_bytes(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.send_bytes
+            .get_or_init(|| metrics::gauge!("channel/send_bytes", "channel" => channel_name))
+    }
+}
 
 // TODO: derive Reflect once we reach bevy 0.14
 /// ChannelKind - internal wrapper around the type of the channel
@@ -57,6 +92,8 @@ impl From<TypeId> for ChannelKind {
 #[derive(Resource, Default, Clone, Debug, TypePath)]
 pub struct ChannelRegistry {
     settings_map: HashMap<ChannelKind, ChannelSettings>,
+    #[cfg(feature = "metrics")]
+    metric_handles: HashMap<ChannelKind, ChannelMetricHandles>,
     kind_map: TypeMapper<ChannelKind>,
     hasher: RegistryHasher,
 }
@@ -80,13 +117,29 @@ impl ChannelRegistry {
         &mut self,
         settings: ChannelSettings,
     ) -> (ChannelKind, ChannelId) {
+        self.add_channel_with_timeline::<C, LocalTimeline>(settings)
+    }
+
+    pub(crate) fn add_channel_with_timeline<C, T>(
+        &mut self,
+        mut settings: ChannelSettings,
+    ) -> (ChannelKind, ChannelId)
+    where
+        C: Channel,
+        T: IntoMessageTimeline,
+    {
         let kind = ChannelKind::of::<C>();
         if let Some(net_id) = self.kind_map.net_id(&kind) {
             return (kind, *net_id);
         }
         self.hasher.hash::<C>();
+        self.hasher.hash::<T>();
+        settings.timeline = T::timeline_kind();
         self.settings_map.insert(kind, settings);
         let kind = self.kind_map.add::<C>();
+        #[cfg(feature = "metrics")]
+        self.metric_handles
+            .insert(kind, ChannelMetricHandles::default());
         let net_id = self.get_net_from_kind(&kind).unwrap();
         (kind, *net_id)
     }
@@ -106,12 +159,79 @@ impl ChannelRegistry {
         self.kind_map.kind(channel_id)
     }
 
+    #[cfg(feature = "metrics")]
+    fn metric_handles(&self, channel_id: ChannelId) -> Option<&ChannelMetricHandles> {
+        self.get_kind_from_net_id(channel_id)
+            .and_then(|kind| self.metric_handles.get(kind))
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_recv_messages(
+        &self,
+        channel_id: ChannelId,
+        channel_name: &'static str,
+        count: f64,
+    ) {
+        if let Some(handles) = self.metric_handles(channel_id) {
+            handles.recv_messages(channel_name).increment(count);
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_recv_bytes(
+        &self,
+        channel_id: ChannelId,
+        channel_name: &'static str,
+        bytes: f64,
+    ) {
+        if let Some(handles) = self.metric_handles(channel_id) {
+            handles.recv_bytes(channel_name).increment(bytes);
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_send_message(
+        &self,
+        channel_id: ChannelId,
+        channel_name: &'static str,
+        bytes: f64,
+    ) {
+        if let Some(handles) = self.metric_handles(channel_id) {
+            handles.send_messages(channel_name).increment(1.0);
+            handles.send_bytes(channel_name).increment(bytes);
+        }
+    }
+
     pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&ChannelId> {
         self.kind_map.net_id(kind)
     }
 
     pub fn finish(&mut self) -> RegistryHash {
         self.hasher.finish()
+    }
+}
+
+/// Type-erases the timeline parameter after channel registration has used it.
+#[doc(hidden)]
+pub trait IntoChannelSettings {
+    type Timeline: IntoMessageTimeline;
+
+    fn erase(self) -> ChannelSettings;
+}
+
+impl IntoChannelSettings for ChannelSettings {
+    type Timeline = LocalTimeline;
+
+    fn erase(self) -> ChannelSettings {
+        self
+    }
+}
+
+impl<T: IntoMessageTimeline> IntoChannelSettings for TimelineChannelSettings<T> {
+    type Timeline = T;
+
+    fn erase(self) -> ChannelSettings {
+        self.settings
     }
 }
 
@@ -141,16 +261,37 @@ impl<'a, C: Channel> ChannelRegistration<'a, C> {
 
 /// Add a message to the list of messages that can be sent
 pub trait AppChannelExt {
-    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> ChannelRegistration<'_, C>;
+    /// Registers channel `C` for immediate delivery by default.
+    ///
+    /// Pass [`ChannelSettings::on_timeline`] to delay delivery on a component
+    /// timeline; the timeline type is registered and included in the protocol
+    /// hash automatically.
+    fn add_channel<C: Channel>(
+        &mut self,
+        settings: impl IntoChannelSettings,
+    ) -> ChannelRegistration<'_, C>;
 }
 
 impl AppChannelExt for App {
-    fn add_channel<C: Channel>(&mut self, settings: ChannelSettings) -> ChannelRegistration<'_, C> {
-        if !self.world().contains_resource::<ChannelRegistry>() {
-            self.world_mut().init_resource::<ChannelRegistry>();
+    fn add_channel<C: Channel>(
+        &mut self,
+        settings: impl IntoChannelSettings,
+    ) -> ChannelRegistration<'_, C> {
+        fn register<C, S>(app: &mut App, settings: S)
+        where
+            C: Channel,
+            S: IntoChannelSettings,
+        {
+            S::Timeline::register(app);
+            if !app.world().contains_resource::<ChannelRegistry>() {
+                app.world_mut().init_resource::<ChannelRegistry>();
+            }
+            app.world_mut()
+                .resource_mut::<ChannelRegistry>()
+                .add_channel_with_timeline::<C, S::Timeline>(settings.erase());
         }
-        let mut registry = self.world_mut().resource_mut::<ChannelRegistry>();
-        registry.add_channel::<C>(settings);
+
+        register::<C, _>(self, settings);
         ChannelRegistration {
             app: self,
             _marker: core::marker::PhantomData,

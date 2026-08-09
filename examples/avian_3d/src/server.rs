@@ -141,6 +141,8 @@ fn setup(mut commands: Commands) {
         BlockMarker,
         Position::new(Vec3::new(1.0, 1.0, 0.0)),
         Replicate::to_clients(NetworkTarget::All),
+        // Every client predicts the dynamic block so player-block contacts are simulated on the
+        // same timeline as the predicted characters.
         PredictionTarget::to_clients(NetworkTarget::All),
     ));
 }
@@ -193,6 +195,10 @@ pub(crate) fn handle_connected(
             ActionState::<CharacterAction>::default(),
             Position(Vec3::new(x, 3.0, z)),
             Replicate::to_clients(NetworkTarget::All),
+            // Character templates also reconstruct their child colliders on every peer.
+            DisableReplicateHierarchy,
+            // Predict every character so player-player contacts and every impulse applied to the
+            // shared dynamic block exist in each client's predicted physics world.
             PredictionTarget::to_clients(NetworkTarget::All),
             ControlledBy {
                 owner: trigger.entity,

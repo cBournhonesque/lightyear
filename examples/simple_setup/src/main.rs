@@ -20,7 +20,7 @@ use crate::automation::ClientStartupConfig;
 use crate::automation::ServerStartupConfig;
 use crate::shared::{SharedPlugin, FIXED_TIMESTEP_HZ};
 use bevy::prelude::*;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use core::time::Duration;
 #[cfg(feature = "server")]
 use lightyear::connection::server::Start;
@@ -45,8 +45,30 @@ use lightyear::prelude::*;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Cli {
+    /// Override headless mode. Dedicated servers are headless by default.
+    #[arg(
+        long,
+        global = true,
+        action = ArgAction::Set,
+        default_missing_value = "true",
+        num_args = 0..=1,
+        require_equals = true,
+        value_parser = clap::value_parser!(bool)
+    )]
+    pub headless: Option<bool>,
     #[command(subcommand)]
     pub mode: Mode,
+}
+
+impl Cli {
+    fn headless(&self) -> bool {
+        #[cfg(feature = "server")]
+        let dedicated_server = matches!(&self.mode, Mode::Server);
+        #[cfg(not(feature = "server"))]
+        let dedicated_server = false;
+
+        self.headless.unwrap_or(dedicated_server)
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -64,7 +86,7 @@ pub enum Mode {
 
 fn main() {
     let cli = cli();
-    let mut app = automation::build_base_app();
+    let mut app = automation::build_base_app(cli.headless());
 
     match cli.mode {
         #[cfg(feature = "client")]
@@ -130,7 +152,10 @@ fn main() {
 fn cli() -> Cli {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
-            Cli { mode: Mode::Client }
+            Cli {
+                headless: None,
+                mode: Mode::Client,
+            }
         } else {
             Cli::parse()
         }

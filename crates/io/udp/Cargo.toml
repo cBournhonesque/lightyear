@@ -12,10 +12,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = []
 server = ["bevy_platform"]
 metrics = ["dep:metrics"]
+test_utils = []
 
 [dependencies]
 lightyear_core.workspace = true
 lightyear_link.workspace = true
+lightyear_utils.workspace = true
 
 aeronet_io.workspace = true
 

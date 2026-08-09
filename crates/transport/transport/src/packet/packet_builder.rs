@@ -10,16 +10,39 @@ use crate::packet::message::{MessageData, SendCandidate};
 use crate::packet::packet::{HEADER_BYTES, MessageMetadata, Packet, SendCommit};
 use crate::packet::packet_type::PacketType;
 use alloc::vec::Vec;
-use bytes::Bytes;
-use lightyear_core::tick::Tick;
-use lightyear_link::DEFAULT_MTU;
+use bytes::{Bytes, BytesMut};
+use lightyear_core::{buffer_pool::BufferPool, tick::Tick};
+use lightyear_link::{DEFAULT_MTU, SendPayload};
 use lightyear_serde::{SerializationError, ToBytes};
+use no_std_io2::io::{self, Write};
 use tracing::trace;
 
-pub type Payload = Vec<u8>;
+/// Borrowed adapter for the serialization traits, which are based on `no_std_io2::Write`.
+/// Packet storage itself remains a plain [`BytesMut`].
+struct PayloadWriter<'a>(&'a mut BytesMut);
+
+impl Write for PayloadWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+pub(crate) fn write_to_payload<T: ToBytes + ?Sized>(
+    value: &T,
+    payload: &mut BytesMut,
+) -> Result<(), SerializationError> {
+    value.to_bytes(&mut PayloadWriter(payload))
+}
 
 const MAX_MESSAGES_PER_CHANNEL_BATCH: u8 = u8::MAX;
 const MAX_RETAINED_MESSAGE_METADATA_CAPACITY: usize = 100;
+/// Bounds both the pending scan and retained payload memory for one Transport.
+const MAX_RETAINED_PACKET_PAYLOADS: usize = 64;
 
 /// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
 /// packet without allocating.
@@ -57,47 +80,43 @@ struct SingleBatchState {
 #[derive(Debug)]
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
-    buffer_pool: BufferPool,
+    buffer_pool: PacketBufferPool,
     compression_output: Vec<u8>,
 }
 
-/// Reusable packet-builder buffers.
+/// Reusable packet-builder storage.
 ///
-/// Packet building needs short-lived payloads and metadata vectors every send tick. Keeping them
-/// here lets the builder clear and reuse their heap allocations after warmup instead of allocating
-/// new buffers for each packet.
+/// Payload allocation recycling is delegated to the shared [`BufferPool`]. This wrapper also
+/// retains packet-specific message metadata lists.
 #[derive(Debug)]
-pub(crate) struct BufferPool {
-    payload_capacity: usize,
-    payloads: Vec<Payload>,
+pub(crate) struct PacketBufferPool {
+    payloads: BufferPool,
     message_metadata: Vec<Vec<MessageMetadata>>,
 }
 
-impl BufferPool {
+impl PacketBufferPool {
     pub(crate) fn new(payload_capacity: usize) -> Self {
         Self {
-            payload_capacity,
-            payloads: Vec::new(),
+            payloads: BufferPool::new(payload_capacity, MAX_RETAINED_PACKET_PAYLOADS),
             message_metadata: Vec::new(),
         }
     }
 
-    pub(crate) fn take_payload(&mut self) -> Payload {
-        self.payloads
-            .pop()
-            .map(|mut payload| {
-                debug_assert_eq!(payload.capacity(), self.payload_capacity);
-                payload.clear();
-                payload
-            })
-            .unwrap_or_else(|| Vec::with_capacity(self.payload_capacity))
+    pub(crate) fn take_payload(&mut self) -> BytesMut {
+        self.payloads.take()
     }
 
     fn set_payload_capacity(&mut self, payload_capacity: usize) {
-        if self.payload_capacity != payload_capacity {
-            self.payload_capacity = payload_capacity;
-            self.payloads.clear();
-        }
+        self.payloads.set_buffer_capacity(payload_capacity);
+    }
+
+    /// Promotes split tails whose immutable views have all been dropped to the ready list.
+    ///
+    /// Dropping the last [`Bytes`] view does not mutate its sibling [`BytesMut`] or automatically
+    /// restore the sibling's capacity. It only makes `try_reclaim` capable of recovering the full
+    /// allocation. This sweep performs that explicit recovery once per transport send pass.
+    fn reclaim_pending_payloads(&mut self) {
+        self.payloads.reclaim_pending();
     }
 
     pub(crate) fn take_message_metadata(&mut self) -> Vec<MessageMetadata> {
@@ -110,19 +129,13 @@ impl BufferPool {
             .unwrap_or_default()
     }
 
+    /// Recycles a staged packet that was not handed to `Link`.
     pub(crate) fn recycle_packet(&mut self, packet: Packet) {
         let Packet {
             payload, messages, ..
         } = packet;
-        self.recycle_payload(payload);
+        self.payloads.recycle(payload);
         self.recycle_message_metadata(messages);
-    }
-
-    fn recycle_payload(&mut self, mut payload: Payload) {
-        if payload.capacity() == self.payload_capacity {
-            payload.clear();
-            self.payloads.push(payload);
-        }
     }
 
     pub(crate) fn recycle_message_metadata(&mut self, mut messages: Vec<MessageMetadata>) {
@@ -131,6 +144,10 @@ impl BufferPool {
             messages.clear();
             self.message_metadata.push(messages);
         }
+    }
+
+    fn payload_pool_misses(&self) -> usize {
+        self.payloads.misses()
     }
 }
 
@@ -144,7 +161,7 @@ impl PacketBuilder {
     pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
-            buffer_pool: BufferPool::new(DEFAULT_MTU),
+            buffer_pool: PacketBufferPool::new(DEFAULT_MTU),
             compression_output: Vec::new(),
         }
     }
@@ -155,6 +172,57 @@ impl PacketBuilder {
 
     pub(crate) fn recycle_message_metadata_list(&mut self, messages: Vec<MessageMetadata>) {
         self.buffer_pool.recycle_message_metadata(messages);
+    }
+
+    /// Prepares the packet buffer pool for one transport send pass.
+    ///
+    /// Reclaiming pending tails here ensures each shared tail is probed at most once per pass. All
+    /// packets built during the pass can then take known-ready buffers without scanning the pool.
+    pub(crate) fn begin_send(&mut self, mtu: usize) {
+        self.buffer_pool.set_payload_capacity(mtu);
+        self.buffer_pool.reclaim_pending_payloads();
+    }
+
+    #[cfg(feature = "test_utils")]
+    pub(crate) fn payload_pool_misses(&self) -> usize {
+        self.buffer_pool.payload_pool_misses()
+    }
+
+    /// Transfers a successfully staged packet payload across the `Link` ownership boundary.
+    ///
+    /// The handoff has four steps:
+    ///
+    /// 1. Check the complete buffer's capacity before splitting. After the split, the tail exposes
+    ///    only its remaining portion and cannot reveal whether the original allocation was larger
+    ///    than the MTU.
+    /// 2. [`BufferPool::split_for_handoff`] moves the initialized prefix into another
+    ///    [`BytesMut`] and retains the empty sibling tail internally.
+    /// 3. Freezing the prefix produces the ordinary [`SendPayload`] (`Bytes`) expected by Link and
+    ///    every IO backend, without copying the packet bytes.
+    /// 4. The retained tail is normally pending because the returned [`Bytes`] still shares its
+    ///    allocation. Dropping the final `Bytes` clone merely makes the tail reclaimable; the next
+    ///    [`Self::begin_send`] sweep explicitly restores its capacity.
+    pub(crate) fn take_send_payload(&mut self, packet: &mut Packet) -> SendPayload {
+        self.buffer_pool
+            .payloads
+            .split_for_handoff(core::mem::take(&mut packet.payload))
+            .freeze()
+    }
+
+    /// Build a header-only acknowledgement packet.
+    pub(crate) fn build_ack_only_packet(
+        &mut self,
+        current_tick: Tick,
+        mtu: usize,
+    ) -> Result<Packet, PacketError> {
+        self.buffer_pool.set_payload_capacity(mtu);
+        if mtu < HEADER_BYTES {
+            return Err(PacketError::PacketTooLarge {
+                actual: HEADER_BYTES,
+                mtu,
+            });
+        }
+        Ok(self.new_staged_packet(PacketType::AckOnly, current_tick)?)
     }
 
     /// Stage the next packet from globally ordered, channel-owned candidates.
@@ -189,13 +257,12 @@ impl PacketBuilder {
             MessageData::Fragment(fragment) => {
                 let effective_priority = first.effective_priority;
                 let mut packet = self.new_staged_packet(PacketType::DataFragment, current_tick)?;
-                first.channel_id.to_bytes(&mut packet.payload)?;
-                fragment.to_bytes(&mut packet.payload)?;
+                write_to_payload(&first.channel_id, &mut packet.payload)?;
+                write_to_payload(fragment, &mut packet.payload)?;
                 packet.record_message_metadata(
                     first.channel_id,
                     Some(fragment.message_id),
                     Some(fragment.fragment_id),
-                    Some(fragment.num_fragments.0),
                     SendCommit {
                         channel_kind: first.channel_kind,
                         key: first.key,
@@ -297,7 +364,7 @@ impl PacketBuilder {
         let header = self
             .header_manager
             .preview_send_packet_header(packet_type, current_tick);
-        header.to_bytes(&mut payload)?;
+        write_to_payload(&header, &mut payload)?;
         Ok(Packet {
             payload,
             messages,
@@ -329,12 +396,12 @@ impl PacketBuilder {
                     && state.count < MAX_MESSAGES_PER_CHANNEL_BATCH =>
             {
                 state.count += 1;
-                packet.payload[state.count_offset] = state.count;
+                packet.payload.as_mut()[state.count_offset] = state.count;
             }
             _ => {
-                candidate.channel_id.to_bytes(&mut packet.payload)?;
+                write_to_payload(&candidate.channel_id, &mut packet.payload)?;
                 let count_offset = packet.payload.len();
-                1u8.to_bytes(&mut packet.payload)?;
+                write_to_payload(&1u8, &mut packet.payload)?;
                 *batch = Some(SingleBatchState {
                     channel_id: candidate.channel_id,
                     count_offset,
@@ -343,11 +410,10 @@ impl PacketBuilder {
             }
         }
 
-        message.to_bytes(&mut packet.payload)?;
+        write_to_payload(message, &mut packet.payload)?;
         packet.record_message_metadata(
             candidate.channel_id,
             message.id,
-            None,
             None,
             SendCommit {
                 channel_kind: candidate.channel_kind,
@@ -362,7 +428,7 @@ impl PacketBuilder {
         } else if compression.is_enabled() {
             matches!(
                 evaluate_packet_compression(
-                    &packet.payload,
+                    packet.payload.as_ref(),
                     compression,
                     mtu,
                     compression_scratch,
@@ -379,7 +445,7 @@ impl PacketBuilder {
         }
 
         if let Some(previous) = previous_batch {
-            packet.payload[previous.count_offset] = previous.count;
+            packet.payload.as_mut()[previous.count_offset] = previous.count;
         }
         packet.payload.truncate(payload_len);
         packet.messages.truncate(metadata_len);
@@ -524,8 +590,8 @@ mod tests {
     use bevy_utils::default;
 
     use crate::channel::builder::{ChannelMode, ChannelSettings};
+    use crate::channel::fragments::FragmentSender;
     use crate::channel::registry::{AppChannelExt, ChannelKind, ChannelRegistry};
-    use crate::channel::senders::fragment_sender::FragmentSender;
     #[cfg(feature = "compression_lz4")]
     use crate::packet::compression::decompress_payload;
     use crate::packet::error::PacketError;
@@ -535,7 +601,7 @@ mod tests {
         FragmentCompression, FragmentData, FragmentIndex, MessageId, SendMessage, SendMessageKey,
         SingleData,
     };
-    use crate::packet::packet::FRAGMENT_SIZE;
+    use crate::packet::packet::{FRAGMENT_SIZE, PacketId};
     use bytes::Bytes;
 
     use super::*;
@@ -630,11 +696,14 @@ mod tests {
 
     #[cfg(feature = "compression_lz4")]
     fn decompress_packet_for_test(mut packet: Packet) -> Result<Packet, PacketError> {
-        let packet_type = PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
-        let decompressed_payload =
-            decompress_payload(&packet.payload[HEADER_BYTES..], CompressionConfig::LZ4)?;
+        let packet_type =
+            PacketType::try_from(packet.payload.as_ref()[PacketHeader::PACKET_TYPE_OFFSET])?;
+        let decompressed_payload = decompress_payload(
+            &packet.payload.as_ref()[HEADER_BYTES..],
+            CompressionConfig::LZ4,
+        )?;
 
-        packet.payload[PacketHeader::PACKET_TYPE_OFFSET] =
+        packet.payload.as_mut()[PacketHeader::PACKET_TYPE_OFFSET] =
             packet_type.uncompressed_variant().into();
         packet.payload.truncate(HEADER_BYTES);
         packet.payload.extend_from_slice(&decompressed_payload);
@@ -656,7 +725,7 @@ mod tests {
 
     #[test]
     fn buffer_pool_reuses_message_metadata_up_to_retained_capacity() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
+        let mut pool = PacketBufferPool::new(DEFAULT_MTU);
 
         pool.recycle_message_metadata(Vec::with_capacity(MAX_RETAINED_MESSAGE_METADATA_CAPACITY));
         assert_eq!(
@@ -667,12 +736,46 @@ mod tests {
 
     #[test]
     fn buffer_pool_drops_oversized_message_metadata() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
+        let mut pool = PacketBufferPool::new(DEFAULT_MTU);
 
         pool.recycle_message_metadata(Vec::with_capacity(
             MAX_RETAINED_MESSAGE_METADATA_CAPACITY + 1,
         ));
         assert_eq!(pool.take_message_metadata().capacity(), 0);
+    }
+
+    #[test]
+    fn buffer_pool_does_not_retain_payloads_that_grew_past_the_mtu() {
+        let mut pool = PacketBufferPool::new(DEFAULT_MTU);
+        let mut payload = pool.take_payload();
+        payload.extend_from_slice(&alloc::vec![0; DEFAULT_MTU + 1]);
+
+        pool.payloads.recycle(payload);
+
+        let misses = pool.payload_pool_misses();
+        let _ = pool.take_payload();
+        assert_eq!(pool.payload_pool_misses(), misses + 1);
+    }
+
+    #[test]
+    fn send_handoff_rejects_an_oversized_allocation_before_splitting() {
+        let mut builder = PacketBuilder::new(1.5);
+        let mut payload = BytesMut::with_capacity(DEFAULT_MTU * 2);
+        payload.extend_from_slice(&alloc::vec![0; DEFAULT_MTU]);
+        let mut packet = Packet {
+            payload,
+            messages: Vec::new(),
+            packet_id: PacketId(0),
+            compression: None,
+        };
+
+        let bytes = builder.take_send_payload(&mut packet);
+
+        assert_eq!(bytes.len(), DEFAULT_MTU);
+        assert_eq!(packet.payload.capacity(), 0);
+        let misses = builder.buffer_pool.payload_pool_misses();
+        let _ = builder.buffer_pool.take_payload();
+        assert_eq!(builder.buffer_pool.payload_pool_misses(), misses + 1);
     }
 
     #[test]
@@ -803,7 +906,7 @@ mod tests {
         let packet = packets.pop().unwrap();
         assert!(packet.payload.len() <= DEFAULT_MTU);
         assert_eq!(
-            PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?,
+            PacketType::try_from(packet.payload.as_ref()[PacketHeader::PACKET_TYPE_OFFSET])?,
             PacketType::DataCompressed
         );
         let contents = decompress_packet_for_test(packet)?.parse_packet_payload()?;
@@ -837,7 +940,7 @@ mod tests {
         for packet in packets {
             assert!(packet.payload.len() <= DEFAULT_MTU);
             let packet_type =
-                PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
+                PacketType::try_from(packet.payload.as_ref()[PacketHeader::PACKET_TYPE_OFFSET])?;
             let packet = if packet_type.is_compressed() {
                 decompress_packet_for_test(packet)?
             } else {

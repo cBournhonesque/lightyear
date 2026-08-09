@@ -215,7 +215,7 @@ impl PingManager {
         ))
     }
 
-    pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Instant)> {
-        core::mem::take(&mut self.pongs_to_send)
+    pub(crate) fn drain_pending_pongs(&mut self) -> impl Iterator<Item = (Pong, Instant)> + '_ {
+        self.pongs_to_send.drain(..)
     }
 }

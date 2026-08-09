@@ -38,7 +38,8 @@
  The server should run as a part of the game loop, process incoming packets and send updates to the clients.
 
  To create a server:
-  * Provide the address you intend to bind to.
+  * Provide the server's current `LocalAddr` when receiving packets so it can be checked against
+    private connect tokens. The high-level [`NetcodeServer`] does this automatically.
   * Provide the protocol id - a `u64` that uniquely identifies your app.
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.

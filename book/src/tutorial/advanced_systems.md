@@ -21,7 +21,7 @@ when we receive the actual state of the entity from the server. (if there is a m
 To do this in lightyear, you will need to change a few things:
 
 - enable prediction for the component in your protocol;
-- add a `PredictionManager` component to the local client entity;
+- enable the application's global prediction pipeline with a `PredictionManager` resource;
 - mark the entity as predicted, either with `PredictionTarget` on the send-side or by adding
   `Predicted` on the receive-side.
 
@@ -32,14 +32,10 @@ app.component::<PlayerPosition>().replicate()
     .predict();
 ```
 
-Then, make sure your client entity has a `PredictionManager`. `ClientPlugins` installs the prediction systems, but the systems only run for a connected client entity that has this component. The shared example helpers insert it in `ExampleClient`; if you spawn your own client entity, add it there:
+Then, enable the application's prediction pipeline. `ClientPlugins` installs the prediction systems, but the systems only run while the application has a `PredictionManager` resource. The shared example helpers enable it automatically; otherwise insert the resource during application setup:
 
 ```rust,ignore
-commands.spawn((
-    Client::default(),
-    PredictionManager::default(),
-    // Link, IO, connection components...
-));
+app.insert_resource(PredictionManager::default());
 ```
 
 Finally, choose which replicated entities should be predicted. If the sender knows which clients

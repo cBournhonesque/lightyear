@@ -35,12 +35,20 @@ your client will rollback to position the bullet correctly.
 
 ## Running the example
 
-- Run the server with a gui: `cargo run server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run client -c 1`
 - Run client with id 2: `cargo run client -c 2`
 - Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`
 - Run the server without a gui: `cargo run --no-default-features --features=server`
 - Run the client and server in "HostClient" mode, where the server is also a client (there is only one App): `cargo run host-client`
+
+### P2P mode
+
+The demo can also run as a deterministic input-only game with no server. Start peer 0 with
+`cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
+and peer 1 with the same command using `--peer-id 1`. Every peer predicts the complete physics
+world, spawns the same bullets from the shared input stream, and applies collision and score
+changes deterministically.
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server`.
@@ -50,7 +58,7 @@ You can modify the file `assets/settings.ron` to modify some networking settings
 
 NOTE: I am using [trunk](https://trunkrs.dev/) to build and serve the wasm example.
 
-The repo includes a pre-generated self-signed WebTransport certificate and digest, so `certificates/generate.sh` is not required for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
-- `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)
+The repo includes a pre-generated self-signed WebTransport certificate and digest, so you do not need to run the certificate generator for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
+- `cargo run -p generate_certificate` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)
 - Start the server with: `cargo run -- server`
 - Then start the wasm client wasm with ``RUSTFLAGS='--cfg getrandom_backend="wasm_js"' trunk serve --features=client``

@@ -1,12 +1,13 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES};
-use alloc::{string::String, sync::Arc, vec::Vec};
+use aeronet_io::connection::LocalAddr;
+use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
     entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
-use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
+use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
@@ -14,8 +15,9 @@ use lightyear_connection::server::Stopping;
 use lightyear_connection::shared::ConnectionRequestHandler;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkSystems, Unlink};
+use lightyear_link::{Link, LinkSystems, Unlink, UnlinkReason};
 use lightyear_transport::plugin::TransportSystems;
+use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
@@ -35,6 +37,7 @@ pub(crate) struct NetcodeServerContext {
 #[require(Server)]
 pub struct NetcodeServer {
     pub(crate) inner: crate::server::Server<NetcodeServerContext>,
+    server_addr_check: bool,
 }
 
 // TODO: should be part of the NetcodeServer component
@@ -48,6 +51,11 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
+    /// Whether to validate private connect tokens against the server entity's [`LocalAddr`].
+    ///
+    /// The default is `true`. Set this to `false` for addressless transports. When enabled, a
+    /// [`LocalAddr`] must be present on the server entity.
+    pub server_addr_check: bool,
     pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
@@ -59,6 +67,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
+            server_addr_check: true,
             connection_request_handler: None,
         }
     }
@@ -101,17 +110,30 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
+        let server_addr_check = config.server_addr_check;
         if let Some(handler) = config.connection_request_handler {
             cfg = cfg.connection_request_handler(handler);
         }
         let server =
             crate::server::Server::with_config(config.protocol_id, config.private_key, cfg)
                 .expect("Could not create server netcode");
-        Self { inner: server }
+        Self {
+            inner: server,
+            server_addr_check,
+        }
     }
 
     pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
         self.inner.set_connection_request_handler(handler);
+    }
+
+    /// Clears the Netcode runtime state while preserving this server's configuration.
+    ///
+    /// This is invoked automatically when the server enters [`Stopped`].
+    pub fn reset(&mut self) {
+        self.inner.reset();
+        self.inner.cfg.context.connections.clear();
+        self.inner.cfg.context.disconnections.clear();
     }
 }
 
@@ -135,12 +157,11 @@ impl NetcodeServerPlugin {
         //  that the transports/links are all mutually exclusive...
         //  Maybe some unsafe Cloneble wrapper around the client_query?
         //  Or maybe store the clients into a Local<Vec<(&mut Transport, &mut Link)>>? so that we can iterate faster through them?
-        // we use Arc to tell the compiler that we know that the queries won't be used to access
-        // the same clients (because each Link is uniquely associated with a single server)
-        // This allow us to iterate in parallel over all servers
-        let client_query = Arc::new(client_query);
+        // Each Link is uniquely associated with one server, so parallel workers can safely share
+        // the query before taking their disjoint unsafe reborrows below.
+        let client_query = &client_query;
+        let server_query = adaptive_for_each_mut!(server_query);
         server_query
-            .par_iter_mut()
             // .iter_mut()
             .for_each(|(mut netcode_server, server)| {
                 // SAFETY: we know that each client is unique to a single server so we won't
@@ -213,7 +234,13 @@ impl NetcodeServerPlugin {
         parallel_commands: ParallelCommands,
         real_time: Res<Time<Real>>,
         mut server_query: Query<
-            (Entity, &mut NetcodeServer, &mut Server, Has<Stopping>),
+            (
+                Entity,
+                &mut NetcodeServer,
+                &mut Server,
+                Has<Stopping>,
+                Option<&LocalAddr>,
+            ),
             Without<Stopped>,
         >,
         link_query: Query<
@@ -223,19 +250,31 @@ impl NetcodeServerPlugin {
     ) {
         let delta = real_time.delta();
 
-        // we use Arc to tell the compiler that we know that the queries won't be used to access
-        // the same clients (because each Link is uniquely associated with a single server)
-        // This allow us to iterate in parallel over all servers
-        let link_query = Arc::new(link_query);
+        // Each Link is uniquely associated with one server, so parallel workers can safely share
+        // the query before taking their disjoint unsafe reborrows below.
+        let link_query = &link_query;
 
         // receive packets from the link and process them through the server
-        server_query.par_iter_mut().for_each(
-            |(server_entity, mut netcode_server, mut server, stopping)| {
+        let server_query = adaptive_for_each_mut!(server_query);
+        server_query.for_each(
+            |(server_entity, mut netcode_server, mut server, stopping, local_addr)| {
                 parallel_commands.command_scope(|mut c| {
                     // SAFETY: we know that each client is unique to a single server so we won't
                     //  violate aliasing rules
                     let mut link_query = unsafe { link_query.reborrow_unsafe() };
 
+                    let server_addr = if netcode_server.server_addr_check {
+                        local_addr.map(|addr| addr.0)
+                    } else {
+                        None
+                    };
+                    let can_receive = !netcode_server.server_addr_check || server_addr.is_some();
+                    if !can_receive {
+                        error!(
+                            ?server_entity,
+                            "server address checking is enabled but the server has no LocalAddr"
+                        );
+                    }
                     netcode_server.inner.update_state(delta.as_secs_f64());
 
                     // TODO: try to make this parallel!
@@ -253,14 +292,20 @@ impl NetcodeServerPlugin {
                             // trace!("SERVER: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
                             // TODO: insert Connecting if we receive a ConnectionRequest packet
-                            match netcode_server.inner.receive(link.as_mut(), &mut entity_mut) {
-                                Ok(errors) => {
-                                    for error in errors {
-                                        error.log();
+                            if can_receive {
+                                match netcode_server.inner.receive(
+                                    link.as_mut(),
+                                    &mut entity_mut,
+                                    server_addr,
+                                ) {
+                                    Ok(errors) => {
+                                        for error in errors {
+                                            error.log();
+                                        }
                                     }
-                                }
-                                Err(e) => {
-                                    error!("Error receiving packet: {:?}", e);
+                                    Err(e) => {
+                                        error!("Error receiving packet: {:?}", e);
+                                    }
                                 }
                             }
                         });
@@ -298,14 +343,16 @@ impl NetcodeServerPlugin {
                             );
                             // first disconnect to trigger observers
                             c.entity(entity)
-                                .try_insert(Disconnected { reason: None })
+                                .try_insert(Disconnected {
+                                    reason: DisconnectedReason::ByPeer(None),
+                                })
                                 .despawn();
                         });
                     if stopping {
                         // after we sent disconnection packets, we can stop the server transport
                         c.trigger(Unlink {
                             entity: server_entity,
-                            reason: String::from("Server stopped"),
+                            reason: UnlinkReason::ServerStopped,
                         });
                         c.entity(server_entity).insert(Stopped);
                     }
@@ -317,6 +364,12 @@ impl NetcodeServerPlugin {
     fn start(trigger: On<Start>, query: Query<(), With<NetcodeServer>>, mut commands: Commands) {
         if query.get(trigger.entity).is_ok() {
             commands.entity(trigger.entity).insert(Started);
+        }
+    }
+
+    fn reset_on_stopped(trigger: On<Add, Stopped>, mut query: Query<&mut NetcodeServer>) {
+        if let Ok(mut server) = query.get_mut(trigger.entity) {
+            server.reset();
         }
     }
 
@@ -392,5 +445,6 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
+        app.add_observer(Self::reset_on_stopped);
     }
 }

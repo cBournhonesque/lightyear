@@ -37,6 +37,8 @@ pub mod identity;
 pub mod shared;
 
 pub mod host;
+pub mod network_topology;
+pub mod p2p;
 
 #[deprecated(note = "Use ConnectionSystems instead")]
 pub type ConnectionSet = ConnectionSystems;
@@ -58,28 +60,31 @@ pub enum ConnectionSystems {
 pub mod prelude {
     pub use crate::ConnectionSystems;
     pub use crate::direction::NetworkDirection;
+    pub use crate::identity::{is_client, is_p2p};
     pub use crate::network_target::NetworkTarget;
-
+    pub use crate::network_topology::{
+        NetworkTopology, NetworkTopologyError, NetworkTopologySystems, NetworkingMetadata,
+    };
     // we also export these types at the top level for easier access
     pub use crate::client::{
         Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
-        Disconnected, PeerMetadata,
+        Disconnected, DisconnectedReason, PeerMetadata,
     };
+    pub use crate::p2p::P2P;
 
     #[cfg(feature = "client")]
     pub mod client {
         pub use crate::client::{
             Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
-            Disconnected,
+            Disconnected, DisconnectedReason,
         };
     }
 
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::client_of::ClientOf;
-        pub use crate::server::{
-            ConnectionError, Start, Started, Starting, Stop, Stopped, is_headless_server,
-        };
+        pub use crate::identity::{is_headless_server, is_host_server, is_server};
+        pub use crate::server::{ConnectionError, Start, Started, Starting, Stop, Stopped};
     }
 }
 
@@ -88,5 +93,7 @@ pub mod prelude {
 pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {
-    fn build(&self, _: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_plugins(network_topology::NetworkTopologyPlugin);
+    }
 }

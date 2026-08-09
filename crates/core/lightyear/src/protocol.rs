@@ -3,7 +3,6 @@
 use bevy_app::{App, Plugin};
 use bevy_ecs::error::{BevyError, Result};
 use bevy_ecs::prelude::*;
-use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
@@ -86,7 +85,6 @@ impl Plugin for ProtocolCheckPlugin {
         // try to re-add the Channel in case Replication is not enabled
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
-            send_frequency: Duration::default(),
             priority: 10.0,
             ..Default::default()
         })

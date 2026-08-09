@@ -11,6 +11,8 @@ use lightyear_examples_common::shared::SEND_INTERVAL;
 const GRID_SIZE: f32 = 200.0;
 const NUM_CIRCLES: i32 = 1;
 const INTEREST_RADIUS: f32 = 150.0;
+const RETAINED_POSITION: Vec2 = Vec2::new(100.0, 0.0);
+const ALWAYS_PRESENT_POSITION: Vec2 = Vec2::new(250.0, 0.0);
 
 // Plugin for server-specific logic
 pub struct ExampleServerPlugin;
@@ -89,16 +91,35 @@ pub(crate) fn handle_connected(
 }
 
 pub(crate) fn init(mut commands: Commands) {
-    // spawn dots in a grid
+    // Green circles use the common WhileVisible policy and despawn outside the interest radius.
     for x in -NUM_CIRCLES..NUM_CIRCLES {
         for y in -NUM_CIRCLES..NUM_CIRCLES {
             commands.spawn((
                 Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
                 CircleMarker,
+                VisibilityPolicy::WhileVisible,
                 Replicate::to_clients(NetworkTarget::All),
             ));
         }
     }
+
+    // This red circle starts inside the interest radius. After a client has seen it, moving away
+    // hides it on the server but retains its last received state on that client.
+    commands.spawn((
+        Position(RETAINED_POSITION),
+        CircleMarker,
+        VisibilityPolicy::Retained,
+        Replicate::to_clients(NetworkTarget::All),
+    ));
+
+    // This blue circle is marked hidden for every client before its first replication. The
+    // AlwaysPresent lifetime still sends its initial state, then pauses subsequent updates.
+    commands.spawn((
+        Position(ALWAYS_PRESENT_POSITION),
+        CircleMarker,
+        VisibilityPolicy::AlwaysPresent,
+        Replicate::to_clients(NetworkTarget::All),
+    ));
 }
 
 /// Here we perform more "immediate" interest management: we will make a circle visible to a client
@@ -106,7 +127,10 @@ pub(crate) fn init(mut commands: Commands) {
 pub(crate) fn interest_management(
     peer_metadata: Res<PeerMetadata>,
     player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
-    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<Replicate>)>,
+    circle_query: Query<
+        (Entity, &Position, &VisibilityPolicy),
+        (With<CircleMarker>, With<Replicate>),
+    >,
     mut commands: Commands,
 ) {
     for (client_id, position) in player_query.iter() {
@@ -116,14 +140,25 @@ pub(crate) fn interest_management(
         };
         if position.is_changed() {
             // in real game, you would have a spatial index (kd-tree) to only find entities within a certain radius
-            for (circle, circle_position) in circle_query.iter() {
+            for (circle, circle_position, policy) in circle_query.iter() {
                 let distance = position.distance(**circle_position);
-                if distance < INTEREST_RADIUS {
-                    trace!("Gain visibility with {circle:?}");
-                    commands.gain_visibility(circle, *sender_entity);
-                } else {
-                    trace!("Lose visibility with {circle:?}");
-                    commands.lose_visibility(circle, *sender_entity);
+                match policy {
+                    VisibilityPolicy::AlwaysPresent => {
+                        trace!("Hide always-present {circle:?}");
+                        commands.lose_visibility_always_present(circle, *sender_entity);
+                    }
+                    VisibilityPolicy::WhileVisible if distance >= INTEREST_RADIUS => {
+                        trace!("Lose visibility with {circle:?}");
+                        commands.lose_visibility(circle, *sender_entity);
+                    }
+                    VisibilityPolicy::Retained if distance >= INTEREST_RADIUS => {
+                        trace!("Retain hidden {circle:?}");
+                        commands.lose_visibility_retained(circle, *sender_entity);
+                    }
+                    VisibilityPolicy::WhileVisible | VisibilityPolicy::Retained => {
+                        trace!("Gain visibility with {circle:?}");
+                        commands.gain_visibility(circle, *sender_entity);
+                    }
                 }
             }
         }

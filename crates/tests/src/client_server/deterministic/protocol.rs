@@ -159,6 +159,7 @@ impl Plugin for DetProtocolPlugin {
             replication_mode: lightyear_avian2d::plugin::AvianReplicationMode::Position {
                 sync_to_transform: false,
             },
+            register_physics_components: false,
             rollback_resources: true,
             ..default()
         });
@@ -455,14 +456,6 @@ fn add_frame_interpolation(
     if query.get(trigger.entity).is_ok() {
         commands.entity(trigger.entity).insert(FrameInterpolate);
     }
-}
-
-/// Deterministic hash for a client's action entity (so client + server
-/// can independently spawn matching PreSpawned pairs).
-pub fn action_prespawn_hash(peer: PeerId) -> u64 {
-    peer.to_bits()
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(0xDEAD_BEEF)
 }
 
 /// Re-export BEIBuffer for tests that need to check readiness.

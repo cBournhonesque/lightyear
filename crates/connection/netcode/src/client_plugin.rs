@@ -1,4 +1,4 @@
-use alloc::{format, string::ToString};
+use alloc::format;
 
 use crate::Error;
 use crate::auth::Authentication;
@@ -12,12 +12,13 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSystems;
 use lightyear_connection::client::{
-    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
+    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected, DisconnectedReason,
 };
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSystems, Linked};
 use lightyear_transport::plugin::TransportSystems;
+use lightyear_utils::adaptive_for_each_mut;
 use tracing::{debug, error, info};
 
 pub struct NetcodeClientPlugin;
@@ -107,7 +108,7 @@ impl NetcodeClientPlugin {
     fn send(
         mut query: Query<(&mut Link, &mut NetcodeClient), (With<Linked>, Without<HostClient>)>,
     ) {
-        query.par_iter_mut().for_each(|(mut link, mut client)| {
+        adaptive_for_each_mut!(query).for_each(|(mut link, mut client)| {
             // send user packets
             for _ in 0..link.send.len() {
                 if let Some(payload) = link.send.pop() {
@@ -146,9 +147,8 @@ impl NetcodeClientPlugin {
         parallel_commands: ParallelCommands,
     ) {
         let delta = real_time.delta();
-        query
-            .par_iter_mut()
-            .for_each(|(entity, mut link, mut client, connecting, disconnected)| {
+        adaptive_for_each_mut!(query).for_each(
+            |(entity, mut link, mut client, connecting, disconnected)| {
                 // #[cfg(feature = "test_utils")]
                 // trace!("CLIENT: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
@@ -182,12 +182,16 @@ impl NetcodeClientPlugin {
                         info!("Client {} disconnected. State: {state:?}", client.id());
                         parallel_commands.command_scope(|mut commands| {
                             commands.entity(entity).insert(Disconnected {
-                                reason: Some(format!("Client disconnected: {state:?}")),
+                                reason: match state {
+                                    ClientState::Disconnected => DisconnectedReason::ByPeer(None),
+                                    _ => DisconnectedReason::TransportError(format!("{state:?}")),
+                                },
                             });
                         });
                     }
                 }
-            })
+            },
+        )
     }
 
     fn connect(
@@ -210,7 +214,7 @@ impl NetcodeClientPlugin {
         if let Ok(mut client) = query.get_mut(trigger.entity) {
             client.inner.disconnect()?;
             commands.entity(trigger.entity).insert(Disconnected {
-                reason: Some("Client trigger".to_string()),
+                reason: DisconnectedReason::UserRequested(None),
             });
         }
         Ok(())

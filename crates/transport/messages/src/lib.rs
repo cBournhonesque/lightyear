@@ -8,6 +8,20 @@
 //!
 //! The crate also provides a [`MessageManager`] component that manages the process of sending and receiving messages for an entity.
 //! It stores a [`RemoteEntityMap`] that holds a mapping between the local and remote entities.
+//!
+//! ## Timeline-targeted delivery
+//!
+//! A channel configured with
+//! [`ChannelSettings::on_timeline`](lightyear_transport::channel::builder::ChannelSettings::on_timeline)
+//! registers its timeline and keeps received messages pending inside the normal
+//! [`MessageReceiver<M>`](receive::MessageReceiver) until that timeline reaches
+//! the sender tick. Timeline-delayed events use an internal typed buffer and are
+//! triggered when ready. Timeline selection is channel metadata, so it adds no
+//! bytes to individual messages.
+//!
+//! Timeline registration is part of the protocol and must match on both peers.
+//! If the receiving connection does not contain the requested timeline, the
+//! message is rejected with [`MessageError::MissingTimeline`](registry::MessageError::MissingTimeline).
 
 #![no_std]
 
@@ -37,7 +51,9 @@ mod send_trigger;
 pub mod server;
 mod trigger;
 pub mod prelude {
-    pub use crate::plugin::MessageSystems;
+    pub use crate::plugin::{
+        MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessageSystems,
+    };
     pub use crate::receive::MessageReceiver;
     pub use crate::receive_event::RemoteEvent;
     pub use crate::registry::{AppMessageExt, MessageRegistry};
@@ -45,6 +61,7 @@ pub mod prelude {
     pub use crate::send_trigger::EventSender;
     pub use crate::trigger::AppTriggerExt;
     pub use crate::{Message, MessageManager};
+    pub use lightyear_core::timeline::TimelineKind;
 
     #[cfg(feature = "server")]
     pub use crate::server::ServerMultiMessageSender;
@@ -79,7 +96,7 @@ pub struct MessageManager {
     pub(crate) send_messages: Vec<(MessageKind, ComponentId)>,
     /// List of component ids of the [`TriggerSender<M>`](send_trigger::EventSender) present on this entity
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
-    /// List of component ids of the [`MessageReceiver<M>`](receive::MessageReceiver) present on this entity
+    /// List of typed receiver component ids present on this entity.
     pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }

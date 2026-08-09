@@ -18,7 +18,7 @@ fn test_buffer_inputs_with_delay() {
     let mut config = StepperConfig::single();
     config.init = false;
     let mut stepper = ClientServerStepper::from_config(config);
-    stepper.client_mut(0).insert(
+    stepper.client_app().world_mut().insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
     );
     stepper.init();
@@ -268,7 +268,7 @@ fn test_server_just_pressed() {
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyA);
 
-    // The input timeline sends inputs ahead of the server input pipeline. Sync
+    // Input scheduling sends inputs ahead of the server input pipeline. Sync
     // resyncs can shift buffered inputs by a rounded tick, so step until the
     // server applies the first pressed snapshot, not just until it receives it.
     let mut observed_transition = false;

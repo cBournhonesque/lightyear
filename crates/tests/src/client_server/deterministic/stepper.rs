@@ -6,6 +6,7 @@
 //! deterministic-replication surface area we want to exercise.
 
 use crate::client_server::deterministic::protocol::DetProtocolPlugin;
+use crate::stepper::input_timeline_is_synced;
 use avian2d::prelude::*;
 use bevy::MinimalPlugins;
 use bevy::app::PluginsState;
@@ -19,7 +20,6 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};
 use lightyear_netcode::client_plugin::NetcodeConfig;
-use lightyear_replication::delta::DeltaManager;
 use lightyear_replication::receive::ReplicationReceiver;
 
 pub const DET_SERVER_PORT: u16 = 56891;
@@ -63,9 +63,11 @@ impl DetStepper {
 
         let server_entity = server_app
             .world_mut()
-            .spawn((
-                DeltaManager::default(),
-                NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig::default()),
+            .spawn(NetcodeServer::new(
+                lightyear_netcode::server_plugin::NetcodeConfig {
+                    server_addr_check: false,
+                    ..Default::default()
+                },
             ))
             .id();
 
@@ -121,6 +123,26 @@ impl DetStepper {
             client_id: client_id as u64,
         };
 
+        let mut sync = SyncConfig::default();
+        // 2-tick margin (vs the default 1.0) is needed because
+        // the stepper runs every client app then the server app
+        // sequentially inside one "frame", giving the network
+        // no real flush window. See `stepper::test_input_timeline_config`.
+        sync.jitter_margin = 2.0;
+        client_app.insert_resource(
+            InputTimelineConfig::default()
+                .with_input_delay(InputDelayConfig::fixed_input_delay(0))
+                .with_sync_config(sync),
+        );
+        client_app.insert_resource(PredictionManager {
+            rollback_policy: RollbackPolicy {
+                state: RollbackMode::Disabled,
+                input: RollbackMode::Check,
+                max_rollback_ticks: 100,
+            },
+            ..default()
+        });
+
         let client_entity = client_app
             .world_mut()
             .spawn((
@@ -131,25 +153,6 @@ impl DetStepper {
                 ReplicationSender,
                 ReplicationReceiver,
                 crossbeam_client,
-                PredictionManager {
-                    rollback_policy: RollbackPolicy {
-                        state: RollbackMode::Disabled,
-                        input: RollbackMode::Check,
-                        max_rollback_ticks: 100,
-                    },
-                    ..default()
-                },
-                {
-                    let mut sync = SyncConfig::default();
-                    // 2-tick margin (vs the default 1.0) is needed because
-                    // the stepper runs every client app then the server app
-                    // sequentially inside one "frame", giving the network
-                    // no real flush window. See `stepper::test_input_timeline_config`.
-                    sync.jitter_margin = 2.0;
-                    InputTimelineConfig::default()
-                        .with_input_delay(InputDelayConfig::fixed_input_delay(0))
-                        .with_sync_config(sync)
-                },
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
             ))
             .id();
@@ -265,7 +268,7 @@ impl DetStepper {
         });
         for _ in 0..200 {
             if self.client(id).contains::<Connected>()
-                && self.client(id).contains::<IsSynced<InputTimeline>>()
+                && input_timeline_is_synced(self.client_apps[id].world())
             {
                 info!("Client {} connected + synced", id);
                 return;
@@ -312,7 +315,7 @@ impl DetStepper {
     pub fn wait_for_sync(&mut self) {
         for _ in 0..100 {
             if (0..self.client_entities.len())
-                .all(|id| self.client(id).contains::<IsSynced<InputTimeline>>())
+                .all(|id| input_timeline_is_synced(self.client_apps[id].world()))
             {
                 info!("All clients synced");
                 return;
@@ -342,8 +345,7 @@ impl DetStepper {
     }
 }
 
-/// Spawn the player entity + BEI action entity for the given client on
-/// the server.
+/// Spawn the player entity and its server-owned BEI action entity.
 ///
 /// When `gated` is `true`, the player's physics components are hidden until
 /// the client requests a bundled catch-up snapshot (matching
@@ -351,8 +353,6 @@ impl DetStepper {
 /// for `CatchUpMode::InputOnly` tests where clients rely on `replicate_once`
 /// at spawn time to receive the initial state.
 ///
-/// The action entity is spawned with `PreSpawned::new(hash)` so that the
-/// client can spawn a local matching action entity with the same hash.
 pub fn spawn_player_on_server(
     server_app: &mut App,
     peer_id: PeerId,
@@ -361,12 +361,10 @@ pub fn spawn_player_on_server(
 ) -> Entity {
     use crate::client_server::deterministic::protocol::{
         DetMovement, DetPhysicsBundle, DetPlayerActivationTick, DetPlayerId, Player,
-        action_prespawn_hash,
     };
     use bevy_enhanced_input::prelude::{Action, ActionOf};
     use lightyear_prediction::rollback::CatchUpGated;
     use lightyear_prediction::rollback::DeterministicPredicted;
-    use lightyear_replication::prelude::PreSpawned;
 
     let mut entity = server_app.world_mut().spawn((
         Replicate::to_clients(NetworkTarget::All),
@@ -389,74 +387,57 @@ pub fn spawn_player_on_server(
     }
     let player_entity = entity.id();
 
-    // Spawn the action entity on the server. Replicate it to every client
-    // EXCEPT the owning peer — the owning client spawns a matching PreSpawned
-    // action entity locally via `spawn_local_action_on_client`.
-    //
-    // Why AllExcept instead of All: replicon's PreSpawned signature matching
-    // only fires when the server's entity-mapping message arrives AT OR AFTER
-    // the client has registered its local prespawn in `SignatureMap`. In this
-    // test, the stepper lets replication settle (`frame_step(15)`) before
-    // calling `spawn_local_action_on_client`, so if the server action were
-    // replicated to the owning client it would have already been materialized
-    // as a new (non-prespawn) entity and the later-arriving local prespawn
-    // would never merge with it. The owning client would then have TWO action
-    // entities (replicated + prespawn) for the same (Player, Action) pair,
-    // causing `apply_movement` to fire twice per tick and desynchronize the
-    // simulation (most visibly as a checksum divergence the moment remote
-    // inputs start arriving). Sending the server action only to the non-
-    // owning clients keeps each client with exactly one action entity per
-    // player. See `examples/bevy_enhanced_inputs` for the alternative pattern
-    // where the prespawn is spawned immediately on `Connected` to stay ahead
-    // of replication.
-    let hash = action_prespawn_hash(peer_id);
+    // Match the BEI example: the server owns the action and replicates it with
+    // the same targets and entity mappings as its player context. The owning
+    // client attaches its local-only ActionMock after receiving this entity.
     server_app.world_mut().spawn((
         ActionOf::<Player>::new(player_entity),
         Action::<DetMovement>::new(),
-        PreSpawned::new(hash),
-        Replicate::to_clients(NetworkTarget::AllExceptSingle(peer_id)),
+        ReplicateLike {
+            root: player_entity,
+        },
     ));
 
     player_entity
 }
 
-/// Spawn the local action entity on the given client, matching the server
-/// via `PreSpawned` hash, and insert `InputMarker::<Player>` on the
-/// player (context) entity so BEI knows this is the locally-owned
-/// context. Called once the client has received its own
-/// `DetPlayerId` entity.
-pub fn spawn_local_action_on_client(
+/// Returns the server-owned movement action replicated with this player.
+pub fn local_movement_action(client_app: &App, client_player_entity: Entity) -> Option<Entity> {
+    use crate::client_server::deterministic::protocol::{DetMovement, Player};
+    use bevy_enhanced_input::prelude::{Action, Actions};
+
+    let world = client_app.world();
+    world
+        .get::<Actions<Player>>(client_player_entity)?
+        .iter()
+        .find(|action| world.get::<Action<DetMovement>>(*action).is_some())
+}
+
+/// Attach local input state to the server-owned action replicated for this
+/// player, matching the action topology in `examples/bevy_enhanced_inputs`.
+pub fn configure_local_action_on_client(
     client_app: &mut App,
     client_player_entity: Entity,
-    peer_id: PeerId,
 ) -> Entity {
-    use crate::client_server::deterministic::protocol::{
-        DetBuffer, DetMovement, Player, action_prespawn_hash,
-    };
-    use bevy_enhanced_input::prelude::{Action, ActionOf};
+    use crate::client_server::deterministic::protocol::Player;
+    use bevy_enhanced_input::context::ExternallyMocked;
+    use bevy_enhanced_input::prelude::ActionMock;
     use lightyear::prelude::input::bei::InputMarker;
-    use lightyear_replication::prelude::PreSpawned;
 
-    // InputMarker goes on the context entity (player), not the action entity.
-    client_app
-        .world_mut()
+    let action_entity = local_movement_action(client_app, client_player_entity)
+        .expect("the server-owned movement action should be replicated with its player");
+
+    let world = client_app.world_mut();
+    world
         .entity_mut(client_player_entity)
         .insert(InputMarker::<Player>::default());
-
-    let hash = action_prespawn_hash(peer_id);
-    // Seed with a disabled `ActionMock` so tests can later write into it
-    // without dealing with inserting the component. `enabled=false` means
-    // BEI ignores it until a system flips it on.
-    use bevy_enhanced_input::prelude::ActionMock;
-    client_app
-        .world_mut()
-        .spawn((
-            ActionOf::<Player>::new(client_player_entity),
-            Action::<DetMovement>::new(),
-            DetBuffer::default(),
-            PreSpawned::new(hash).for_receiver(client_player_entity),
-            ActionMock::default(),
-            InputMarker::<Player>::default(),
-        ))
-        .id()
+    // These tests deterministically simulate every player on every client, so
+    // they do not use ControlledBy to select one predicted player. Explicitly
+    // unmock only this client's action, then seed the mock that its drive
+    // system updates each tick.
+    world
+        .entity_mut(action_entity)
+        .remove::<ExternallyMocked>()
+        .insert((ActionMock::default(), InputMarker::<Player>::default()));
+    action_entity
 }

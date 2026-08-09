@@ -17,6 +17,7 @@ use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
+use lightyear_utils::adaptive_for_each_mut;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -47,9 +48,8 @@ impl PingPlugin {
             (With<Connected>, Without<HostClient>),
         >,
     ) {
-        query
-            .par_iter_mut()
-            .for_each(|(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
+        adaptive_for_each_mut!(query).for_each(
+            |(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
                 // update
                 m.update(&real_time);
 
@@ -65,7 +65,8 @@ impl PingPlugin {
 
                 link.stats.rtt = m.rtt();
                 link.stats.jitter = m.jitter();
-            })
+            },
+        )
     }
 
     /// Send pings/pongs to the remote
@@ -90,9 +91,8 @@ impl PingPlugin {
         //     return
         // };
         // let frame_time = now - frame_start;
-        query
-            .par_iter_mut()
-            .for_each(|(entity, mut m, mut ping_sender, mut pong_sender)| {
+        adaptive_for_each_mut!(query).for_each(
+            |(entity, mut m, mut ping_sender, mut pong_sender)| {
                 // send the pings
                 if let Some(ping) = m.maybe_prepare_ping(now) {
                     trace!(
@@ -107,8 +107,7 @@ impl PingPlugin {
                     ping_sender.send::<PingChannel>(ping);
                 }
                 // prepare the pong messages with the correct send time
-                m.take_pending_pongs()
-                    .into_iter()
+                m.drain_pending_pongs()
                     .for_each(|(mut pong, ping_receive_time)| {
                         pong.frame_time =
                             TickDelta::from_duration(now - ping_receive_time, tick_duration.0)
@@ -130,13 +129,27 @@ impl PingPlugin {
                         // pong.overstep = fixed_time.overstep_fraction();
                         pong_sender.send::<PingChannel>(pong);
                     });
-            })
+            },
+        )
     }
 
-    /// On connection, reset the PingManager.
-    pub(crate) fn handle_connect(trigger: On<Add, Connected>, mut query: Query<&mut PingManager>) {
+    /// On connection, reset the PingManager and restore its typed receivers.
+    ///
+    /// Disconnection cleanup removes typed receivers so stale messages cannot cross connection
+    /// epochs. They are normally recreated lazily by inbound traffic, but two symmetric raw P2P
+    /// clients would otherwise both wait for the other side to send the first ping. Restoring the
+    /// two protocol-internal receivers here lets either side initiate synchronization.
+    pub(crate) fn handle_connect(
+        trigger: On<Add, Connected>,
+        mut query: Query<&mut PingManager>,
+        mut commands: Commands,
+    ) {
         if let Ok(mut manager) = query.get_mut(trigger.entity) {
             manager.reset();
+            commands
+                .entity(trigger.entity)
+                .insert_if_new(MessageReceiver::<Ping>::default())
+                .insert_if_new(MessageReceiver::<Pong>::default());
         }
     }
 }
@@ -162,7 +175,7 @@ impl Plugin for PingPlugin {
         // nothing to send on the frame it receives a packet, the ACK is delayed and the measured
         // RTT includes that wait. Keep ACK timing as transport telemetry, not canonical RTT.
 
-        // We used to have Client -> InputTimeline -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
+        // We used to have Client -> LocalTimelineSync -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
         // but it is not possible anymore since we also have a Transport -> PingManager dependency and cyclic dependencies are not allowed anymore.
         //
         // So we removed Transport -> PingManager dependency and hope that PingManager will always be added to entities that have a Transport...
@@ -189,6 +202,7 @@ impl Plugin for PingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_transport::plugin::PacketAcked;
 
     #[test]
@@ -213,5 +227,26 @@ mod tests {
         assert_eq!(manager.pongs_recv, 0);
         assert_eq!(manager.latency_samples_recv(), 0);
         assert_eq!(manager.rtt(), Duration::ZERO);
+    }
+
+    #[test]
+    fn connecting_restores_ping_receivers() {
+        let mut app = App::new();
+        app.add_plugins(PingPlugin);
+
+        let entity = app
+            .world_mut()
+            .spawn((RemoteId(PeerId::Server), PingManager::default()))
+            .id();
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<(MessageReceiver<Ping>, MessageReceiver<Pong>)>();
+
+        app.world_mut().entity_mut(entity).insert(Connected);
+        app.world_mut().flush();
+
+        let entity = app.world().entity(entity);
+        assert!(entity.contains::<MessageReceiver<Ping>>());
+        assert!(entity.contains::<MessageReceiver<Pong>>());
     }
 }

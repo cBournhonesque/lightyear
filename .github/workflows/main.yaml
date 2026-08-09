@@ -78,7 +78,96 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     env:
-      # Keep the flags used to build coverage artifacts visible to rust-cache.
+      RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only -A mismatched_lifetime_syntaxes
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Activate CI cargo config
+        run: mv .cargo/config_ci.toml .cargo/config.toml
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # A failing test run still produces reusable build artifacts. Saving
+          # them keeps subsequent main/PR runs from starting with a cold cache.
+          cache-on-failure: true
+          # This workspace contains many internal library crates that can be
+          # reused when a change only touches part of Lightyear.
+          cache-workspace-crates: true
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
+
+      - name: Crate and integration tests
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: 0
+        run: |
+          set -euo pipefail
+          package_args=()
+          while IFS= read -r package; do
+            case "$package" in
+              lightyear_avian3d) continue ;;
+            esac
+            package_args+=(-p "$package")
+          done < <(
+            cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.manifest_path | test("/crates/")) | .name' \
+              | sort -u
+          )
+          cargo test --locked --no-fail-fast --lib --tests "${package_args[@]}" -- --test-threads=1
+          cargo test --locked --no-fail-fast -p lightyear_avian3d --lib
+
+  doc-tests:
+    name: Doc test
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only -A mismatched_lifetime_syntaxes
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Activate CI cargo config
+        run: mv .cargo/config_ci.toml .cargo/config.toml
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
+
+      - name: Test doc
+        run: cargo test --locked --workspace --doc --all-features --no-fail-fast
+
+  coverage:
+    name: Coverage
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
       RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only -A mismatched_lifetime_syntaxes
     steps:
       - name: Clone repo
@@ -92,12 +181,13 @@ jobs:
       - name: Activate CI cargo config
         run: mv .cargo/config_ci.toml .cargo/config.toml
 
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # This workspace contains many internal library crates that can be
-          # reused when a change only touches part of Lightyear.
+          save-if: true
           cache-workspace-crates: true
 
       - name: Install Linux dependencies
@@ -106,49 +196,19 @@ jobs:
           wayland: true
           xkb: true
 
-      - name: Install LLVM tools
-        run: rustup component add llvm-tools-preview
-
       - name: Install Tarpaulin
-        run: cargo install cargo-tarpaulin
+        run: cargo install --locked cargo-tarpaulin
 
-      - name: lightyear_tests
-        # Tarpaulin cleans its target directory by default. Keep its
-        # instrumented artifacts separate from regular Cargo builds so both
-        # variants can be restored by rust-cache.
+      - name: Generate code coverage
         run: >
           cargo tarpaulin --locked -p lightyear_tests
           --engine llvm
-          --target-dir target/tarpaulin
           --skip-clean
           --out lcov
           -- --test-threads=1
 
-      - name: Upload code coverage results
-        if: github.actor != 'dependabot[bot]'
-        uses: actions/upload-artifact@v7
-        with:
-          name: code-coverage-report
-          path: lcov.info
-
-      - name: Test doc
-        run: cargo test --locked --workspace --doc --all-features --no-fail-fast
-
-  codecov:
-    name: Upload to Codecov
-    if: github.actor != 'dependabot[bot]'
-    needs: [ test ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone repo
-        uses: actions/checkout@v7
-
-      - name: Download code coverage results
-        uses: actions/download-artifact@v8
-        with:
-          name: code-coverage-report
-
       - name: Upload to Codecov
         uses: codecov/codecov-action@v7
         with:
+          files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}

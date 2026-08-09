@@ -1,10 +1,9 @@
 use crate::Predicted;
-use crate::manager::PredictionResource;
+use crate::manager::PredictionManager;
 use crate::prelude::DeterministicPredicted;
 use bevy_ecs::error::ignore;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use lightyear_connection::host::HostClient;
 use lightyear_replication::prelude::PreSpawned;
 #[allow(unused_imports)]
 use tracing::{debug, error, info};
@@ -36,10 +35,9 @@ impl Command for PredictionDespawnCommand {
     type Out = ();
 
     fn apply(self, world: &mut World) -> Self::Out {
-        // if we are the server (or host-client), there is no rollback so we can despawn the entity immediately
-        if world
-            .get_resource::<PredictionResource>()
-            .is_none_or(|r| world.entity(r.link_entity).contains::<HostClient>())
+        // Without the application-global prediction manager there is no rollback, so the entity
+        // can be despawned immediately.
+        if !world.contains_resource::<PredictionManager>()
             && let Ok(e) = world.get_entity_mut(self.entity)
         {
             e.despawn();
@@ -73,10 +71,7 @@ impl PredictionDespawnCommandsExt for EntityCommands<'_> {
         self.queue_handled(
             move |entity_mut: EntityWorldMut| {
                 let world = entity_mut.world();
-                if world
-                    .get_resource::<PredictionResource>()
-                    .is_some_and(|r| !world.entity(r.link_entity).contains::<HostClient>())
-                {
+                if world.contains_resource::<PredictionManager>() {
                     PredictionDespawnCommand { entity }.apply(entity_mut.into_world_mut());
                 } else {
                     // if we are the server (or host server), just despawn the entity

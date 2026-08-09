@@ -12,13 +12,17 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::prelude::{client::*, server::*, *};
+use lightyear_connection::host::HostClient;
 #[cfg(feature = "test_utils")]
 use lightyear_core::test::TestHelper;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_raw_connection::client::RawClient;
 use lightyear_raw_connection::server::RawServer;
-use lightyear_replication::delta::DeltaManager;
 use lightyear_replication::receive::ReplicationReceiver;
+#[cfg(feature = "std")]
+use lightyear_udp::server::{ServerUdpIo, ServerUdpPlugin};
+#[cfg(feature = "std")]
+use lightyear_udp::{UdpIo, UdpPlugin};
 
 pub const SERVER_PORT: u16 = 56789;
 pub const SERVER_ADDR: SocketAddr =
@@ -28,12 +32,56 @@ pub const STEAM_APP_ID: u32 = 480; // Steamworks App ID for Spacewar, used for t
 
 pub const TICK_DURATION: Duration = Duration::from_millis(10);
 
+/// Adds the per-peer components needed by the shared test protocol to links created by any IO.
+fn configure_server_link(
+    trigger: On<Add, LinkOf>,
+    clients: Query<(), With<Client>>,
+    mut commands: Commands,
+) {
+    // A host client also has `LinkOf`, but it is a local Client relationship rather than a remote
+    // server peer. Host-specific systems configure it separately.
+    if clients.contains(trigger.entity) {
+        return;
+    }
+    commands.entity(trigger.entity).insert((
+        PingManager::new(PingConfig {
+            ping_interval: Duration::default(),
+        }),
+        ReplicationSender,
+        ReplicationReceiver,
+        #[cfg(feature = "test_utils")]
+        TestHelper::default(),
+    ));
+}
+
+#[cfg(feature = "std")]
+fn unused_local_udp_addr() -> SocketAddr {
+    let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    socket.local_addr().unwrap()
+}
+
+/// Returns whether the application-global local timeline synchronization is ready.
+pub fn input_timeline_is_synced(world: &World) -> bool {
+    world
+        .get_resource::<LocalTimelineSync>()
+        .is_some_and(LocalTimelineSync::is_synced)
+}
+
+/// Returns whether the application-global presentation timeline is ready.
+pub fn interpolation_timeline_is_synced(world: &World) -> bool {
+    world
+        .get_resource::<InterpolationTimeline>()
+        .is_some_and(InterpolationTimeline::is_synced)
+}
+
 /// Stepper with:
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
 ///
-/// Connected via crossbeam channels, and using Netcode for connection if `raw_server` is false
-/// We create two separate apps to make it easy to order the client and server updates.
+/// The IO backend and connection layer are configured independently: for example, the same
+/// Netcode scenario can run over deterministic in-process Crossbeam channels, real loopback UDP
+/// sockets, or a local WebTransport session. We create separate apps to make client/server update
+/// ordering explicit.
 pub struct ClientServerStepper {
     pub client_apps: Vec<App>,
     pub server_app: App,
@@ -45,9 +93,50 @@ pub struct ClientServerStepper {
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
     pub avian_mode: AvianReplicationMode,
+    pub io: IoType,
+    pub server_addr: SocketAddr,
+    server_started: bool,
 }
 
-/// Type of client to add
+/// IO backend used between the stepper's client and server applications.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IoType {
+    /// In-process channels. This is the default because it is deterministic and supports `no_std`.
+    #[default]
+    Crossbeam,
+    /// Real non-blocking loopback UDP sockets.
+    #[cfg(feature = "std")]
+    Udp,
+    /// A real local WebTransport session using a self-signed certificate.
+    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+    WebTransport,
+}
+
+impl IoType {
+    /// Whether the server must bind before remote clients can be configured.
+    fn requires_bound_server_addr(self) -> bool {
+        match self {
+            Self::Crossbeam => false,
+            #[cfg(feature = "std")]
+            Self::Udp => false,
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            Self::WebTransport => true,
+        }
+    }
+
+    /// Whether progress depends on giving an asynchronous IO task real wall-clock time.
+    fn uses_async_io(self) -> bool {
+        match self {
+            Self::Crossbeam => false,
+            #[cfg(feature = "std")]
+            Self::Udp => false,
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            Self::WebTransport => true,
+        }
+    }
+}
+
+/// Connection layer used by a stepper client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientType {
     Host,
@@ -57,7 +146,7 @@ pub enum ClientType {
     Steam,
 }
 
-/// Type of server to use
+/// Connection layer used by the stepper server.
 pub enum ServerType {
     Raw,
     Netcode,
@@ -75,6 +164,8 @@ pub struct StepperConfig {
     pub server_registry: Option<MetricsRegistry>,
     pub client_registry: Option<MetricsRegistry>,
     pub avian_mode: AvianReplicationMode,
+    /// IO backend, independent from the raw/netcode connection layer.
+    pub io: IoType,
 }
 
 impl StepperConfig {
@@ -89,6 +180,7 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
+            io: IoType::Crossbeam,
         }
     }
 
@@ -103,6 +195,7 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
+            io: IoType::Crossbeam,
         }
     }
 
@@ -116,10 +209,12 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
+            io: IoType::Crossbeam,
         }
     }
 
-    pub fn from_link_types(clients: Vec<ClientType>, server: ServerType) -> Self {
+    /// Configures client and server connection layers, leaving IO at its default.
+    pub fn from_connection_types(clients: Vec<ClientType>, server: ServerType) -> Self {
         Self {
             frame_duration: TICK_DURATION,
             tick_duration: TICK_DURATION,
@@ -129,7 +224,20 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
+            io: IoType::Crossbeam,
         }
+    }
+
+    /// Backwards-compatible alias for [`Self::from_connection_types`].
+    #[deprecated(note = "use `from_connection_types`; these select connection layers, not IO")]
+    pub fn from_link_types(clients: Vec<ClientType>, server: ServerType) -> Self {
+        Self::from_connection_types(clients, server)
+    }
+
+    /// Selects the IO backend without changing the configured connection layer.
+    pub fn with_io(mut self, io: IoType) -> Self {
+        self.io = io;
+        self
     }
 }
 
@@ -141,9 +249,37 @@ impl ClientServerStepper {
             config.server,
             config.avian_mode,
             config.server_registry.clone(),
+            config.io,
         );
-        for client_type in config.clients {
-            stepper.new_client(client_type, config.client_registry.clone());
+
+        if stepper.io.requires_bound_server_addr() {
+            assert!(
+                config.init,
+                "WebTransport steppers must be initialized so the port-zero server can bind before clients are configured"
+            );
+
+            // Host clients add client plugins to the server app, so install those before the app
+            // is finalized and started. Remote clients need the actual port selected by the OS.
+            for client_type in config
+                .clients
+                .iter()
+                .copied()
+                .filter(|client_type| *client_type == ClientType::Host)
+            {
+                stepper.new_client(client_type, config.client_registry.clone());
+            }
+            stepper.initialize_server();
+            for client_type in config
+                .clients
+                .into_iter()
+                .filter(|client_type| *client_type != ClientType::Host)
+            {
+                stepper.new_client(client_type, config.client_registry.clone());
+            }
+        } else {
+            for client_type in config.clients {
+                stepper.new_client(client_type, config.client_registry.clone());
+            }
         }
         if config.init {
             stepper.init();
@@ -159,7 +295,15 @@ impl ClientServerStepper {
         server_type: ServerType,
         avian_mode: AvianReplicationMode,
         metrics_registry: Option<MetricsRegistry>,
+        io: IoType,
     ) -> Self {
+        let server_addr = match io {
+            IoType::Crossbeam => SERVER_ADDR,
+            #[cfg(feature = "std")]
+            IoType::Udp => unused_local_udp_addr(),
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            IoType::WebTransport => SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0),
+        };
         let mut server_app = App::new();
         // NOTE: we add LogPlugin so that tracing works
         server_app.add_plugins((
@@ -176,9 +320,14 @@ impl ClientServerStepper {
             server_app.add_steam_resources(STEAM_APP_ID);
         }
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
+        #[cfg(feature = "std")]
+        if io == IoType::Udp {
+            server_app.add_plugins(ServerUdpPlugin);
+        }
+        server_app.add_observer(configure_server_link);
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin { avian_mode });
-        let mut server = server_app.world_mut().spawn((DeltaManager::default(),));
+        let mut server = server_app.world_mut().spawn_empty();
 
         match server_type {
             ServerType::Raw => {
@@ -186,7 +335,10 @@ impl ClientServerStepper {
             }
             ServerType::Netcode => {
                 server.insert(NetcodeServer::new(
-                    lightyear_netcode::server_plugin::NetcodeConfig::default(),
+                    lightyear_netcode::server_plugin::NetcodeConfig {
+                        server_addr_check: io != IoType::Crossbeam,
+                        ..Default::default()
+                    },
                 ));
             }
             #[cfg(feature = "steam")]
@@ -198,6 +350,20 @@ impl ClientServerStepper {
                     config: SessionConfig::default(),
                 });
             }
+        }
+        #[cfg(feature = "std")]
+        if io == IoType::Udp {
+            server.insert((LocalAddr(server_addr), ServerUdpIo::default()));
+        }
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        if io == IoType::WebTransport {
+            server.insert((
+                LocalAddr(server_addr),
+                WebTransportServerIo {
+                    certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"])
+                        .expect("test WebTransport identity should be valid"),
+                },
+            ));
         }
         let server_entity = server.id();
         Self {
@@ -211,6 +377,9 @@ impl ClientServerStepper {
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
             avian_mode,
+            io,
+            server_addr,
+            server_started: false,
         }
     }
 
@@ -237,6 +406,10 @@ impl ClientServerStepper {
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
+        #[cfg(feature = "std")]
+        if self.io == IoType::Udp {
+            client_app.add_plugins(UdpPlugin);
+        }
         // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         client_app.add_plugins(ProtocolPlugin {
             avian_mode: self.avian_mode,
@@ -244,10 +417,9 @@ impl ClientServerStepper {
         client_app.finish();
         client_app.cleanup();
         let client_id = self.client_entities.len();
-        let (crossbeam_client, crossbeam_server) = lightyear_crossbeam::CrossbeamIo::new_pair();
 
         let auth = Authentication::Manual {
-            server_addr: SERVER_ADDR,
+            server_addr: self.server_addr,
             protocol_id: Default::default(),
             private_key: Default::default(),
             client_id: client_id as u64,
@@ -276,6 +448,7 @@ impl ClientServerStepper {
             );
             return 0;
         }
+        client_app.insert_resource(PredictionManager::default());
         let mut client = client_app.world_mut().spawn((
             Client,
             // Send pings every frame, so that the Acks are sent every frame
@@ -284,11 +457,62 @@ impl ClientServerStepper {
             }),
             ReplicationSender,
             ReplicationReceiver,
-            crossbeam_client,
             #[cfg(feature = "test_utils")]
             TestHelper::default(),
-            PredictionManager::default(),
         ));
+        match self.io {
+            IoType::Crossbeam => {
+                let (crossbeam_client, crossbeam_server) =
+                    lightyear_crossbeam::CrossbeamIo::new_pair();
+                client.insert(crossbeam_client);
+                self.client_of_entities.push(
+                    self.server_app
+                        .world_mut()
+                        .spawn((
+                            LinkOf {
+                                server: self.server_entity,
+                            },
+                            Link::default(),
+                            PeerAddr(SocketAddr::new(
+                                core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
+                                client_id as u16,
+                            )),
+                            // Crossbeam has no listening server that creates this link.
+                            Linked,
+                            crossbeam_server,
+                        ))
+                        .id(),
+                );
+            }
+            #[cfg(feature = "std")]
+            IoType::Udp => {
+                client.insert((
+                    LocalAddr(SocketAddr::new(
+                        core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
+                        0,
+                    )),
+                    PeerAddr(self.server_addr),
+                    UdpIo::default(),
+                ));
+                // ServerUdpIo creates the corresponding LinkOf after the first datagram arrives.
+                self.client_of_entities.push(Entity::PLACEHOLDER);
+            }
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            IoType::WebTransport => {
+                client.insert((
+                    PeerAddr(self.server_addr),
+                    WebTransportClientIo {
+                        // This native-only test mode enables Lightyear's explicitly dangerous
+                        // no-certificate-validation feature for the ephemeral self-signed identity.
+                        certificate_digest: String::new(),
+                        target: None,
+                    },
+                ));
+                // The listening WebTransport server creates the corresponding LinkOf after the
+                // session is accepted.
+                self.client_of_entities.push(Entity::PLACEHOLDER);
+            }
+        }
         match client_type {
             ClientType::Host => unreachable!(),
             ClientType::Raw => {
@@ -306,34 +530,6 @@ impl ClientServerStepper {
             }
         }
         self.client_entities.push(client.id());
-        self.client_of_entities.push(
-            self.server_app
-                .world_mut()
-                .spawn((
-                    LinkOf {
-                        server: self.server_entity,
-                    },
-                    // Send pings every frame, so that the Acks are sent every frame
-                    PingManager::new(PingConfig {
-                        ping_interval: Duration::default(),
-                    }),
-                    // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
-                    ReplicationSender,
-                    ReplicationReceiver,
-                    // we will act like each client has a different port
-                    Link::default(),
-                    PeerAddr(SocketAddr::new(
-                        core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
-                        client_id as u16,
-                    )),
-                    // For Crossbeam we need to mark the IO as Linked, as there is no ServerLink to do that for us
-                    Linked,
-                    crossbeam_server,
-                    #[cfg(feature = "test_utils")]
-                    TestHelper::default(),
-                ))
-                .id(),
-        );
         self.client_apps.push(client_app);
         client_id
     }
@@ -352,7 +548,9 @@ impl ClientServerStepper {
         self.server_app
             .world_mut()
             .entity_mut(server_entity)
-            .insert(Disconnected { reason: None });
+            .insert(Disconnected {
+                reason: DisconnectedReason::Unknown,
+            });
         client_app.world_mut().flush();
         self.server_app.world_mut().flush();
         client_app.world_mut().despawn(client_entity);
@@ -369,6 +567,7 @@ impl ClientServerStepper {
             server_type,
             AvianReplicationMode::default(),
             None,
+            IoType::Crossbeam,
         )
     }
 
@@ -420,16 +619,51 @@ impl ClientServerStepper {
     }
 
     pub fn client_of(&self, id: usize) -> EntityRef<'_> {
+        assert_ne!(self.client_of_entities[id], Entity::PLACEHOLDER);
         self.server_app.world().entity(self.client_of_entities[id])
     }
 
     pub fn client_of_mut(&mut self, id: usize) -> EntityWorldMut<'_> {
+        assert_ne!(self.client_of_entities[id], Entity::PLACEHOLDER);
         self.server_app
             .world_mut()
             .entity_mut(self.client_of_entities[id])
     }
 
     pub fn init(&mut self) {
+        self.initialize_server();
+
+        let now = self.current_time;
+        for i in 0..self.client_entities.len() {
+            self.client_apps[i]
+                .world_mut()
+                .get_resource_mut::<Time<Real>>()
+                .unwrap()
+                .update_with_instant(now);
+            self.client_apps[i].world_mut().trigger(Connect {
+                entity: self.client_entities[i],
+            });
+        }
+        if let Some(host) = self.host_client_entity {
+            self.server_app
+                .world_mut()
+                .trigger(Connect { entity: host });
+        }
+
+        self.wait_for_connection();
+        self.wait_for_sync();
+    }
+
+    /// Finalizes and starts the server once.
+    ///
+    /// WebTransport binds to port zero, so it is started before remote clients are constructed.
+    /// Once Aeronet publishes the selected local address, that address is used by both the IO
+    /// component and Netcode authentication on each client.
+    fn initialize_server(&mut self) {
+        if self.server_started {
+            return;
+        }
+
         if matches!(
             self.server_app.plugins_state(),
             PluginsState::Ready | PluginsState::Adding
@@ -452,52 +686,122 @@ impl ClientServerStepper {
         // For HostServer, the server needs to be started before the client,
         // so make sure it is started
         self.server_app.world_mut().flush();
-        for i in 0..self.client_entities.len() {
-            self.client_apps[i]
-                .world_mut()
-                .get_resource_mut::<Time<Real>>()
-                .unwrap()
-                .update_with_instant(now);
-            self.client_apps[i].world_mut().trigger(Connect {
-                entity: self.client_entities[i],
-            });
-        }
-        if let Some(host) = self.host_client_entity {
-            self.server_app
-                .world_mut()
-                .trigger(Connect { entity: host });
-        }
+        self.server_started = true;
 
-        self.wait_for_connection();
-        self.wait_for_sync();
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        if self.io == IoType::WebTransport {
+            self.wait_for_webtransport_server_addr();
+        }
+    }
+
+    /// Waits for the port-zero WebTransport listener to report the address selected by the OS.
+    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+    fn wait_for_webtransport_server_addr(&mut self) {
+        for _ in 0..400 {
+            if let Some(addr) = self
+                .server()
+                .get::<LocalAddr>()
+                .map(|local_addr| local_addr.0)
+                .filter(|addr| addr.port() != 0)
+            {
+                self.server_addr = addr;
+                return;
+            }
+            self.tick_step(1);
+            self.wait_for_async_io();
+        }
+        panic!("WebTransport server did not bind within two seconds");
     }
 
     /// Frame step until all clients are connected
     pub fn wait_for_connection(&mut self) {
-        for _ in 0..50 {
+        let attempts = if self.io.uses_async_io() { 400 } else { 50 };
+        for _ in 0..attempts {
+            self.refresh_client_of_entities();
             if (0..self.client_entities.len())
                 .all(|client_id| self.client(client_id).contains::<Connected>())
+                && self
+                    .client_of_entities
+                    .iter()
+                    .all(|entity| *entity != Entity::PLACEHOLDER)
             {
                 info!("Clients are all connected");
                 break;
             }
             self.tick_step(1);
+            self.wait_for_async_io();
+        }
+    }
+
+    /// Resolves server-side links that listening IO backends create after receiving a packet.
+    fn refresh_client_of_entities(&mut self) {
+        if self
+            .client_of_entities
+            .iter()
+            .all(|entity| *entity != Entity::PLACEHOLDER)
+        {
+            return;
+        }
+
+        let server_entity = self.server_entity;
+        let links = {
+            let world = self.server_app.world_mut();
+            let mut query = world.query_filtered::<
+                (Entity, &LinkOf, Option<&RemoteId>),
+                (With<Connected>, Without<HostClient>),
+            >();
+            query
+                .iter(world)
+                .filter(|(_, link_of, _)| link_of.server == server_entity)
+                .map(|(entity, _, remote_id)| (entity, remote_id.map(|id| id.0)))
+                .collect::<Vec<_>>()
+        };
+
+        for (entity, remote_id) in &links {
+            if let Some(PeerId::Netcode(client_id)) = remote_id
+                && let Some(slot) = self.client_of_entities.get_mut((*client_id) as usize)
+            {
+                *slot = *entity;
+            }
+        }
+
+        // Raw connections do not carry the stepper's numeric client id. Fill any remaining slots
+        // deterministically; this is exact for the common one-client listening-IO case.
+        for (entity, _) in links {
+            if self.client_of_entities.contains(&entity) {
+                continue;
+            }
+            if let Some(slot) = self
+                .client_of_entities
+                .iter_mut()
+                .find(|slot| **slot == Entity::PLACEHOLDER)
+            {
+                *slot = entity;
+            }
         }
     }
 
     // Advance the world until the client is synced
     pub fn wait_for_sync(&mut self) {
-        for _ in 0..50 {
+        let attempts = if self.io.uses_async_io() { 400 } else { 50 };
+        for _ in 0..attempts {
             if (0..self.client_entities.len()).all(|client_id| {
-                self.client(client_id).contains::<IsSynced<InputTimeline>>()
-                    && self
-                        .client(client_id)
-                        .contains::<IsSynced<InterpolationTimeline>>()
+                input_timeline_is_synced(self.client_apps[client_id].world())
+                    && interpolation_timeline_is_synced(self.client_apps[client_id].world())
             }) {
                 info!("Clients are all synced");
                 break;
             }
             self.tick_step(1);
+            self.wait_for_async_io();
+        }
+    }
+
+    /// Lets background IO tasks progress when simulated test time advances without sleeping.
+    fn wait_for_async_io(&self) {
+        #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+        if self.io == IoType::WebTransport {
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
@@ -540,6 +844,7 @@ impl ClientServerStepper {
                     error_span!("client", ?i).in_scope(|| client_app.update());
                 });
             error_span!("server").in_scope(|| self.server_app.update());
+            self.refresh_client_of_entities();
         }
     }
 
@@ -562,6 +867,7 @@ impl ClientServerStepper {
                 .for_each(|(i, client_app)| {
                     error_span!("client", ?i).in_scope(|| client_app.update());
                 });
+            self.refresh_client_of_entities();
         }
     }
 
@@ -583,6 +889,7 @@ impl ClientServerStepper {
                     error_span!("client", ?i).in_scope(|| client_app.update());
                 });
             error_span!("server").in_scope(|| self.server_app.update());
+            self.refresh_client_of_entities();
         }
     }
 }

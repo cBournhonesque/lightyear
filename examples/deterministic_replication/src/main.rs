@@ -1,5 +1,7 @@
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
+#[cfg(feature = "p2p")]
+use crate::p2p::ExampleP2PPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
@@ -11,7 +13,7 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 /// Default number of ticks to delay local input by.
 pub const DEFAULT_INPUT_DELAY_TICKS: u16 = 0;
-/// Default fixed input timeline safety margin, in ticks.
+/// Default fixed input-scheduling safety margin, in ticks.
 ///
 /// Deterministic replication requires the server to receive a client's input
 /// for tick `T` before the server simulates `T`. This margin covers normal
@@ -23,6 +25,8 @@ mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod debug;
+#[cfg(feature = "p2p")]
+mod p2p;
 mod protocol;
 
 #[cfg(feature = "gui")]
@@ -41,9 +45,16 @@ fn main() {
     cli.spawn_connections(&mut app);
 
     match cli.mode {
-        #[cfg(feature = "client")]
+        #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
         Some(Mode::Client { .. }) => {
             app.add_plugins(ExampleClientPlugin);
+            enable_prediction(&mut app);
+            add_input_delay(&mut app);
+        }
+        #[cfg(feature = "p2p")]
+        Some(Mode::P2P { .. }) => {
+            app.add_plugins((ExampleClientPlugin, ExampleP2PPlugin));
+            enable_prediction(&mut app);
             add_input_delay(&mut app);
         }
         #[cfg(feature = "server")]
@@ -70,34 +81,35 @@ fn main() {
 }
 
 #[cfg(feature = "client")]
-fn add_input_delay(app: &mut App) {
-    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
-    use lightyear::prelude::{Client, PredictionManager, RollbackMode, RollbackPolicy, SyncConfig};
-    let client = app
-        .world_mut()
-        .query_filtered::<Entity, With<Client>>()
-        .single(app.world_mut())
-        .unwrap();
+fn enable_prediction(app: &mut App) {
+    use lightyear::prelude::{PredictionManager, RollbackMode, RollbackPolicy};
 
-    // set some input-delay since we are predicting all entities
-    app.world_mut()
-        .entity_mut(client)
-        .insert(PredictionManager {
-            rollback_policy: RollbackPolicy {
-                state: RollbackMode::Disabled,
-                input: RollbackMode::Check,
-                max_rollback_ticks: 100,
-            },
-            ..default()
-        })
-        .insert(
-            InputTimelineConfig::default()
-                .with_sync_config(SyncConfig {
-                    jitter_margin: input_sync_margin_ticks(),
-                    ..default()
-                })
-                .with_input_delay(InputDelayConfig::fixed_input_delay(input_delay_ticks())),
-        );
+    app.insert_resource(PredictionManager {
+        rollback_policy: RollbackPolicy {
+            state: RollbackMode::Disabled,
+            input: RollbackMode::Check,
+            max_rollback_ticks: 100,
+        },
+        ..default()
+    });
+}
+
+#[cfg(feature = "client")]
+fn add_input_delay(app: &mut App) {
+    use lightyear::prelude::SyncConfig;
+    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
+
+    // Set some input delay since a remote client predicts all deterministic entities. The
+    // host-client uses the same delayed input scheduling but does not enable rollback for its
+    // authoritative in-process simulation.
+    app.insert_resource(
+        InputTimelineConfig::default()
+            .with_sync_config(SyncConfig {
+                jitter_margin: input_sync_margin_ticks(),
+                ..default()
+            })
+            .with_input_delay(InputDelayConfig::fixed_input_delay(input_delay_ticks())),
+    );
 }
 
 #[cfg(feature = "client")]

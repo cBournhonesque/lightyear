@@ -7,9 +7,9 @@ use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
 };
-use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
-use alloc::format;
+use crate::metric_handles::InputMetricHandles;
+use crate::plugin::InputPlugin;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
@@ -62,28 +62,20 @@ const MAX_INPUT_LOOKAHEAD_TICKS: i32 = 64;
 /// [`InputMessage::end_tick`] is allowed to be.
 ///
 /// Past-direction messages are normally handled harmlessly by
-/// [`InputBuffer::set_raw`]'s start-tick guard. The reason we still bound them:
-/// `Tick - Tick` returns `i32` via signed wrapping arithmetic over `u32` tick
-/// values. A far-future tick at the `i32` boundary
-/// (`end_tick = server_tick + 2^31`) wraps to `i32::MIN`, which a naive
-/// `delta <= LOOKAHEAD` check would accept. Rejecting "very far past" deltas
-/// catches that wrap-around attack while still accepting reasonable late inputs
-/// (up to ~4 s of network lag at 64 Hz). The wrap-around scenario is
-/// astronomically improbable (2^31 ticks at 64 Hz ≈ 1.06 years of continuous
-/// server runtime) but the symmetric bound is cheap belt-and-suspenders.
+/// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still prevents
+/// arbitrarily old or malicious tick values from entering the input pipeline while accepting
+/// reasonable late inputs (up to ~4 s of network lag at 64 Hz).
 const MAX_INPUT_PAST_TICKS: i32 = 256;
 
 /// Returns `true` iff `end_tick - server_tick` falls within
 /// `[-MAX_INPUT_PAST_TICKS, MAX_INPUT_LOOKAHEAD_TICKS]`. See those constants
 /// for the threat model behind each bound.
 ///
-/// The symmetric past bound is what makes this safe under wrap-around: a naive
-/// `delta <= MAX_LOOKAHEAD` check accepts `i32::MIN` because it is trivially
-/// `<=` any positive bound. Rejecting on both ends eliminates the ambiguity
-/// regardless of which interpretation an attacker intended.
+/// The subtraction is performed in `i64`, so every pair of ordinary `u32` ticks has an exact,
+/// non-wrapping signed difference.
 pub(crate) fn is_input_within_lookahead(end_tick: Tick, server_tick: Tick) -> bool {
-    let delta = end_tick - server_tick;
-    (-MAX_INPUT_PAST_TICKS..=MAX_INPUT_LOOKAHEAD_TICKS).contains(&delta)
+    let delta = i64::from(end_tick.0) - i64::from(server_tick.0);
+    (-i64::from(MAX_INPUT_PAST_TICKS)..=i64::from(MAX_INPUT_LOOKAHEAD_TICKS)).contains(&delta)
 }
 
 /// Server-side plugin that receives input messages from clients and applies
@@ -470,8 +462,8 @@ fn receive_input_message<S: ActionStateSequence>(
                     },
                     InputTarget::PreSpawned(hash) => {
                         debug!(?hash, "Received input for prespawned entity");
-                        // We cannot match using the PreSpawnedReceiver since it only stores hashes for entities
-                        // with no Replicate component, so resolve the input target against server-side input entities.
+                        // PreSpawnedReceiver only stores lifecycle ticks and entities, so resolve
+                        // the hash against server-side input entities.
                         prespawned
                             .iter()
                             .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()
@@ -691,6 +683,7 @@ fn update_action_state<S: ActionStateSequence>(
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     timeline: Res<LocalTimeline>,
     server: Single<(Entity, Has<HostServer>), With<Started>>,
+    #[cfg(feature = "metrics")] metric_handles: Res<InputMetricHandles<S>>,
     mut action_state_query: Query<(
         Entity,
         StateMut<S>,
@@ -729,17 +722,12 @@ fn update_action_state<S: ActionStateSequence>(
                 "server applied input buffer to action state"
             );
 
+            // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
+            // so that we can handle lost messages
             #[cfg(feature = "metrics")]
-            {
-                // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
-                // so that we can handle lost messages
-                metrics::gauge!(format!(
-                    "inputs::{}::{}::buffer_size",
-                    DebugName::type_name::<S::Action>(),
-                    entity
-                ))
+            metric_handles
+                .buffer_size(entity)
                 .set(input_buffer.len() as f64);
-            }
         }
 
         // NOTE: if we are the host-client, it is important to keep some history in the inputs
@@ -807,14 +795,10 @@ mod lookahead_tests {
         assert!(!is_input_within_lookahead(server + 30_000, server));
     }
 
-    /// Wrap-around attack: `end_tick = server + 2^31` makes `end - server`
-    /// wrap to `i32::MIN`. The symmetric past bound rejects it; a naive
-    /// `delta <= MAX_LOOKAHEAD` check would have accepted it.
+    /// The largest possible ordinary tick is still classified as far future, never as past.
     #[test]
-    fn rejects_wraparound_to_i32_min() {
+    fn rejects_max_tick_as_far_future() {
         let server = Tick(1_000);
-        let wrapped = Tick(server.0.wrapping_add(1 << 31));
-        assert_eq!(wrapped - server, i32::MIN);
-        assert!(!is_input_within_lookahead(wrapped, server));
+        assert!(!is_input_within_lookahead(Tick(u32::MAX), server));
     }
 }

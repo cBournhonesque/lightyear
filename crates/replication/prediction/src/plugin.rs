@@ -5,37 +5,46 @@ use crate::correction::{
 };
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
-use crate::manager::PredictionManager;
+use crate::manager::{LastConfirmedInput, PredictionManager};
 use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
-    apply_component_removal_predicted, handle_tick_event_history_diff_receiver,
-    handle_tick_event_prediction_history, prune_history_diff_receiver,
+    apply_component_removal_predicted, handle_local_timeline_shift_history_diff_receiver,
+    handle_local_timeline_shift_prediction_history, prune_history_diff_receiver,
     snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
-#[cfg(feature = "metrics")]
-use alloc::format;
 use bevy_app::FixedPreUpdate;
 use bevy_app::prelude::*;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
-#[cfg(feature = "metrics")]
-use bevy_utils::prelude::DebugName;
-use lightyear_connection::client::{Client, Connected};
-use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::ConfirmedHistory;
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_core::prelude::{ConfirmedHistory, is_in_rollback};
 use lightyear_replication::prelude::ReplicationSystems;
+#[cfg(test)]
+use lightyear_replication::prespawn::PreSpawnedReceiver;
 
 /// Plugin that installs client-side prediction systems.
 ///
-/// The systems run for connected, non-host client entities with a
-/// [`PredictionManager`] component. Add `PredictionManager` to the local client
-/// entity to opt that client into prediction and rollback.
+/// The systems run when the application contains a [`PredictionManager`] resource and its cached
+/// network topology is a conventional client or P2P session. Insert a [`PredictionManager`]
+/// resource to opt the application into one global prediction and rollback pipeline. Host-client
+/// and server topologies remain authoritative and do not run it.
 #[derive(Default)]
 pub struct PredictionPlugin;
+
+/// Initialize resources required by the global prediction pipeline.
+///
+/// `LastConfirmedInput` is deliberately not removed with `PredictionManager`: it also represents
+/// useful global input state for deterministic simulations that do not enable prediction.
+fn initialize_prediction_resources(
+    _trigger: On<Insert, PredictionManager>,
+    mut commands: Commands,
+) {
+    commands.init_resource::<LastConfirmedInput>();
+}
 
 #[deprecated(note = "Use PredictionSystems instead")]
 pub type PredictionSet = PredictionSystems;
@@ -62,19 +71,19 @@ pub enum PredictionSystems {
     All,
 }
 
-pub(crate) type PredictionFilter = (
-    With<PredictionManager>,
-    With<Client>,
-    With<Connected>,
-    Without<HostClient>,
-);
-
 // NOTE: we need to run the prediction systems even if we're not synced, because we want
 //  our HistoryBuffer to contain values for components/resources that were updated before syncing
 //  is done.
-/// Returns true if the client is not a HostClient and is Connected
-pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
-    query.single().is_ok()
+/// Returns true if this application opted into prediction and has a supported remote topology.
+pub(crate) fn should_run(
+    manager: Option<Res<PredictionManager>>,
+    metadata: Res<NetworkingMetadata>,
+) -> bool {
+    manager.is_some()
+        && matches!(
+            metadata.mode,
+            NetworkTopology::Client(_) | NetworkTopology::P2P { .. }
+        )
 }
 
 /// Enable rollbacking a component even if the component is not networked
@@ -94,7 +103,7 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // through `ReplicationCheckpointMap` and are already in authoritative
     // server tick space. Shifting them can move an init-message seed into the
     // future and make rollback prefer stale state over later server updates.
-    app.add_observer(handle_tick_event_prediction_history::<C>);
+    app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
         (
@@ -130,36 +139,14 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     #[cfg(feature = "metrics")]
     {
         metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                DebugName::type_name::<C>()
-            ),
+            "prediction/rollback/causes",
             metrics::Unit::Count,
-            "Component present in the prediction history but missing on the confirmed entity"
+            "Prediction rollback causes, labeled by component and cause"
         );
-        metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::value_mismatch",
-                DebugName::type_name::<C>()
-            ),
+        metrics::describe_gauge!(
+            "prediction/rollback/history_values",
             metrics::Unit::Count,
-            "Component present in the prediction history but with a different value than on the confirmed entity"
-        );
-        metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::missing_on_predicted",
-                DebugName::type_name::<C>()
-            ),
-            metrics::Unit::Count,
-            "Component present in the confirmed entity but missing in the prediction history"
-        );
-        metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::removed_on_predicted",
-                DebugName::type_name::<C>()
-            ),
-            metrics::Unit::Count,
-            "Component present in the confirmed entity but removed in the prediction history"
+            "Number of retained prediction-history values, labeled by component"
         );
     }
     // TODO: register type if C is reflect
@@ -167,7 +154,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     // app.register_type::<PredictionHistory<C>>();
 
     app.add_observer(apply_component_removal_predicted::<C>);
-    app.add_observer(handle_tick_event_prediction_history::<C>);
+    app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_observer(add_prediction_history::<C>);
 
     app.add_systems(
@@ -197,7 +184,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
 
 pub(crate) fn add_prediction_diff_systems<C: SyncComponent + RepliconDiffable>(app: &mut App) {
     app.add_observer(add_history_diff_receiver::<C>);
-    app.add_observer(handle_tick_event_history_diff_receiver::<C>);
+    app.add_observer(handle_local_timeline_shift_history_diff_receiver::<C>);
     app.add_systems(
         PreUpdate,
         prune_history_diff_receiver::<C>.in_set(RollbackSystems::Prepare),
@@ -208,6 +195,12 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
+        app.add_observer(initialize_prediction_resources);
+        // Observers are not retroactive, so also handle applications that inserted their manager
+        // before adding this plugin.
+        if app.world().contains_resource::<PredictionManager>() {
+            app.init_resource::<LastConfirmedInput>();
+        }
 
         // Custom entity disabling
         let rollback_disable_id = app
@@ -240,7 +233,9 @@ impl Plugin for PredictionPlugin {
         // - During rollback, snap components to confirmed values if we have them
         app.configure_sets(
             FixedPreUpdate,
-            PredictionSystems::SnapToConfirmed.in_set(PredictionSystems::All),
+            PredictionSystems::SnapToConfirmed
+                .in_set(PredictionSystems::All)
+                .run_if(is_in_rollback),
         );
         app.configure_sets(FixedPreUpdate, PredictionSystems::All.run_if(should_run));
 
@@ -267,5 +262,109 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((PredictionDiagnosticsPlugin::default(), RollbackPlugin));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::system::RunSystemOnce;
+    use lightyear_core::timeline::Rollback;
+
+    #[test]
+    fn prediction_manager_initializes_global_input_frontier() {
+        let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
+        let manager = PredictionManager {
+            rollback_policy: crate::manager::RollbackPolicy {
+                max_rollback_ticks: 17,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert!(!app.world().contains_resource::<LastConfirmedInput>());
+        app.insert_resource(manager);
+        app.world_mut().flush();
+
+        assert_eq!(
+            app.world()
+                .resource::<PredictionManager>()
+                .rollback_policy
+                .max_rollback_ticks,
+            17
+        );
+        assert!(app.world().contains_resource::<LastConfirmedInput>());
+    }
+
+    #[test]
+    fn prediction_manager_inserted_before_plugin_initializes_global_input_frontier() {
+        let mut app = App::new();
+        app.insert_resource(PredictionManager::default());
+
+        app.add_plugins(PredictionPlugin);
+
+        assert!(app.world().contains_resource::<LastConfirmedInput>());
+    }
+
+    #[test]
+    fn prespawn_state_is_application_global() {
+        let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
+
+        assert!(app.world().contains_resource::<PreSpawnedReceiver>());
+    }
+
+    #[derive(Resource, Default)]
+    struct SnapRuns(u32);
+
+    fn count_snap_runs(mut runs: ResMut<SnapRuns>) {
+        runs.0 += 1;
+    }
+
+    #[test]
+    fn snap_to_confirmed_set_only_runs_during_rollback() {
+        let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
+        app.insert_resource(PredictionManager::default());
+        app.init_resource::<SnapRuns>();
+        let client = app.world_mut().spawn_empty().id();
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
+        app.add_systems(
+            FixedPreUpdate,
+            count_snap_runs.in_set(PredictionSystems::SnapToConfirmed),
+        );
+
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<SnapRuns>().0, 0);
+
+        app.insert_resource(Rollback::FromInputs);
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<SnapRuns>().0, 1);
+    }
+
+    #[test]
+    fn prediction_pipeline_excludes_authoritative_topologies() {
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+        app.insert_resource(PredictionManager::default());
+        let client = app.world_mut().spawn_empty().id();
+        let server = app.world_mut().spawn_empty().id();
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
+        assert!(app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
+            connected: Default::default(),
+            declared_links: 1,
+        };
+        assert!(app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::HostClient { server, client };
+        assert!(!app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Server(server);
+        assert!(!app.world_mut().run_system_once(should_run).unwrap());
     }
 }
