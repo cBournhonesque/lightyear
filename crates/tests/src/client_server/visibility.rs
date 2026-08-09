@@ -122,6 +122,314 @@ fn test_despawn_lose_visibility() {
     );
 }
 
+#[test]
+fn test_retain_entity_on_lose_visibility() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All), CompSimple(1.0)))
+        .id();
+    let sender = stepper.client_of_entities[0];
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client_entity),
+        Some(&CompSimple(1.0))
+    );
+
+    // Retain the existing remote entity but stop sending updates.
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .lose_visibility_retained(server_entity, sender);
+    stepper.frame_step(2);
+
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity),
+        Some(client_entity),
+        "retained visibility should preserve the remote entity mapping"
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompSimple(2.0));
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client_entity),
+        Some(&CompSimple(1.0)),
+        "retained hidden entities should not receive mutations"
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .gain_visibility(server_entity, sender);
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity),
+        Some(client_entity),
+        "gaining visibility should reuse the retained remote entity"
+    );
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client_entity),
+        Some(&CompSimple(2.0)),
+        "gaining visibility should send the latest component value"
+    );
+}
+
+#[test]
+fn test_retain_visibility_before_first_replication() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    let sender = stepper.client_of_entities[0];
+    stepper
+        .server_app
+        .world_mut()
+        .lose_visibility_retained(server_entity, sender);
+    stepper.frame_step(2);
+
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "AfterFirstVisibility should not spawn an entity that was never visible"
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .gain_visibility(server_entity, sender);
+    stepper.frame_step(2);
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "the entity should spawn when it becomes visible for the first time"
+    );
+}
+
+#[test]
+fn test_always_present_visibility_before_first_replication() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All), CompSimple(1.0)))
+        .id();
+    let sender = stepper.client_of_entities[0];
+
+    // AlwaysPresent sends the initial state even when the entity starts hidden.
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .lose_visibility_always_present(server_entity, sender);
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("AlwaysPresent should spawn an entity that starts hidden");
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client_entity),
+        Some(&CompSimple(1.0))
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompSimple(2.0));
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client_entity),
+        Some(&CompSimple(1.0)),
+        "AlwaysPresent entities should stop receiving updates while hidden"
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .gain_visibility(server_entity, sender);
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity),
+        Some(client_entity),
+        "gaining visibility should reuse the always-present remote entity"
+    );
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client_entity),
+        Some(&CompSimple(2.0)),
+        "gaining visibility should send the latest component value"
+    );
+
+    // Visibility lifetime must not suppress a true authoritative despawn.
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .lose_visibility_always_present(server_entity, sender);
+    stepper.frame_step(2);
+    stepper.server_app.world_mut().despawn(server_entity);
+    stepper.frame_step(2);
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_err(),
+        "an authoritative despawn should override AlwaysPresent visibility"
+    );
+}
+
+#[test]
+fn test_true_despawn_reaches_retained_entity() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    let sender = stepper.client_of_entities[0];
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+
+    stepper
+        .server_app
+        .world_mut()
+        .lose_visibility_retained(server_entity, sender);
+    stepper.frame_step(2);
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_ok(),
+        "visibility loss should retain the remote entity"
+    );
+
+    stepper.server_app.world_mut().despawn(server_entity);
+    stepper.frame_step(2);
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_err(),
+        "an authoritative despawn should override retained visibility"
+    );
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none()
+    );
+}
+
+#[test]
+fn test_remove_replicate_suppresses_despawn_of_retained_entity() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    let sender = stepper.client_of_entities[0];
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+
+    stepper
+        .server_app
+        .world_mut()
+        .lose_visibility_retained(server_entity, sender);
+    stepper.frame_step(2);
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .remove::<Replicate>();
+    stepper.server_app.world_mut().despawn(server_entity);
+    stepper.frame_step(2);
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_ok(),
+        "removing Replicate before despawning should keep the retained remote entity"
+    );
+}
+
 /// https://github.com/cBournhonesque/lightyear/issues/637
 /// Test that if an entity with NetworkVisibility is despawned, the DespawnMessage
 /// is only sent to clients that have visibility on it.

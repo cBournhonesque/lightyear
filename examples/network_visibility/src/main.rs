@@ -1,4 +1,6 @@
-//! This example showcases how to use Lightyear with Bevy, to easily get replication along with prediction/interpolation working.
+//! This example showcases Lightyear interest management and its three visibility lifetimes:
+//! despawn while hidden, retain after first visibility, and always create the client entity even
+//! when it starts hidden.
 //!
 //! There is a lot of setup code, but it's mostly to have the examples work in all possible configurations of transport.
 //! (all transports are supported, as well as running the example in client-and-server or host-server mode)

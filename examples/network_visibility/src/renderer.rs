@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use bevy::color::palettes::basic::GREEN;
+use bevy::color::palettes::basic::{BLUE, GREEN, RED};
 use bevy::prelude::*;
 
 #[derive(Clone)]
@@ -30,8 +30,16 @@ pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&Position, &PlayerC
 }
 
 /// System that draws circles
-pub(crate) fn draw_circles(mut gizmos: Gizmos, circles: Query<&Position, With<CircleMarker>>) {
-    for position in &circles {
-        gizmos.circle_2d(Isometry2d::from_translation(position.0), 1.0, GREEN);
+pub(crate) fn draw_circles(
+    mut gizmos: Gizmos,
+    circles: Query<(&Position, &VisibilityPolicy), With<CircleMarker>>,
+) {
+    for (position, policy) in &circles {
+        let (radius, color) = match policy {
+            VisibilityPolicy::WhileVisible => (5.0, GREEN),
+            VisibilityPolicy::Retained => (10.0, RED),
+            VisibilityPolicy::AlwaysPresent => (15.0, BLUE),
+        };
+        gizmos.circle_2d(Isometry2d::from_translation(position.0), radius, color);
     }
 }

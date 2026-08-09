@@ -40,6 +40,7 @@ fn spawn_fixed_world(
             commands.spawn((
                 Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
                 CircleMarker,
+                VisibilityPolicy::WhileVisible,
             ));
         }
     }
