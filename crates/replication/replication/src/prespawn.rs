@@ -109,7 +109,7 @@ impl PreSpawnedPlugin {
             receiver.register_unmatched_entity(tick, entity);
         }
 
-        let mut signature = Signature::from(hash);
+        let mut signature = Signature::from_hash(hash);
         if let Some(client) = prespawn.client {
             signature = signature.for_client(client);
         }
