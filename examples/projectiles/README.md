@@ -66,7 +66,7 @@ Projectile lifetime is expressed in fixed ticks. Reconstructed projectiles use t
 
 Client-reported hit detection casts the player rectangle directly against the player poses rendered by that client. It does not add those render-only replicas to Avian's physics world, which keeps client rollback and arena resets independent of collision-debug state.
 
-Players move through Avian `LinearVelocity`, rather than editing `Position` while reporting zero velocity. Predicted players receive frame interpolation between fixed ticks; remote interpolated players use the replicated positions and matching velocities to interpolate continuously between the server's 100 ms snapshots.
+Player movement directly updates Avian's canonical `Position` from the same fixed-tick input event on the predicting client and authoritative server. Players use a higher-priority linear pose interpolation rule because their zero `LinearVelocity` is not a meaningful Hermite tangent; moving projectiles continue to use Avian's velocity-aware Hermite interpolation.
 
 For server rewind, Lightyear's `LagCompensationSpatialQuery` evaluates target colliders at the historical time corresponding to the firing client's view. A GUI server draws every successful sampled collider pose briefly in yellow, with a faint line to the target's current authoritative position. This shows the exact narrow-phase pose that produced the hit, rather than only the broad-phase history envelope. Useful background:
 
