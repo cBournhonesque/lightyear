@@ -140,7 +140,9 @@ type CheckRollbackFn = unsafe fn(
 /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
 /// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
 /// value returned by the history buffer lookup.
-pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
+/// Returns `true` if the history resolves to a component value at that tick and hashes it.
+/// Returns `false` if no component value exists at that tick, in which case nothing is hashed.
+pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn()) -> bool;
 
 impl PredictionMetadata {
     fn new<C: SyncComponent>(
@@ -551,6 +553,9 @@ impl PredictionRegistry {
 
     /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] at `tick`.
     ///
+    /// Returns `true` if the history resolves to a component value at `tick` and hashes it.
+    /// Returns `false` if no component value exists at `tick`, in which case nothing is hashed.
+    ///
     /// Safety
     ///
     /// - The PtrMut must point to a valid [`PredictionHistory<C>`] component.
@@ -560,7 +565,7 @@ impl PredictionRegistry {
         tick: Tick,
         hasher: &mut seahash::SeaHasher,
         f: fn(),
-    ) {
+    ) -> bool {
         // SAFETY: the caller must ensure that the function has the correct type
         let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
         // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
@@ -573,6 +578,9 @@ impl PredictionRegistry {
                 v
             );
             f(v, hasher);
+            true
+        } else {
+            false
         }
     }
 }
@@ -1845,18 +1853,41 @@ mod tests {
                 hash_test_component,
             )
         };
-        PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
+        let hashed = PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
             PtrMut::from(&mut history),
             Tick(11),
             &mut hasher,
             hash_fn,
         );
 
+        assert!(hashed);
         assert_ne!(hasher.finish(), 0);
         assert_eq!(history.len(), before_len);
         assert_eq!(history.get(Tick(10)).unwrap().0, 10);
         assert_eq!(history.get(Tick(11)).unwrap().0, 11);
         assert_eq!(history.get(Tick(12)).unwrap().0, 12);
+    }
+
+    #[test]
+    fn deterministic_hash_reports_missing_prediction_history_value() {
+        let mut history = PredictionHistory::<TestComponent>::default();
+        let mut hasher = seahash::SeaHasher::default();
+        let initial_hash = hasher.finish();
+        let hash_fn = unsafe {
+            core::mem::transmute::<fn(&TestComponent, &mut seahash::SeaHasher), fn()>(
+                hash_test_component,
+            )
+        };
+
+        let hashed = PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
+            PtrMut::from(&mut history),
+            Tick(11),
+            &mut hasher,
+            hash_fn,
+        );
+
+        assert!(!hashed);
+        assert_eq!(hasher.finish(), initial_hash);
     }
 
     #[test]

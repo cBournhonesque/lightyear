@@ -181,7 +181,7 @@ metrics-util = "0.20"
 aeronet_webtransport = { version = "0.21" }
 aeronet_websocket = { version = "0.21" }
 aeronet_steam = { version = "0.21" }
-wtransport = "0.6.1"
+wtransport = "0.7.1"
 aeronet_io = { version = "0.21" }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
@@ -239,7 +239,7 @@ leafwing-input-manager = { version = "0.21", default-features = false, features 
   "keyboard",
 ] }
 # replication
-bevy_replicon = { version = "0.42.1", default-features = false, features = [
+bevy_replicon = { version = "0.42", default-features = false, features = [
   "client",
   "server",
 ] }

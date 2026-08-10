@@ -303,10 +303,14 @@ impl Plugin for LightyearAvianPlugin {
                     (
                         PhysicsSystems::StepSimulation,
                         PhysicsSystems::Writeback,
-                        (
-                            PredictionSystems::UpdateHistory,
-                            FrameInterpolationSystems::Update,
-                        ),
+                        // Normally both histories read the same completed physics state, so their
+                        // relative order does not matter. Still, applications may mutate physics
+                        // state after the physics step and before prediction history is recorded
+                        // (for example, by setting velocity to zero after a collision). Capture
+                        // frame history afterward too, so Restore cannot reapply the pre-mutation
+                        // value on the next frame.
+                        PredictionSystems::UpdateHistory,
+                        FrameInterpolationSystems::Update,
                     )
                         .chain(),
                 );
@@ -350,12 +354,11 @@ impl Plugin for LightyearAvianPlugin {
                         PhysicsSystems::StepSimulation,
                         // sync updated Position to Transform
                         PhysicsSystems::Writeback,
-                        (
-                            // save the new Transform values in the history
-                            PredictionSystems::UpdateHistory,
-                            // save the values for visual interpolation
-                            FrameInterpolationSystems::Update,
-                        ),
+                        // Preserve the same post-physics application-system boundary as Position
+                        // mode before recording values for frame interpolation.
+                        PredictionSystems::UpdateHistory,
+                        // save the values for visual interpolation
+                        FrameInterpolationSystems::Update,
                     )
                         .chain(),
                 );
@@ -1199,6 +1202,53 @@ mod tests {
             .unwrap();
         angular.current_value = Some(AngularVelocity::default());
         angular.previous_value = include_previous.then(AngularVelocity::default);
+    }
+
+    fn stop_after_physics(mut velocities: Query<&mut LinearVelocity>) {
+        for mut velocity in &mut velocities {
+            *velocity = LinearVelocity::default();
+        }
+    }
+
+    #[test]
+    fn frame_history_captures_post_physics_application_changes() {
+        let mut app = App::new();
+        app.add_plugins((
+            FrameInterpolationPlugin,
+            LightyearAvianPlugin {
+                update_syncs_manually: true,
+                register_physics_components: false,
+                ..Default::default()
+            },
+        ));
+        app.add_systems(
+            FixedPostUpdate,
+            stop_after_physics
+                .after(PhysicsSystems::Writeback)
+                .before(PredictionSystems::UpdateHistory),
+        );
+        app.finish();
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                LinearVelocity(Vector::X),
+                AngularVelocity::default(),
+                FrameInterpolate,
+            ))
+            .id();
+
+        app.world_mut().run_schedule(FixedPostUpdate);
+
+        assert_eq!(
+            app.world()
+                .get::<FrameInterpolationHistory<LinearVelocity>>(entity)
+                .unwrap()
+                .current_value,
+            Some(LinearVelocity::default())
+        );
     }
 
     #[test]
