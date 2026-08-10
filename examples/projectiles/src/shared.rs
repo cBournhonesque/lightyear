@@ -160,9 +160,18 @@ fn rotation_towards(position: Vec2, target: Vec2) -> Option<Rotation> {
     angle.is_finite().then(|| Rotation::from(angle))
 }
 
+// `InterpolationTarget` gives the authoritative server entity an
+// `Interpolated` component too, so `Without<Interpolated>` alone would also
+// reject the server player. `ControlledBy` keeps that authoritative entity in
+// the simulation while clients still ignore their presentation-only replicas.
+type SimulatedPlayer = (
+    With<PlayerMarker>,
+    Or<(With<ControlledBy>, Without<Interpolated>)>,
+);
+
 pub(crate) fn apply_player_aim(
     aim_actions: Query<(&ActionOf<PlayerContext>, &Action<MoveCursor>)>,
-    mut players: Query<(&mut Rotation, &Position), Without<Interpolated>>,
+    mut players: Query<(&mut Rotation, &Position), SimulatedPlayer>,
 ) {
     for (action_of, aim) in &aim_actions {
         let Ok((mut rotation, position)) = players.get_mut(action_of.get()) else {
@@ -176,15 +185,6 @@ pub(crate) fn apply_player_aim(
         }
     }
 }
-
-// `InterpolationTarget` gives the authoritative server entity an
-// `Interpolated` component too, so `Without<Interpolated>` alone would also
-// reject the server player. `ControlledBy` keeps that authoritative entity in
-// the simulation while clients still ignore their presentation-only replicas.
-type SimulatedPlayer = (
-    With<PlayerMarker>,
-    Or<(With<ControlledBy>, Without<Interpolated>)>,
-);
 
 pub(crate) fn apply_player_movement(
     trigger: On<Fire<MovePlayer>>,
