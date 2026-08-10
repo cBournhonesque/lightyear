@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_inputs_leafwing"
-version = "0.28.0"
+version = "0.29.0"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -31,7 +31,7 @@ serde.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_derive.workspace = true
-bevy_input.workspace = true
+bevy_input = { workspace = true, features = ["keyboard"] }
 bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_reflect.workspace = true
