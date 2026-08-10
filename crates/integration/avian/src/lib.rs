@@ -50,7 +50,7 @@ pub mod prelude {
             AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory,
             LagCompensationPlugin, LagCompensationSystems,
         },
-        query::{LagCompensationRayHit, LagCompensationSpatialQuery},
+        query::{LagCompensationRayHit, LagCompensationSample, LagCompensationSpatialQuery},
     };
     #[cfg(any(feature = "2d", feature = "3d"))]
     pub use crate::plugin::LightyearAvianPlugin;

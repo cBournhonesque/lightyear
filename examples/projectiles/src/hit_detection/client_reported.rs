@@ -162,10 +162,10 @@ pub(crate) fn hitscan_hits(
 pub(crate) fn linear_hits(
     policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
-    projectiles: Query<(
+    mut projectiles: Query<(
         Entity,
         &Position,
-        &linear::PreviousProjectilePosition,
+        &mut linear::ProjectileSweepStart,
         &BulletMarker,
         &PlayerId,
         &ProjectileFireTick,
@@ -183,7 +183,12 @@ pub(crate) fn linear_hits(
     }
 
     let (local_id, sender) = &mut *sender;
-    for (projectile, position, previous, marker, player_id, fire_tick) in &projectiles {
+    for (projectile, position, mut sweep_start, marker, player_id, fire_tick) in &mut projectiles {
+        // Interpolated state entities move when Lightyear samples them in
+        // `Update`. Remember the point checked by this invocation so the next
+        // query covers exactly the newly rendered segment.
+        let previous_position = sweep_start.0;
+        sweep_start.0 = position.0;
         if player_id.0 != local_id.0 {
             continue;
         }
@@ -192,7 +197,7 @@ pub(crate) fn linear_hits(
         }) else {
             continue;
         };
-        let segment = position.0 - previous.0;
+        let segment = position.0 - previous_position;
         let distance = segment.length();
         let Some(direction) = segment.try_normalize() else {
             continue;
@@ -200,7 +205,7 @@ pub(crate) fn linear_hits(
         if let Some(hit) = closest_rendered_player_hit(
             &targets,
             shooter,
-            previous.0,
+            previous_position,
             Dir2::new_unchecked(direction),
             distance,
         ) {
@@ -213,7 +218,7 @@ pub(crate) fn linear_hits(
                 );
                 remember_impact(
                     &mut commands,
-                    previous.0,
+                    previous_position,
                     Dir2::new_unchecked(direction),
                     hit,
                 );

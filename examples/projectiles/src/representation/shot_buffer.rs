@@ -393,7 +393,7 @@ fn spawn_record(
                 position,
                 record.rotation,
                 velocity,
-                linear::PreviousProjectilePosition(position.0),
+                linear::ProjectileSweepStart(position.0),
                 RigidBody::Kinematic,
                 BulletMarker {
                     shooter: player_id.0,

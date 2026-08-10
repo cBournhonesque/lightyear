@@ -20,6 +20,7 @@
 //!   future refinement should attach an exact view timestamp to each shot.
 
 use avian2d::prelude::*;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::host::HostClient;
@@ -35,15 +36,16 @@ use crate::representation::shot_buffer::{
 use crate::shared::DespawnAfter;
 use crate::trajectory::{hitscan, linear};
 
-/// A short-lived, server-only record of the historical collider pose that
-/// actually produced a lag-compensated hit.
+/// A short-lived, server-only record of a historical collider pose tested by
+/// a lag-compensated query, whether that query hits or misses.
 ///
 /// The renderer draws this as a yellow outline. Keeping it as ordinary ECS
 /// data (instead of drawing directly in the fixed-tick hit system) makes the
-/// result remain visible for long enough to inspect and keeps hit detection
+/// sample remain visible for long enough to inspect and keeps hit detection
 /// independent from rendering.
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct LagCompensatedSilhouette {
+    pub(crate) shooter: Entity,
     pub(crate) target: Entity,
     pub(crate) position: Vec2,
     pub(crate) rotation: f32,
@@ -60,17 +62,6 @@ fn remember_hit(
     result: LagCompensationRayHit,
 ) {
     remember_impact(commands, origin, direction, result.hit);
-    commands.spawn((
-        LagCompensatedSilhouette {
-            target: result.hit.entity,
-            position: result.position.0,
-            rotation: result.rotation.as_radians(),
-            sample_tick: result.interpolation_tick,
-            sample_overstep: result.interpolation_overstep,
-        },
-        DespawnAfter(Timer::from_seconds(SILHOUETTE_LIFETIME, TimerMode::Once)),
-        Name::new("Lag-compensated hit silhouette"),
-    ));
 
     debug!(
         target = ?result.hit.entity,
@@ -80,6 +71,49 @@ fn remember_hit(
         rotation = ?result.rotation,
         "Lag-compensated hit used this historical target pose"
     );
+}
+
+/// Show every historical target pose tested for one shooter's query, including
+/// misses. Reusing one debug entity per shooter/target pair avoids leaving a
+/// trail of rectangles while a linear projectile queries every fixed tick.
+fn remember_sampled_silhouettes(
+    commands: &mut Commands,
+    shooter: Entity,
+    delay: InterpolationDelay,
+    targets: &Query<Entity, (With<PlayerMarker>, With<ControlledBy>)>,
+    existing: &Query<(Entity, &LagCompensatedSilhouette)>,
+    lag_compensation: &LagCompensationSpatialQuery,
+) {
+    for target in targets {
+        if target == shooter {
+            continue;
+        }
+        let Some(sample) = lag_compensation.sample_collider(delay, target) else {
+            continue;
+        };
+        let silhouette = LagCompensatedSilhouette {
+            shooter,
+            target,
+            position: sample.position.0,
+            rotation: sample.rotation.as_radians(),
+            sample_tick: sample.interpolation_tick,
+            sample_overstep: sample.interpolation_overstep,
+        };
+        let timer = DespawnAfter(Timer::from_seconds(SILHOUETTE_LIFETIME, TimerMode::Once));
+
+        if let Some((entity, _)) = existing
+            .iter()
+            .find(|(_, old)| old.shooter == shooter && old.target == target)
+        {
+            commands.entity(entity).insert((silhouette, timer));
+        } else {
+            commands.spawn((
+                silhouette,
+                timer,
+                Name::new("Lag-compensated target silhouette"),
+            ));
+        }
+    }
 }
 
 fn shooter_delay(
@@ -107,11 +141,12 @@ pub(crate) fn hitscan_hits(
         (&hitscan::HitscanVisual, &BulletMarker),
         (Added<hitscan::HitscanVisual>, With<AuthoritativeProjectile>),
     >,
-    targets: Query<(), (With<PlayerMarker>, With<ControlledBy>)>,
+    targets: Query<Entity, (With<PlayerMarker>, With<ControlledBy>)>,
     shooters: Query<(Entity, &PlayerId, &ControlledBy), (With<PlayerMarker>, With<ControlledBy>)>,
     clients: Query<&InterpolationDelay, With<ClientOf>>,
     host_clients: Query<(), With<HostClient>>,
     lag_compensation: LagCompensationSpatialQuery,
+    silhouettes: Query<(Entity, &LagCompensatedSilhouette)>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
     if **policy != HitPolicy::ServerRewound {
@@ -125,6 +160,14 @@ pub(crate) fn hitscan_hits(
             warn!(shooter = ?marker.shooter, "Cannot rewind hitscan without client timing metadata");
             continue;
         };
+        remember_sampled_silhouettes(
+            &mut commands,
+            shooter,
+            delay,
+            &targets,
+            &silhouettes,
+            &lag_compensation,
+        );
         let mut filter = SpatialQueryFilter::from_excluded_entities([shooter]);
         if let Some(result) = lag_compensation.cast_ray_predicate_with_sample(
             delay,
@@ -150,18 +193,19 @@ pub(crate) fn linear_hits(
         (
             Entity,
             &Position,
-            &linear::PreviousProjectilePosition,
+            &linear::ProjectileSweepStart,
             &BulletMarker,
             Option<&BufferedProjectileOf>,
             Option<&BufferedSequence>,
         ),
         With<AuthoritativeProjectile>,
     >,
-    targets: Query<(), (With<PlayerMarker>, With<ControlledBy>)>,
+    targets: Query<Entity, (With<PlayerMarker>, With<ControlledBy>)>,
     shooters: Query<(Entity, &PlayerId, &ControlledBy), (With<PlayerMarker>, With<ControlledBy>)>,
     clients: Query<&InterpolationDelay, With<ClientOf>>,
     host_clients: Query<(), With<HostClient>>,
     lag_compensation: LagCompensationSpatialQuery,
+    silhouettes: Query<(Entity, &LagCompensatedSilhouette)>,
     buffers: Query<&ShotBuffer>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
@@ -169,6 +213,7 @@ pub(crate) fn linear_hits(
         return;
     }
 
+    let mut sampled_shooters = HashSet::new();
     for (projectile, position, previous, marker, buffer_owner, sequence) in &projectiles {
         let segment = position.0 - previous.0;
         let distance = segment.length();
@@ -180,6 +225,16 @@ pub(crate) fn linear_hits(
         else {
             continue;
         };
+        if sampled_shooters.insert(shooter) {
+            remember_sampled_silhouettes(
+                &mut commands,
+                shooter,
+                delay,
+                &targets,
+                &silhouettes,
+                &lag_compensation,
+            );
+        }
         let mut filter = SpatialQueryFilter::from_excluded_entities([shooter]);
         if let Some(result) = lag_compensation.cast_ray_predicate_with_sample(
             delay,

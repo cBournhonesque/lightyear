@@ -7,14 +7,11 @@ use crate::shared::PLAYER_SIZE;
 use crate::timeline::TimelinePolicy;
 use crate::trajectory::{TrajectoryKind, hitscan::HitscanVisual};
 use avian2d::prelude::*;
-use bevy::color::palettes::basic::{GREEN, RED};
-use bevy::color::palettes::css::BLUE;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::{Action, mock::ActionMock};
 use bevy_enhanced_input::prelude::ActionValue;
 use lightyear::interpolation::Interpolated;
 use lightyear::prelude::*;
-use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -33,20 +30,6 @@ impl Plugin for ExampleRendererPlugin {
             app.add_plugins(FrameInterpolationPlugin);
         }
 
-        app.add_plugins(PhysicsDebugPlugin::default())
-            .insert_gizmo_config(
-                PhysicsGizmos {
-                    // aabb_color: Some(Color::WHITE),
-                    collider_color: Some(BLUE.into()),
-                    raycast_color: Some(GREEN.into()),
-                    raycast_point_color: Some(RED.into()),
-                    raycast_normal_color: Some(RED.into()),
-                    hide_meshes: false,
-                    ..default()
-                },
-                GizmoConfig::default(),
-            );
-
         #[cfg(feature = "client")]
         {
             app.add_systems(
@@ -59,10 +42,7 @@ impl Plugin for ExampleRendererPlugin {
 
         #[cfg(feature = "server")]
         {
-            app.add_systems(
-                PostUpdate,
-                (draw_aabb_envelope, draw_lag_compensated_silhouettes),
-            );
+            app.add_systems(PostUpdate, draw_lag_compensated_silhouettes);
         }
     }
 }
@@ -230,26 +210,14 @@ fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent)>, mut giz
     }
 }
 
-#[cfg(feature = "server")]
-fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut gizmos: Gizmos) {
-    query.iter().for_each(|collider_aabb| {
-        gizmos.rect_2d(
-            Isometry2d::new(collider_aabb.center(), Rot2::default()),
-            collider_aabb.size(),
-            Color::WHITE,
-        );
-    })
-}
-
-/// Draw the exact historical target pose used by a successful rewound query.
+/// Draw only the exact historical collider pose tested by the rewound query.
 ///
-/// The yellow rectangle outline is the sampled collider. The faint line points
-/// to the target's current authoritative position, making the amount and
-/// direction of rewind immediately visible in the server window.
+/// The lag-compensation broad-phase AABB is an implementation detail and is
+/// intentionally hidden. This yellow outline is the target silhouette that
+/// matters when explaining either a hit or a miss.
 #[cfg(feature = "server")]
 fn draw_lag_compensated_silhouettes(
     silhouettes: Query<&LagCompensatedSilhouette>,
-    current_positions: Query<&Position>,
     mut gizmos: Gizmos,
 ) {
     for silhouette in &silhouettes {
@@ -259,12 +227,6 @@ fn draw_lag_compensated_silhouettes(
             Vec2::splat(PLAYER_SIZE),
             color,
         );
-
-        if let Ok(current) = current_positions.get(silhouette.target)
-            && current.0 != silhouette.position
-        {
-            gizmos.line_2d(silhouette.position, current.0, color.with_alpha(0.35));
-        }
     }
 }
 

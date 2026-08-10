@@ -99,7 +99,7 @@ pub(crate) fn shoot(
                 position,
                 rotation,
                 linear::velocity(rotation, linear::SPEED),
-                linear::PreviousProjectilePosition(position.0),
+                linear::ProjectileSweepStart(position.0),
                 RigidBody::Kinematic,
                 BulletMarker {
                     shooter: player_id.0,

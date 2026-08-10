@@ -16,6 +16,7 @@ use bevy_enhanced_input::prelude::{
 };
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSystems;
+use lightyear::interpolation::plugin::InterpolationSystems;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -25,11 +26,8 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
         app.init_resource::<client_reported::ReportedClientHits>();
-        app.add_observer(add_previous_position_to_interpolated_projectile);
-        app.add_systems(
-            PreUpdate,
-            strip_rigid_bodies_from_interpolated_entities.after(ReplicationSystems::Receive),
-        );
+        app.add_observer(add_rigid_body_to_predicted_simulation);
+        app.add_observer(seed_interpolated_projectile_sweep_start);
         app.add_systems(
             FixedPreUpdate,
             (
@@ -45,38 +43,57 @@ impl Plugin for ExampleClientPlugin {
             (client_reported::hitscan_hits, client_reported::linear_hits)
                 .after(PhysicsSystems::StepSimulation),
         );
+        // State-entity projectiles on the interpolated timeline move in
+        // `Update`, not in Avian's fixed physics schedule. Run the same sweep
+        // after that sampling too. Each invocation advances
+        // `ProjectileSweepStart`, so entities that did not move in that
+        // schedule simply produce a zero-length segment.
+        app.add_systems(
+            Update,
+            client_reported::linear_hits.after(InterpolationSystems::Interpolate),
+        );
     }
 }
 
-/// Interpolated entities are render-only timeline samples, not physics bodies.
+/// Add the locally derived physics role only to entities this client simulates.
 ///
-/// `RigidBody` is replicated for predicted state projectiles, so it can also
-/// arrive on interpolated players and projectiles. Letting Avian simulate those
-/// delayed samples feeds interpolation-owned rotations into the solver and can
-/// produce an invalid rotation during writeback. Remove the body immediately
-/// after replication; Lightyear's Avian integration still copies the sampled
-/// `Position` and `Rotation` into `Transform` for rendering.
-fn strip_rigid_bodies_from_interpolated_entities(
-    interpolated: Query<Entity, (With<Interpolated>, With<RigidBody>)>,
+/// `RigidBody` is deliberately not replicated. Replicating it to an
+/// interpolated entity would make Avian eagerly insert default pose components
+/// before Lightyear has sampled the real network pose, briefly rendering the
+/// entity at the origin. Predicted players and linear state projectiles still
+/// need a kinematic body so Avian integrates their replicated velocity.
+fn add_rigid_body_to_predicted_simulation(
+    trigger: On<Add, (Predicted, Position, LinearVelocity)>,
+    simulated: Query<
+        (),
+        (
+            With<Predicted>,
+            With<Position>,
+            With<LinearVelocity>,
+            Without<RigidBody>,
+            Or<(With<PlayerMarker>, With<BulletMarker>)>,
+        ),
+    >,
     mut commands: Commands,
 ) {
-    for entity in &interpolated {
-        commands.entity(entity).remove::<RigidBody>();
+    if simulated.contains(trigger.entity) {
+        commands.entity(trigger.entity).insert(RigidBody::Kinematic);
     }
 }
 
-/// Interpolated state projectiles receive sampled positions, but the previous
-/// sweep endpoint is intentionally local state and is not replicated. Seed it
-/// when the timeline entity becomes usable so client-reported linear hits can
-/// sweep subsequent interpolation movement.
-fn add_previous_position_to_interpolated_projectile(
+/// Give an interpolated state projectile its first collision-sweep endpoint.
+///
+/// `ProjectileSweepStart` is local collision bookkeeping, not network state.
+/// Seeding it from the first real sampled position makes the first segment
+/// zero-length instead of incorrectly sweeping from the world origin.
+fn seed_interpolated_projectile_sweep_start(
     trigger: On<Add, (BulletMarker, Interpolated, Position)>,
     projectiles: Query<
         &Position,
         (
             With<BulletMarker>,
             With<Interpolated>,
-            Without<linear::PreviousProjectilePosition>,
+            Without<linear::ProjectileSweepStart>,
         ),
     >,
     mut commands: Commands,
@@ -84,7 +101,7 @@ fn add_previous_position_to_interpolated_projectile(
     if let Ok(position) = projectiles.get(trigger.entity) {
         commands
             .entity(trigger.entity)
-            .insert(linear::PreviousProjectilePosition(position.0));
+            .insert(linear::ProjectileSweepStart(position.0));
     }
 }
 

@@ -205,7 +205,7 @@ pub(crate) fn materialize(
                     position,
                     fire.rotation,
                     velocity,
-                    linear::PreviousProjectilePosition(position.0),
+                    linear::ProjectileSweepStart(position.0),
                     RigidBody::Kinematic,
                     PlayerId(fire.player_id),
                     fire.color,

@@ -71,7 +71,7 @@ impl Plugin for SharedPlugin {
 
         // Capture the start of the actual movement segment before Avian moves
         // linear projectiles this tick.
-        app.add_systems(FixedPreUpdate, linear::remember_previous_position);
+        app.add_systems(FixedPreUpdate, linear::capture_projectile_sweep_start);
         app.add_systems(FixedUpdate, hitscan::update_visuals);
         app.add_systems(PreUpdate, despawn_after);
         app.add_systems(FixedLast, despawn_at_tick);

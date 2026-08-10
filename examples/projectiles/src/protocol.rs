@@ -162,8 +162,6 @@ impl Plugin for ProtocolPlugin {
         // entity. Tracking its immutable firing facts lets authoritative data
         // participate in rollback instead of merely confirming entity identity.
         app.component::<FireData>().replicate().predict();
-        app.component::<RigidBody>().replicate();
-
         app.component::<Weapon>().replicate().predict();
         app.component::<ShotBuffer>()
             .replicate_diff()

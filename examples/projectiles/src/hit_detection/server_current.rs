@@ -79,7 +79,7 @@ pub(crate) fn linear_hits(
         (
             Entity,
             &Position,
-            &linear::PreviousProjectilePosition,
+            &linear::ProjectileSweepStart,
             &BulletMarker,
             Option<&BufferedProjectileOf>,
             Option<&BufferedSequence>,

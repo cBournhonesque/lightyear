@@ -25,22 +25,23 @@ use bevy::prelude::*;
 pub(crate) const SPEED: f32 = 300.0;
 pub(crate) const LIFETIME_SECONDS: f32 = 3.0;
 
-/// Position at the beginning of the current fixed tick.
+/// Start of the projectile segment that has not yet been checked for a hit.
 ///
-/// Avian advances `Position` during physics. Keeping the previous value lets
-/// hit detection sweep the exact segment the projectile traversed instead of
-/// using the old unreliable fixed 0.5-unit ray.
+/// For simulated projectiles this is captured before Avian advances
+/// `Position`. For interpolated state projectiles the client advances it after
+/// checking each newly sampled render position. It is local derived state and
+/// never needs to cross the network.
 #[derive(Component, Clone, Copy, Debug)]
-pub(crate) struct PreviousProjectilePosition(pub(crate) Vec2);
+pub(crate) struct ProjectileSweepStart(pub(crate) Vec2);
 
 pub(crate) fn velocity(rotation: Rotation, speed: f32) -> LinearVelocity {
     LinearVelocity(rotation * Vec2::Y * speed)
 }
 
-/// Capture each projectile's start-of-tick position before physics moves it.
-pub(crate) fn remember_previous_position(
+/// Capture the start of the segment before fixed-tick physics moves it.
+pub(crate) fn capture_projectile_sweep_start(
     mut projectiles: Query<
-        (&Position, &mut PreviousProjectilePosition),
+        (&Position, &mut ProjectileSweepStart),
         With<crate::protocol::BulletMarker>,
     >,
 ) {

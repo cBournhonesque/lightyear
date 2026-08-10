@@ -60,15 +60,17 @@ The axes are intentionally independent. Some combinations are mainly educational
 
 A predicted owner creates the shot immediately. The server independently validates firing cadence. For `StateEntity`, the owner projectile and server projectile use the same deterministic `PreSpawned` signature. For `FireDataEntity`, the fire-data network entity is matched and owns a non-networked local visual child. `ShotBuffer` instead predicts a write to the player's replicated ring; no per-shot network entity or prespawn matching is involved. Its sequence is ring bookkeeping, not a dedicated shot-identity entity.
 
-Linear hit detection uses a swept query from the projectile's previous position to its current position, so a fast projectile cannot pass through a target between simulation ticks. Hitscan uses the same direction immediately.
+Linear hit detection stores a local `ProjectileSweepStart` and casts over the complete segment from that point to the projectile's newly simulated or interpolated position. The start is advanced after the segment is checked, so a fast projectile cannot pass through a target between samples. This is collision bookkeeping, not replicated projectile state.
 
 Projectile lifetime is expressed in fixed ticks. Reconstructed projectiles use the local simulation tick for authoritative/predicted entities and the interpolation tick for interpolated entities. A successful hit also leaves a short-lived local red cross at the exact impact point in whichever app performed collision detection.
 
 Client-reported hit detection casts the player rectangle directly against the player poses rendered by that client. It does not add those render-only replicas to Avian's physics world, which keeps client rollback and arena resets independent of collision-debug state.
 
+`RigidBody` is also local simulation setup rather than replicated state. The server owns its authoritative bodies, predicted clients derive a kinematic body when they receive a simulated player or linear state projectile, and interpolated entities never receive one. Besides keeping delayed presentation out of Avian's solver, this prevents `RigidBody` from inserting a temporary default pose that would flash a new interpolated projectile at the world origin.
+
 Players move through Avian `LinearVelocity`, rather than editing `Position` while reporting zero velocity. Predicted players receive frame interpolation between fixed ticks; remote interpolated players use the replicated positions and matching velocities to interpolate continuously between the server's 100 ms snapshots.
 
-For server rewind, Lightyear's `LagCompensationSpatialQuery` evaluates target colliders at the historical time corresponding to the firing client's view. A GUI server draws every successful sampled collider pose briefly in yellow, with a faint line to the target's current authoritative position. This shows the exact narrow-phase pose that produced the hit, rather than only the broad-phase history envelope. Useful background:
+For server rewind, Lightyear's `LagCompensationSpatialQuery` evaluates target colliders at the historical time corresponding to the firing client's view. A GUI server draws every sampled target collider briefly in yellow, including queries that miss. Broad-phase history AABBs, current-physics collider gizmos, and current-to-rewound connector lines are hidden so the outline shows only the pose actually tested by the lag-compensated narrow phase. Useful background:
 
 - [Valve: Lag Compensation](https://developer.valvesoftware.com/wiki/Lag_Compensation)
 - [Gabriel Gambetta: Lag Compensation](https://gabrielgambetta.com/lag-compensation.html)
