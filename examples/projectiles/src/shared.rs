@@ -12,7 +12,6 @@ use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::prelude::*;
 use core::time::Duration;
 use lightyear::core::tick::TickDuration;
-use lightyear::interpolation::prelude::{AppInterpolationExt, InterpolationFns};
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
 use serde::{Deserialize, Serialize};
@@ -27,6 +26,8 @@ use crate::trajectory::{TrajectoryKind, hitscan, linear};
 const ROTATION_EPSILON: f32 = 0.0001;
 /// Player speed in world units per second.
 ///
+/// Keeping movement in `LinearVelocity` gives Avian's velocity-aware remote
+/// interpolation the same motion information that produced each position.
 /// The old code moved 1.5 units per 64 Hz tick, which is 96 units per second.
 const PLAYER_MOVE_SPEED: f32 = 96.0;
 
@@ -39,12 +40,13 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
 
-        app.add_observer(move_player);
+        app.add_observer(apply_player_movement);
+        app.add_observer(stop_player_movement);
         app.add_observer(shoot_weapon);
 
         // Aim is continuous state, so read it after BEI applies the buffered
-        // inputs for this tick. Movement is handled by the `Fire<MovePlayer>`
-        // observer above, at the exact point where BEI applies that input.
+        // input for this tick. Movement uses BEI's Fire/Complete events above;
+        // this is the same path on a predicting client and the server.
         app.add_systems(
             FixedPreUpdate,
             apply_player_aim.after(EnhancedInputSystems::Apply),
@@ -84,15 +86,6 @@ impl Plugin for SharedPlugin {
             },
             ..default()
         });
-
-        // Players are moved by directly authoring their canonical Position.
-        // Their Avian LinearVelocity therefore stays zero and is not a valid
-        // tangent for Avian's general velocity-aware Hermite rule. Prefer a
-        // simple pose lerp for players; moving projectiles still use Hermite.
-        app.interpolate_bundle_with_priority_filtered::<(Position, Rotation), With<PlayerMarker>>(
-            100,
-            InterpolationFns::interpolate(interpolate_player_pose),
-        );
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
@@ -103,17 +96,6 @@ impl Plugin for SharedPlugin {
         )
         .insert_resource(Gravity(Vec2::ZERO));
     }
-}
-
-fn interpolate_player_pose(
-    start: (Position, Rotation),
-    end: (Position, Rotation),
-    t: f32,
-) -> (Position, Rotation) {
-    (
-        lightyear_avian2d::types::position::lerp(&start.0, &end.0, t),
-        lightyear_avian2d::types::rotation::lerp(&start.1, &end.1, t),
-    )
 }
 
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
@@ -195,28 +177,34 @@ pub(crate) fn apply_player_aim(
     }
 }
 
-pub(crate) fn move_player(
+// `InterpolationTarget` gives the authoritative server entity an
+// `Interpolated` component too, so `Without<Interpolated>` alone would also
+// reject the server player. `ControlledBy` keeps that authoritative entity in
+// the simulation while clients still ignore their presentation-only replicas.
+type SimulatedPlayer = (
+    With<PlayerMarker>,
+    Or<(With<ControlledBy>, Without<Interpolated>)>,
+);
+
+pub(crate) fn apply_player_movement(
     trigger: On<Fire<MovePlayer>>,
-    tick_duration: Res<TickDuration>,
-    mut players: Query<&mut Position, With<PlayerMarker>>,
-    interpolated: Query<(), With<Interpolated>>,
-    clients: Query<(), With<Client>>,
+    mut players: Query<&mut LinearVelocity, SimulatedPlayer>,
 ) {
-    // Confirmed inputs are present on an all-interpolated client, but that
-    // client must not move its delayed presentation entity locally.
-    if !clients.is_empty() && interpolated.contains(trigger.context) {
-        return;
-    }
-    let Ok(mut position) = players.get_mut(trigger.context) else {
+    let Ok(mut velocity) = players.get_mut(trigger.context) else {
         return;
     };
+    // Normalizing preserves zero axes and gives cardinal and diagonal
+    // movement the same speed. Avian integrates the velocity this tick.
+    velocity.0 = trigger.value.normalize_or_zero() * PLAYER_MOVE_SPEED;
+}
 
-    // Position is the canonical simulation state in Avian's Position mode.
-    // Apply the same fixed-tick displacement on the predicting client and the
-    // authoritative server. Normalization gives diagonal and cardinal input
-    // the same speed without turning an idle axis into movement.
-    let delta_seconds = tick_duration.0.as_secs_f32();
-    position.0 += trigger.value.normalize_or_zero() * PLAYER_MOVE_SPEED * delta_seconds;
+pub(crate) fn stop_player_movement(
+    trigger: On<Complete<MovePlayer>>,
+    mut players: Query<&mut LinearVelocity, SimulatedPlayer>,
+) {
+    if let Ok(mut velocity) = players.get_mut(trigger.context) {
+        velocity.0 = Vec2::ZERO;
+    }
 }
 
 /// Validate firing cadence, then hand the shot to exactly one representation.
