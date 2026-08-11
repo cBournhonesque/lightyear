@@ -1,9 +1,8 @@
 //! Small pieces of simulation that are genuinely shared by client and server.
 //!
 //! Axis-specific behavior belongs in the four axis directories. This module is
-//! intentionally limited to player movement, action creation, firing cadence,
-//! dispatching a shot to the selected representation, and common physics
-//! setup.
+//! intentionally limited to player movement, firing cadence, dispatching a
+//! shot to the selected representation, and common physics setup.
 
 use avian2d::prelude::*;
 use bevy::ecs::relationship::Relationship;
@@ -103,72 +102,33 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     Color::hsl(hue, 1.0, 0.5)
 }
 
-/// The global context has one action entity per independently selectable axis.
-pub(crate) fn spawn_global_actions(commands: &mut Commands, context: Entity) {
-    commands.spawn((
-        ActionOf::<ClientContext>::new(context),
-        Action::<CycleTrajectory>::new(),
-        ReplicateLike { root: context },
-    ));
-    commands.spawn((
-        ActionOf::<ClientContext>::new(context),
-        Action::<CycleRepresentation>::new(),
-        ReplicateLike { root: context },
-    ));
-    commands.spawn((
-        ActionOf::<ClientContext>::new(context),
-        Action::<CycleHitPolicy>::new(),
-        ReplicateLike { root: context },
-    ));
-    commands.spawn((
-        ActionOf::<ClientContext>::new(context),
-        Action::<CycleTimeline>::new(),
-        ReplicateLike { root: context },
-    ));
-}
-
-/// Spawn the server-owned BEI action entities for one player.
-///
-/// `ActionOf` has a linked-spawn relationship, so despawning the player during
-/// an arena restart also cleans up these action entities.
-#[cfg(feature = "server")]
-pub(crate) fn spawn_player_actions(commands: &mut Commands, player: Entity, is_bot: bool) {
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<MovePlayer>::new(),
-        ReplicateLike { root: player },
-    ));
-    // The bot deliberately has no aim action: its initial downward rotation is
-    // fixed, so all peers simulate the same simple strafing firing target.
-    if !is_bot {
-        commands.spawn((
-            ActionOf::<PlayerContext>::new(player),
-            Action::<MoveCursor>::new(),
-            ReplicateLike { root: player },
-        ));
-    }
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<Shoot>::new(),
-        ReplicateLike { root: player },
-    ));
-}
-
 fn rotation_towards(position: Vec2, target: Vec2) -> Option<Rotation> {
     let aim_direction = (target - position).try_normalize()?;
     let angle = Vec2::Y.angle_to(aim_direction);
     angle.is_finite().then(|| Rotation::from(angle))
 }
 
-// `InterpolationTarget` gives the authoritative server entity an
-// `Interpolated` component too, so `Without<Interpolated>` alone would also
-// reject the server player. `ControlledBy` keeps that authoritative entity in
-// the simulation while clients still ignore their presentation-only replicas.
+// In host-client mode an authoritative player can also be the host's
+// interpolated presentation entity. `ControlledBy` keeps that shared server
+// entity in the simulation while remote clients still ignore their
+// presentation-only replicas.
 type SimulatedPlayer = (
     With<PlayerMarker>,
     Or<(With<ControlledBy>, Without<Interpolated>)>,
 );
 
+/// Apply the current continuous aim state once per fixed tick.
+///
+/// BEI emits `Fire<MoveCursor>` every tick while the action remains fired, so
+/// an aim observer would pay synchronous observer-dispatch overhead every tick
+/// and could not run in parallel with other systems. A scheduled system is a
+/// better fit for this continuously updated state.
+///
+/// Bevy does not provide relative ordering between observers. In this example,
+/// BEI triggers observers such as [`shoot_weapon`] during
+/// [`EnhancedInputSystems::Apply`], while this system deliberately runs after
+/// that set. Consequently, `shoot_weapon` cannot assume that `Rotation` already
+/// contains this tick's aim and explicitly reads `Action<MoveCursor>` itself.
 pub(crate) fn apply_player_aim(
     aim_actions: Query<(&ActionOf<PlayerContext>, &Action<MoveCursor>)>,
     mut players: Query<(&mut Rotation, &Position), SimulatedPlayer>,

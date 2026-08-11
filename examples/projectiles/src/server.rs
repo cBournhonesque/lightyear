@@ -82,6 +82,56 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
         .insert((ReplicationSender, Name::from("ClientOf")));
 }
 
+/// The global context has one action entity per independently selectable axis.
+fn spawn_global_actions(commands: &mut Commands, context: Entity) {
+    commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleTrajectory>::new(),
+        ReplicateLike { root: context },
+    ));
+    commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleRepresentation>::new(),
+        ReplicateLike { root: context },
+    ));
+    commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleHitPolicy>::new(),
+        ReplicateLike { root: context },
+    ));
+    commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleTimeline>::new(),
+        ReplicateLike { root: context },
+    ));
+}
+
+/// Spawn the server-owned BEI action entities for one player.
+///
+/// `ActionOf` has a linked-spawn relationship, so despawning the player during
+/// an arena restart also cleans up these action entities.
+fn spawn_player_actions(commands: &mut Commands, player: Entity, is_bot: bool) {
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<MovePlayer>::new(),
+        ReplicateLike { root: player },
+    ));
+    // The bot deliberately has no aim action: its initial downward rotation is
+    // fixed, so all peers simulate the same simple strafing firing target.
+    if !is_bot {
+        commands.spawn((
+            ActionOf::<PlayerContext>::new(player),
+            Action::<MoveCursor>::new(),
+            ReplicateLike { root: player },
+        ));
+    }
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<Shoot>::new(),
+        ReplicateLike { root: player },
+    ));
+}
+
 /// Spawn the one server-owned entity that stores the four current axis values.
 fn spawn_global_control(mut commands: Commands) {
     let trajectory = initial_trajectory();
@@ -107,7 +157,7 @@ fn spawn_global_control(mut commands: Commands) {
             Name::new("ProjectileDemoConfig"),
         ))
         .id();
-    shared::spawn_global_actions(&mut commands, context);
+    spawn_global_actions(&mut commands, context);
 }
 
 fn apply_initial_input_config(
@@ -342,7 +392,7 @@ fn spawn_player_for_link(
         player.insert(Bot);
     }
     let player = player.id();
-    shared::spawn_player_actions(commands, player, is_bot);
+    spawn_player_actions(commands, player, is_bot);
     info!(?player, ?client_id, "Spawned one player for connected peer");
 }
 
