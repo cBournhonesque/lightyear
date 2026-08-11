@@ -10,6 +10,7 @@ use avian2d::prelude::RayHitData;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::protocol::ClientContext;
 use crate::shared::DespawnAfter;
 
 pub(crate) mod client_reported;
@@ -46,6 +47,19 @@ impl HitPolicy {
             Self::ClientReported => "Client reported (insecure)",
         }
     }
+}
+
+/// Run a hit-detection implementation only while its policy is selected.
+///
+/// Keeping policy selection in the schedule makes it immediately visible at
+/// each system's registration site and avoids fetching all of an inactive
+/// implementation's system parameters every tick. The query form also makes
+/// the condition simply return `false` while the replicated global context is
+/// not available yet.
+pub(crate) fn hit_policy_is(
+    expected: HitPolicy,
+) -> impl Fn(Query<&HitPolicy, With<ClientContext>>) -> bool + Clone {
+    move |policies| policies.single().is_ok_and(|current| *current == expected)
 }
 
 /// Local-only marker placed on projectile simulation owned by the server.

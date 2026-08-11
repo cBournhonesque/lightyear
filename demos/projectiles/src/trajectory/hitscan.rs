@@ -2,21 +2,7 @@
 //!
 //! A hitscan evaluates a ray from its origin to its maximum range in one
 //! simulation step. Any trail or flying tracer is presentation only; it does
-//! not delay the authoritative hit.
-//!
-//! # Advantages
-//!
-//! - Minimal simulation state and no moving gameplay entity is required.
-//! - The server can decide the result immediately.
-//! - It is a clear way to compare current-state and rewound hit detection.
-//!
-//! # Trade-offs
-//!
-//! - It does not model travel time or let a target dodge after firing.
-//! - High latency makes current-state queries disagree with what the shooter
-//!   saw unless lag compensation is used.
-//! - A visible tracer can be mistaken for the authoritative trajectory unless
-//!   the presentation/gameplay distinction is explicit.
+//! not delay the authoritative hit. The 'projectile' is instant.
 
 use avian2d::prelude::Rotation;
 use bevy::prelude::*;

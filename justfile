@@ -172,7 +172,7 @@ build_examples *args:
         done < <(jq -r "$pkgs_filter" <<< "$workspace_metadata" | sort)
     fi
 
-    echo "Building examples: release=$release headless=${headless:-auto} requested=$requested_features features=$cargo_features"
+    echo "Building examples/demos: release=$release headless=${headless:-auto} requested=$requested_features features=$cargo_features"
     echo "Selected packages: ${selected_packages[*]}"
     package_args=()
     non_avian_count=0
@@ -199,7 +199,7 @@ build_examples *args:
     fi
 
 test:
-    # Can´t do --workspace because of feature unification with the packages in examples.
+    # Can´t do --workspace because of feature unification with the packages in examples/demos.
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \

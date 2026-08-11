@@ -37,9 +37,6 @@ mod shared;
 mod timeline;
 mod trajectory;
 
-#[derive(Resource)]
-pub(crate) struct HostClientMode;
-
 fn main() {
     let cli = Cli::default();
     let headless = cli.headless();
@@ -62,7 +59,6 @@ fn main() {
         }
         #[cfg(all(feature = "client", feature = "server"))]
         Some(Mode::HostClient { client_id }) => {
-            app.insert_resource(HostClientMode);
             app.add_plugins(ExampleClientPlugin);
             app.add_plugins(ExampleServerPlugin);
             update_client(&mut app);

@@ -28,8 +28,8 @@ use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{LagCompensationRayHit, LagCompensationSpatialQuery};
 
-use super::{AuthoritativeProjectile, HitPolicy, remember_impact};
-use crate::protocol::{BulletMarker, ClientContext, PlayerId, PlayerMarker, Score};
+use super::{AuthoritativeProjectile, remember_impact};
+use crate::protocol::{BulletMarker, PlayerId, PlayerMarker, Score};
 use crate::representation::shot_buffer::{
     BufferedProjectileOf, BufferedSequence, ShotBuffer, finish_linear_projectile,
 };
@@ -135,7 +135,6 @@ fn shooter_delay(
 }
 
 pub(crate) fn hitscan_hits(
-    policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
     hitscans: Query<
         (&hitscan::HitscanVisual, &BulletMarker),
@@ -149,10 +148,6 @@ pub(crate) fn hitscan_hits(
     silhouettes: Query<(Entity, &LagCompensatedSilhouette)>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
-    if **policy != HitPolicy::ServerRewound {
-        return;
-    }
-
     for (shot, marker) in &hitscans {
         let Some((shooter, delay)) =
             shooter_delay(marker.shooter, &shooters, &clients, &host_clients)
@@ -187,7 +182,6 @@ pub(crate) fn hitscan_hits(
 }
 
 pub(crate) fn linear_hits(
-    policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
     projectiles: Query<
         (
@@ -209,10 +203,6 @@ pub(crate) fn linear_hits(
     buffers: Query<&ShotBuffer>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
-    if **policy != HitPolicy::ServerRewound {
-        return;
-    }
-
     let mut sampled_shooters = HashSet::new();
     for (projectile, position, previous, marker, buffer_owner, sequence) in &projectiles {
         let segment = position.0 - previous.0;

@@ -1,13 +1,13 @@
-# Projectiles Example
+# Projectiles Demo
 
-This example is a small client/server test bed for projectile networking. It deliberately separates four decisions that are often bundled together:
+This demo is a small client/server test bed for projectile networking. It deliberately separates four decisions that are often bundled together:
 
 1. **Trajectory** — what path does the shot follow?
 2. **Representation** — what projectile data is sent over the network?
 3. **Hit policy** — where and when is a hit decided?
 4. **Timeline** — which entities are predicted or interpolated on clients?
 
-There is one arena and one player per connected peer. Changing any axis destroys the current players and projectiles, then rebuilds the arena. This makes each test start from a known state and avoids hiding behavior behind room-based interest management.
+There is one arena and one player per connected peer. Changing any axis resets the arena by destroying the current players and projectiles, then recreating them. This makes each test start from a known state and avoids hiding behavior behind room-based interest management.
 
 ## Controls
 

@@ -23,10 +23,8 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use super::{HitPolicy, remember_impact};
-use crate::protocol::{
-    BulletMarker, ClientContext, HitChannel, HitDetected, PlayerId, PlayerMarker,
-};
+use super::remember_impact;
+use crate::protocol::{BulletMarker, HitChannel, HitDetected, PlayerId, PlayerMarker};
 use crate::shared::{PLAYER_SIZE, ProjectileFireTick};
 use crate::trajectory::{hitscan, linear};
 
@@ -99,7 +97,6 @@ fn closest_rendered_player_hit(
 }
 
 pub(crate) fn hitscan_hits(
-    policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
     hitscans: Query<
         (
@@ -118,10 +115,6 @@ pub(crate) fn hitscan_hits(
     mut reported: ResMut<ReportedClientHits>,
     mut sender: Single<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
 ) {
-    if **policy != HitPolicy::ClientReported {
-        return;
-    }
-
     let (local_id, sender) = &mut *sender;
     for (shot, marker, player_id, fire_tick) in &hitscans {
         // A client reports only its own shots. Remote visuals still run through
@@ -160,7 +153,6 @@ pub(crate) fn hitscan_hits(
 }
 
 pub(crate) fn linear_hits(
-    policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
     mut projectiles: Query<(
         Entity,
@@ -178,10 +170,6 @@ pub(crate) fn linear_hits(
     mut reported: ResMut<ReportedClientHits>,
     mut sender: Single<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
 ) {
-    if **policy != HitPolicy::ClientReported {
-        return;
-    }
-
     let (local_id, sender) = &mut *sender;
     for (projectile, position, mut sweep_start, marker, player_id, fire_tick) in &mut projectiles {
         // Interpolated state entities move when Lightyear samples them in

@@ -3,7 +3,7 @@ use crate::bot::BotClient;
 #[cfg(feature = "client")]
 use crate::bot::BotPlugin;
 use crate::hit_detection::{
-    HitImpact, HitPolicy, server_current,
+    HitImpact, HitPolicy, hit_policy_is, server_current,
     server_rewound::{self, LagCompensatedSilhouette},
 };
 use crate::protocol::*;
@@ -40,7 +40,9 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(release_global_action::<CycleRepresentation>);
         app.add_observer(release_global_action::<CycleHitPolicy>);
         app.add_observer(release_global_action::<CycleTimeline>);
-        app.add_observer(handle_client_reported_hit);
+        app.add_observer(
+            handle_client_reported_hit.run_if(hit_policy_is(HitPolicy::ClientReported)),
+        );
 
         app.add_systems(
             Startup,
@@ -48,7 +50,7 @@ impl Plugin for ExampleServerPlugin {
         );
         app.add_systems(
             FixedPreUpdate,
-            apply_global_action_inputs.after(ServerInputSystems::UpdateActionState),
+            apply_global_actions_and_reset_arena.after(ServerInputSystems::UpdateActionState),
         );
 
         // Current-state collision still runs after physics so linear shots can
@@ -56,6 +58,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedPostUpdate,
             (server_current::hitscan_hits, server_current::linear_hits)
+                .run_if(hit_policy_is(HitPolicy::ServerCurrent))
                 .after(PhysicsSystems::StepSimulation),
         );
         // Rewound queries additionally run in Lightyear's documented lag-comp
@@ -63,6 +66,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedPostUpdate,
             (server_rewound::hitscan_hits, server_rewound::linear_hits)
+                .run_if(hit_policy_is(HitPolicy::ServerRewound))
                 .in_set(LagCompensationSystems::Collisions)
                 .after(PhysicsSystems::StepSimulation),
         );
@@ -143,7 +147,7 @@ fn spawn_global_control(mut commands: Commands) {
         representation = representation.name(),
         hit_policy = hit_policy.name(),
         timeline = timeline.name(),
-        "Starting projectiles example"
+        "Starting projectiles demo"
     );
 
     let context = commands
@@ -262,14 +266,14 @@ fn take_fired_once<A: InputAction>(
     fired
 }
 
-/// Apply requested axis changes, then rebuild the single arena.
+/// Apply requested axis selections, then reset the single arena.
 ///
-/// Rebuilding is intentionally blunt and easy to reason about: all players,
+/// Resetting is intentionally blunt and easy to reason about: all players,
 /// projectile state, and player action entities are destroyed, then one fresh
 /// player is spawned for every connected peer. There are no rooms and no epoch
 /// identifiers.
 #[allow(clippy::too_many_arguments)]
-fn apply_global_action_inputs(
+fn apply_global_actions_and_reset_arena(
     mut config: Single<
         (
             &mut TrajectoryKind,
@@ -330,7 +334,7 @@ fn apply_global_action_inputs(
         representation = representation.name(),
         hit_policy = hit_policy.name(),
         timeline = timeline.name(),
-        "Axis changed; rebuilding projectile arena"
+        "Axis selection changed; resetting projectile arena"
     );
 
     for entity in &arena_entities {
@@ -400,11 +404,10 @@ fn spawn_player_for_link(
 /// policy is selected. Geometry is intentionally not rechecked here.
 fn handle_client_reported_hit(
     trigger: On<RemoteEvent<HitDetected>>,
-    policy: Single<&HitPolicy, With<ClientContext>>,
     players: Query<(), With<PlayerMarker>>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
-    if **policy != HitPolicy::ClientReported || !players.contains(trigger.trigger.target) {
+    if !players.contains(trigger.trigger.target) {
         return;
     }
     if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {

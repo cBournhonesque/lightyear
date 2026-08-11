@@ -21,8 +21,8 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use super::{AuthoritativeProjectile, HitPolicy, remember_impact};
-use crate::protocol::{BulletMarker, ClientContext, PlayerId, PlayerMarker, Score};
+use super::{AuthoritativeProjectile, remember_impact};
+use crate::protocol::{BulletMarker, PlayerId, PlayerMarker, Score};
 use crate::representation::shot_buffer::{
     BufferedProjectileOf, BufferedSequence, ShotBuffer, finish_linear_projectile,
 };
@@ -30,7 +30,6 @@ use crate::trajectory::{hitscan, linear};
 
 /// Test newly spawned authoritative hitscans against the current server world.
 pub(crate) fn hitscan_hits(
-    policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
     hitscans: Query<
         (&hitscan::HitscanVisual, &BulletMarker),
@@ -41,10 +40,6 @@ pub(crate) fn hitscan_hits(
     spatial_query: SpatialQuery,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
-    if **policy != HitPolicy::ServerCurrent {
-        return;
-    }
-
     for (shot, marker) in &hitscans {
         let Some(shooter) = players
             .iter()
@@ -73,7 +68,6 @@ pub(crate) fn hitscan_hits(
 /// moved it this tick. This is the important fix for the old 0.5-unit ray,
 /// which was much shorter than one tick of projectile movement.
 pub(crate) fn linear_hits(
-    policy: Single<&HitPolicy, With<ClientContext>>,
     mut commands: Commands,
     projectiles: Query<
         (
@@ -93,10 +87,6 @@ pub(crate) fn linear_hits(
     buffers: Query<&ShotBuffer>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
-    if **policy != HitPolicy::ServerCurrent {
-        return;
-    }
-
     for (projectile, position, previous, marker, buffer_owner, sequence) in &projectiles {
         let Some(shooter) = players
             .iter()

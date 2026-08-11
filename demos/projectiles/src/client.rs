@@ -1,6 +1,5 @@
-use crate::HostClientMode;
 use crate::automation::AutomationClientPlugin;
-use crate::hit_detection::{HitImpact, HitPolicy, client_reported};
+use crate::hit_detection::{HitImpact, HitPolicy, client_reported, hit_policy_is};
 use crate::protocol::*;
 use crate::representation::{RepresentationKind, fire_data_entity::FireData};
 use crate::timeline::TimelinePolicy;
@@ -8,14 +7,12 @@ use crate::trajectory::{TrajectoryKind, linear};
 use avian2d::prelude::*;
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
-use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_enhanced_input::prelude::{
     ActionMock, ActionValue, ActionValueDim, Binding, Bindings, Cardinal, MockSpan,
 };
 use lightyear::input::bei::prelude::*;
-use lightyear::input::client::InputSystems;
 use lightyear::interpolation::plugin::InterpolationSystems;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -28,19 +25,14 @@ impl Plugin for ExampleClientPlugin {
         app.init_resource::<client_reported::ReportedClientHits>();
         app.add_observer(add_rigid_body_to_predicted_simulation);
         app.add_observer(seed_interpolated_projectile_sweep_start);
-        app.add_systems(
-            FixedPreUpdate,
-            (
-                update_local_player_action_markers,
-                update_global_action_markers,
-            )
-                .before(EnhancedInputSystems::Update)
-                .before(InputSystems::BufferClientInputs),
-        );
-        app.add_systems(Update, clear_projectiles_when_axes_change);
+        app.add_observer(configure_player_action_on_insert);
+        app.add_observer(configure_controlled_player_actions);
+        app.add_observer(configure_global_action_on_insert);
+        app.add_systems(Update, clear_projectiles_on_reset);
         app.add_systems(
             FixedPostUpdate,
             (client_reported::hitscan_hits, client_reported::linear_hits)
+                .run_if(hit_policy_is(HitPolicy::ClientReported))
                 .after(PhysicsSystems::StepSimulation),
         );
         // State-entity projectiles on the interpolated timeline move in
@@ -48,9 +40,17 @@ impl Plugin for ExampleClientPlugin {
         // after that sampling too. Each invocation advances
         // `ProjectileSweepStart`, so entities that did not move in that
         // schedule simply produce a zero-length segment.
+        //
+        // This cannot be one `AfterFixedMainLoop` system: that set runs before
+        // `Update` samples interpolation, and it runs only once when a rendered
+        // frame executes several catch-up fixed ticks. Predicted projectiles
+        // must test every fixed-tick segment, while interpolated projectiles
+        // must test the newly sampled render segment.
         app.add_systems(
             Update,
-            client_reported::linear_hits.after(InterpolationSystems::Interpolate),
+            client_reported::linear_hits
+                .run_if(hit_policy_is(HitPolicy::ClientReported))
+                .after(InterpolationSystems::Interpolate),
         );
     }
 }
@@ -105,10 +105,10 @@ fn seed_interpolated_projectile_sweep_start(
     }
 }
 
-/// A server axis change rebuilds all network entities. Clear immediate local
+/// A server reset rebuilds all network entities. Clear immediate local
 /// projectile copies too, so no visual from the previous configuration leaks
 /// into the new arena. Players themselves are removed by replicated despawns.
-fn clear_projectiles_when_axes_change(
+fn clear_projectiles_on_reset(
     changed: Query<
         (),
         (
@@ -134,14 +134,22 @@ fn clear_projectiles_when_axes_change(
     }
 }
 
-fn update_local_player_action_markers(
-    client: Query<&LocalId, With<Client>>,
-    players: Query<(&PlayerId, Has<Controlled>), With<PlayerMarker>>,
-    host_client: Option<Res<HostClientMode>>,
+/// Configure an action when its replicated relationship and typed action are
+/// ready. This covers the ordering where the action arrives after its player.
+fn configure_player_action_on_insert(
+    trigger: On<
+        Insert,
+        (
+            ActionOf<PlayerContext>,
+            Action<MovePlayer>,
+            Action<MoveCursor>,
+            Action<Shoot>,
+        ),
+    >,
+    action_of: Query<&ActionOf<PlayerContext>>,
+    controlled_players: Query<(), (With<PlayerMarker>, With<Controlled>)>,
     movement_actions: Query<
         (
-            Entity,
-            &ActionOf<PlayerContext>,
             Has<InputMarker<PlayerContext>>,
             Has<ExternallyMocked>,
             Has<Bindings>,
@@ -150,8 +158,6 @@ fn update_local_player_action_markers(
     >,
     cursor_actions: Query<
         (
-            Entity,
-            &ActionOf<PlayerContext>,
             Has<InputMarker<PlayerContext>>,
             Has<ExternallyMocked>,
             Option<&ActionMock>,
@@ -160,8 +166,6 @@ fn update_local_player_action_markers(
     >,
     shoot_actions: Query<
         (
-            Entity,
-            &ActionOf<PlayerContext>,
             Has<InputMarker<PlayerContext>>,
             Has<ExternallyMocked>,
             Has<Bindings>,
@@ -170,59 +174,129 @@ fn update_local_player_action_markers(
     >,
     mut commands: Commands,
 ) {
-    let Ok(client_id) = client.single() else {
+    let Ok(action_of) = action_of.get(trigger.entity) else {
         return;
     };
-
-    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &movement_actions {
-        configure_player_action(
-            &mut commands,
-            entity,
-            is_local_action(action_of, &players, client_id.0, host_client.is_some()),
-            has_marker,
-            externally_mocked,
-            PlayerActionSource::Movement { has_bindings },
-        );
-    }
-    for (entity, action_of, has_marker, externally_mocked, mock) in &cursor_actions {
-        configure_player_action(
-            &mut commands,
-            entity,
-            is_local_action(action_of, &players, client_id.0, host_client.is_some()),
-            has_marker,
-            externally_mocked,
-            PlayerActionSource::Cursor { mock },
-        );
-    }
-    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &shoot_actions {
-        configure_player_action(
-            &mut commands,
-            entity,
-            is_local_action(action_of, &players, client_id.0, host_client.is_some()),
-            has_marker,
-            externally_mocked,
-            PlayerActionSource::Shoot { has_bindings },
-        );
-    }
+    configure_player_action_entity(
+        &mut commands,
+        trigger.entity,
+        controlled_players.contains(action_of.get()),
+        &movement_actions,
+        &cursor_actions,
+        &shoot_actions,
+    );
 }
 
-fn is_local_action(
-    action_of: &ActionOf<PlayerContext>,
-    players: &Query<(&PlayerId, Has<Controlled>), With<PlayerMarker>>,
-    client_id: PeerId,
-    host_client: bool,
-) -> bool {
-    players
-        .get(action_of.get())
-        .is_ok_and(|(player_id, controlled)| {
-            player_id.0 == client_id && (controlled || host_client)
-        })
+/// Configure existing actions when `Controlled` arrives after them.
+fn configure_controlled_player_actions(
+    trigger: On<Add, (PlayerMarker, Controlled, Actions<PlayerContext>)>,
+    players: Query<&Actions<PlayerContext>, (With<PlayerMarker>, With<Controlled>)>,
+    movement_actions: Query<
+        (
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<MovePlayer>>,
+    >,
+    cursor_actions: Query<
+        (
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Option<&ActionMock>,
+        ),
+        With<Action<MoveCursor>>,
+    >,
+    shoot_actions: Query<
+        (
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<Shoot>>,
+    >,
+    mut commands: Commands,
+) {
+    let Ok(actions) = players.get(trigger.entity) else {
+        return;
+    };
+    for action in actions.iter() {
+        configure_player_action_entity(
+            &mut commands,
+            action,
+            true,
+            &movement_actions,
+            &cursor_actions,
+            &shoot_actions,
+        );
+    }
 }
 
 enum PlayerActionSource<'a> {
     Movement { has_bindings: bool },
     Cursor { mock: Option<&'a ActionMock> },
     Shoot { has_bindings: bool },
+}
+
+/// Apply the correct local-only setup for whichever typed player action lives
+/// on `entity`. Both sides of the replication race use this helper.
+fn configure_player_action_entity(
+    commands: &mut Commands,
+    entity: Entity,
+    active: bool,
+    movement_actions: &Query<
+        (
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<MovePlayer>>,
+    >,
+    cursor_actions: &Query<
+        (
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Option<&ActionMock>,
+        ),
+        With<Action<MoveCursor>>,
+    >,
+    shoot_actions: &Query<
+        (
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<Shoot>>,
+    >,
+) {
+    if let Ok((has_marker, externally_mocked, has_bindings)) = movement_actions.get(entity) {
+        configure_player_action(
+            commands,
+            entity,
+            active,
+            has_marker,
+            externally_mocked,
+            PlayerActionSource::Movement { has_bindings },
+        );
+    } else if let Ok((has_marker, externally_mocked, mock)) = cursor_actions.get(entity) {
+        configure_player_action(
+            commands,
+            entity,
+            active,
+            has_marker,
+            externally_mocked,
+            PlayerActionSource::Cursor { mock },
+        );
+    } else if let Ok((has_marker, externally_mocked, has_bindings)) = shoot_actions.get(entity) {
+        configure_player_action(
+            commands,
+            entity,
+            active,
+            has_marker,
+            externally_mocked,
+            PlayerActionSource::Shoot { has_bindings },
+        );
+    }
 }
 
 fn configure_player_action(
@@ -275,8 +349,19 @@ fn configure_player_action(
 }
 
 #[allow(clippy::type_complexity)]
-fn update_global_action_markers(
-    contexts: Query<(), With<ClientContext>>,
+fn configure_global_action_on_insert(
+    trigger: On<
+        Insert,
+        (
+            ClientContext,
+            ActionOf<ClientContext>,
+            Action<CycleTrajectory>,
+            Action<CycleRepresentation>,
+            Action<CycleHitPolicy>,
+            Action<CycleTimeline>,
+        ),
+    >,
+    contexts: Query<&Actions<ClientContext>, With<ClientContext>>,
     trajectory: Query<
         (
             Entity,
@@ -319,59 +404,112 @@ fn update_global_action_markers(
     >,
     mut commands: Commands,
 ) {
-    for (entity, action_of, marker, mocked, bindings) in &trajectory {
-        configure_global_action(
-            &mut commands,
-            &contexts,
-            entity,
-            action_of,
-            marker,
-            mocked,
-            bindings,
-            KeyCode::KeyQ,
-        );
+    // The context and its action entities are replicated independently. One
+    // observer handles either arrival order: configure the triggering action,
+    // and when the context itself triggers, revisit its existing relationship.
+    if let Ok(actions) = contexts.get(trigger.entity) {
+        for action in actions.iter() {
+            configure_global_action_entity(
+                &mut commands,
+                &contexts,
+                action,
+                &trajectory,
+                &representation,
+                &hit_policy,
+                &timeline,
+            );
+        }
     }
-    for (entity, action_of, marker, mocked, bindings) in &representation {
-        configure_global_action(
-            &mut commands,
-            &contexts,
-            entity,
-            action_of,
-            marker,
-            mocked,
-            bindings,
-            KeyCode::KeyE,
-        );
-    }
-    for (entity, action_of, marker, mocked, bindings) in &hit_policy {
-        configure_global_action(
-            &mut commands,
-            &contexts,
-            entity,
-            action_of,
-            marker,
-            mocked,
-            bindings,
-            KeyCode::KeyR,
-        );
-    }
-    for (entity, action_of, marker, mocked, bindings) in &timeline {
-        configure_global_action(
-            &mut commands,
-            &contexts,
-            entity,
-            action_of,
-            marker,
-            mocked,
-            bindings,
-            KeyCode::KeyT,
-        );
-    }
+    configure_global_action_entity(
+        &mut commands,
+        &contexts,
+        trigger.entity,
+        &trajectory,
+        &representation,
+        &hit_policy,
+        &timeline,
+    );
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn configure_global_action_entity(
+    commands: &mut Commands,
+    contexts: &Query<&Actions<ClientContext>, With<ClientContext>>,
+    entity: Entity,
+    trajectory: &Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleTrajectory>>,
+    >,
+    representation: &Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleRepresentation>>,
+    >,
+    hit_policy: &Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleHitPolicy>>,
+    >,
+    timeline: &Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleTimeline>>,
+    >,
+) {
+    let action = trajectory
+        .get(entity)
+        .ok()
+        .map(|action| (action, KeyCode::KeyQ))
+        .or_else(|| {
+            representation
+                .get(entity)
+                .ok()
+                .map(|action| (action, KeyCode::KeyE))
+        })
+        .or_else(|| {
+            hit_policy
+                .get(entity)
+                .ok()
+                .map(|action| (action, KeyCode::KeyR))
+        })
+        .or_else(|| {
+            timeline
+                .get(entity)
+                .ok()
+                .map(|action| (action, KeyCode::KeyT))
+        });
+    let Some(((entity, action_of, marker, mocked, bindings), key)) = action else {
+        return;
+    };
+    configure_global_action(
+        commands, contexts, entity, action_of, marker, mocked, bindings, key,
+    );
 }
 
 fn configure_global_action(
     commands: &mut Commands,
-    contexts: &Query<(), With<ClientContext>>,
+    contexts: &Query<&Actions<ClientContext>, With<ClientContext>>,
     entity: Entity,
     action_of: &ActionOf<ClientContext>,
     has_marker: bool,

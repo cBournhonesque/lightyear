@@ -1,4 +1,4 @@
-//! Embedded headless client used by the projectiles example.
+//! Embedded headless client used by the projectiles demo.
 //!
 //! The bot is intentionally a real Lightyear client running in its own Bevy
 //! `App`. It connects to the server through crossbeam channels, receives the
