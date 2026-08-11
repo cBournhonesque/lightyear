@@ -192,9 +192,9 @@ mod private {
     pub trait Sealed {}
     impl Sealed for () {}
     #[cfg(feature = "prediction")]
-    impl Sealed for lightyear_core::prediction::Predicted {}
+    impl Sealed for super::prediction::PredictedSend {}
     #[cfg(feature = "interpolation")]
-    impl Sealed for lightyear_core::interpolation::Interpolated {}
+    impl Sealed for super::interpolation::InterpolatedSend {}
 }
 
 #[doc(hidden)]
@@ -347,7 +347,21 @@ impl FromWorld for ReplicateBit {
 #[cfg(feature = "prediction")]
 mod prediction {
     use super::*;
-    pub(super) use lightyear_core::prediction::Predicted;
+    use bevy_replicon::bytes::Bytes;
+    use bevy_replicon::prelude::RuleFns;
+    use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+    use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+    use lightyear_core::prediction::Predicted;
+
+    /// Sender-side marker that materializes as [`Predicted`] on the receiver.
+    ///
+    /// Keeping this distinct from [`Predicted`] prevents an authoritative
+    /// sender from being mistaken for a client-side predicted simulation.
+    /// [`PredictionTarget`] adds this component automatically.
+    #[derive(
+        Component, Clone, Copy, Debug, Default, PartialEq, Reflect, Serialize, Deserialize,
+    )]
+    pub struct PredictedSend;
 
     /// Controls which clients run client-side prediction for this entity.
     ///
@@ -365,8 +379,8 @@ mod prediction {
     ///     InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
     /// ));
     /// ```
-    pub type PredictionTarget = ReplicationTarget<Predicted>;
-    impl ReplicationTargetT for Predicted {
+    pub type PredictionTarget = ReplicationTarget<PredictedSend>;
+    impl ReplicationTargetT for PredictedSend {
         type VisibilityBit = PredictedBit;
 
         // Context = the host-sender entity
@@ -375,7 +389,7 @@ mod prediction {
         fn pre_insert(_: &mut DeferredWorld, _: Entity) {}
         fn post_insert(context: &Self::Context, entity_mut: &mut EntityWorldMut) {
             if *context {
-                entity_mut.insert(Self);
+                entity_mut.insert(Predicted);
             }
         }
 
@@ -385,7 +399,7 @@ mod prediction {
             sender_entity: Entity,
             host_client: bool,
         ) {
-            *context = host_client;
+            *context |= host_client;
         }
 
         fn on_discard(mut world: DeferredWorld, context: HookContext) {
@@ -408,7 +422,22 @@ mod prediction {
         }
     }
 
-    /// Component-level visibility for [`PredictionTarget`]
+    pub(crate) fn write_predicted(
+        ctx: &mut WriteCtx,
+        rule_fns: &RuleFns<PredictedSend>,
+        entity: &mut DeferredEntity,
+        message: &mut Bytes,
+    ) -> bevy_ecs::error::Result<()> {
+        let _ = rule_fns.deserialize(ctx, message)?;
+        entity.insert(Predicted);
+        Ok(())
+    }
+
+    pub(crate) fn remove_predicted(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+        entity.remove::<Predicted>();
+    }
+
+    /// Component-level visibility for [`PredictedSend`].
     #[doc(hidden)]
     #[derive(Resource, Deref)]
     pub struct PredictedBit(FilterBit);
@@ -417,7 +446,7 @@ mod prediction {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<SingleComponent<Predicted>>(
+                    filter_registry.register_scope::<SingleComponent<PredictedSend>>(
                         world,
                         &mut registry,
                         ScopeLifetime::WhileVisible,
@@ -432,7 +461,21 @@ mod prediction {
 #[cfg(feature = "interpolation")]
 mod interpolation {
     use super::*;
-    pub(super) use lightyear_core::interpolation::Interpolated;
+    use bevy_replicon::bytes::Bytes;
+    use bevy_replicon::prelude::RuleFns;
+    use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+    use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+    use lightyear_core::interpolation::Interpolated;
+
+    /// Sender-side marker that materializes as [`Interpolated`] on the receiver.
+    ///
+    /// Keeping this distinct from [`Interpolated`] prevents an authoritative
+    /// sender from being mistaken for a client-side interpolated presentation.
+    /// [`InterpolationTarget`] adds this component automatically.
+    #[derive(
+        Component, Clone, Copy, Debug, Default, PartialEq, Reflect, Serialize, Deserialize,
+    )]
+    pub struct InterpolatedSend;
 
     /// Controls which clients run server-authoritative interpolation for this entity.
     ///
@@ -440,8 +483,8 @@ mod interpolation {
     /// players see a smooth interpolated version of the entity.
     ///
     /// See [`PredictionTarget`] for the complementary prediction setting.
-    pub type InterpolationTarget = ReplicationTarget<Interpolated>;
-    impl ReplicationTargetT for Interpolated {
+    pub type InterpolationTarget = ReplicationTarget<InterpolatedSend>;
+    impl ReplicationTargetT for InterpolatedSend {
         type VisibilityBit = InterpolatedBit;
         // Context = the host-sender entity
         type Context = bool;
@@ -449,7 +492,7 @@ mod interpolation {
         fn pre_insert(_: &mut DeferredWorld, _: Entity) {}
         fn post_insert(context: &Self::Context, entity_mut: &mut EntityWorldMut) {
             if *context {
-                entity_mut.insert(Self);
+                entity_mut.insert(Interpolated);
             }
         }
 
@@ -459,7 +502,7 @@ mod interpolation {
             sender_entity: Entity,
             host_client: bool,
         ) {
-            *context = host_client;
+            *context |= host_client;
         }
 
         fn on_discard(mut world: DeferredWorld, context: HookContext) {
@@ -482,7 +525,22 @@ mod interpolation {
         }
     }
 
-    /// Component-level visibility for [`InterpolationTarget`]
+    pub(crate) fn write_interpolated(
+        ctx: &mut WriteCtx,
+        rule_fns: &RuleFns<InterpolatedSend>,
+        entity: &mut DeferredEntity,
+        message: &mut Bytes,
+    ) -> bevy_ecs::error::Result<()> {
+        let _ = rule_fns.deserialize(ctx, message)?;
+        entity.insert(Interpolated);
+        Ok(())
+    }
+
+    pub(crate) fn remove_interpolated(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+        entity.remove::<Interpolated>();
+    }
+
+    /// Component-level visibility for [`InterpolatedSend`].
     #[doc(hidden)]
     #[derive(Resource, Deref)]
     pub struct InterpolatedBit(FilterBit);
@@ -491,7 +549,7 @@ mod interpolation {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<SingleComponent<Interpolated>>(
+                    filter_registry.register_scope::<SingleComponent<InterpolatedSend>>(
                         world,
                         &mut registry,
                         ScopeLifetime::WhileVisible,
@@ -922,11 +980,28 @@ mod tests {
 
 pub struct SendPlugin;
 
+#[cfg(feature = "server")]
+fn target_includes_host<T: ReplicationTargetT>(
+    target: &ReplicationTarget<T>,
+    host_entity: Entity,
+    host_peer_id: Option<PeerId>,
+) -> bool {
+    match &target.mode {
+        #[cfg(feature = "client")]
+        ReplicationMode::SingleClient => true,
+        ReplicationMode::SingleServer(network_target) => {
+            host_peer_id.is_some_and(|peer_id| network_target.targets(&peer_id))
+        }
+        ReplicationMode::Sender(sender_entity) => *sender_entity == host_entity,
+        ReplicationMode::Manual(senders) => senders.contains(&host_entity),
+        ReplicationMode::SingleSender
+        | ReplicationMode::Target(_)
+        | ReplicationMode::Server(_, _) => false,
+    }
+}
+
 /// When a client becomes a host client after replicated entities already exist, backfill the
-/// host-local emulation that `Replicate::on_insert` would normally have added at spawn time.
-///
-/// Prediction/interpolation markers are currently added independently via required components, but
-/// `Replicate` still needs explicit host-local `HasAuthority` / `ReplicatedFrom` setup.
+/// host-local receiver state that target insertion would normally have added at spawn time.
 #[cfg(feature = "server")]
 fn emulate_replicate_on_host_client_added(
     trigger: On<Add, HostClient>,
@@ -947,6 +1022,18 @@ fn emulate_replicate_on_host_client_added(
         Has<HasAuthority>,
         Has<ReplicatedFrom>,
     )>,
+    #[cfg(feature = "prediction")] prediction_targets: Query<(
+        Entity,
+        &PredictionTarget,
+        Has<lightyear_core::prediction::Predicted>,
+    )>,
+    #[cfg(feature = "prediction")] predicted_bit: Res<PredictedBit>,
+    #[cfg(feature = "interpolation")] interpolation_targets: Query<(
+        Entity,
+        &InterpolationTarget,
+        Has<lightyear_core::interpolation::Interpolated>,
+    )>,
+    #[cfg(feature = "interpolation")] interpolated_bit: Res<InterpolatedBit>,
     mut commands: Commands,
 ) {
     let host_entity = trigger.entity;
@@ -967,24 +1054,14 @@ fn emulate_replicate_on_host_client_added(
     for (entity, replicate, mut state, has_authority, has_replicated_from) in replicates.iter_mut()
     {
         let mut post_insert_context = <() as ReplicationTargetT>::Context::default();
-        let targeted = match &replicate.mode {
-            #[cfg(feature = "client")]
-            ReplicationMode::SingleClient => {
-                for mut visibility in remote_visibilities.iter_mut() {
-                    visibility.set(entity, **replicate_bit, false);
-                }
-                true
+        let targeted = target_includes_host(replicate, host_entity, host_peer_id);
+
+        #[cfg(feature = "client")]
+        if matches!(replicate.mode, ReplicationMode::SingleClient) {
+            for mut visibility in remote_visibilities.iter_mut() {
+                visibility.set(entity, **replicate_bit, false);
             }
-            #[cfg(feature = "server")]
-            ReplicationMode::SingleServer(target) => {
-                host_peer_id.is_some_and(|peer_id| target.targets(&peer_id))
-            }
-            ReplicationMode::Sender(sender_entity) => *sender_entity == host_entity,
-            ReplicationMode::Manual(senders) => senders.contains(&host_entity),
-            ReplicationMode::SingleSender
-            | ReplicationMode::Target(_)
-            | ReplicationMode::Server(_, _) => false,
-        };
+        }
 
         if let Some(host_visibility) = host_visibility.as_deref_mut() {
             host_visibility.set(entity, **replicate_bit, targeted);
@@ -1008,6 +1085,32 @@ fn emulate_replicate_on_host_client_added(
             entity_commands.insert(ReplicatedFrom {
                 receiver: host_entity,
             });
+        }
+    }
+
+    #[cfg(feature = "prediction")]
+    for (entity, target, predicted) in &prediction_targets {
+        let targeted = target_includes_host(target, host_entity, host_peer_id);
+        if let Some(host_visibility) = host_visibility.as_deref_mut() {
+            host_visibility.set(entity, **predicted_bit, targeted);
+        }
+        if targeted && !predicted {
+            commands
+                .entity(entity)
+                .insert(lightyear_core::prediction::Predicted);
+        }
+    }
+
+    #[cfg(feature = "interpolation")]
+    for (entity, target, interpolated) in &interpolation_targets {
+        let targeted = target_includes_host(target, host_entity, host_peer_id);
+        if let Some(host_visibility) = host_visibility.as_deref_mut() {
+            host_visibility.set(entity, **interpolated_bit, targeted);
+        }
+        if targeted && !interpolated {
+            commands
+                .entity(entity)
+                .insert(lightyear_core::interpolation::Interpolated);
         }
     }
 }
@@ -1112,15 +1215,12 @@ impl Plugin for SendPlugin {
         app.init_resource::<VisibilityBits>();
         #[cfg(feature = "prediction")]
         {
-            app.register_required_components::<PredictionTarget, Predicted>();
-            // Note: app.replicate::<Predicted>() is called in SharedComponentRegistrationPlugin
-            // to ensure matching component IDs on both client and server.
+            app.register_required_components::<PredictionTarget, PredictedSend>();
             app.init_resource::<PredictedBit>();
         }
         #[cfg(feature = "interpolation")]
         {
-            app.register_required_components::<InterpolationTarget, Interpolated>();
-            // Note: app.replicate::<Interpolated>() is called in SharedComponentRegistrationPlugin
+            app.register_required_components::<InterpolationTarget, InterpolatedSend>();
             app.init_resource::<InterpolatedBit>();
         }
     }

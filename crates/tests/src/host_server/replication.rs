@@ -80,6 +80,10 @@ fn test_prediction_target_adds_predicted() {
 
     let entity_ref = stepper.server_app.world().entity(server_entity);
     assert!(
+        entity_ref.contains::<PredictedSend>(),
+        "PredictionTarget should add the sender-side marker"
+    );
+    assert!(
         entity_ref.contains::<Predicted>(),
         "entity should have Predicted in host-server mode"
     );
@@ -102,6 +106,10 @@ fn test_interpolation_target_adds_interpolated() {
     stepper.frame_step(1);
 
     let entity_ref = stepper.server_app.world().entity(server_entity);
+    assert!(
+        entity_ref.contains::<InterpolatedSend>(),
+        "InterpolationTarget should add the sender-side marker"
+    );
     assert!(
         entity_ref.contains::<Interpolated>(),
         "entity should have Interpolated in host-server mode"
@@ -204,7 +212,7 @@ fn test_replicate_backfills_when_client_becomes_host_client() {
 }
 
 #[test]
-fn test_prediction_target_still_has_predicted_when_client_becomes_host_client() {
+fn test_prediction_target_backfills_predicted_when_client_becomes_host_client() {
     let mut stepper = host_only_stepper_before_host_connect();
 
     let server_entity = stepper
@@ -218,12 +226,20 @@ fn test_prediction_target_still_has_predicted_when_client_becomes_host_client() 
     stepper.frame_step(1);
 
     assert!(
-        stepper
+        !stepper
             .server_app
             .world()
             .entity(server_entity)
             .contains::<Predicted>(),
-        "Predicted is currently added independently of host-local backfill"
+        "the authoritative entity should not be Predicted before it has a host-local receiver"
+    );
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<PredictedSend>(),
+        "PredictionTarget should retain its sender-side marker"
     );
 
     connect_host(&mut stepper);
@@ -235,12 +251,12 @@ fn test_prediction_target_still_has_predicted_when_client_becomes_host_client() 
             .world()
             .entity(server_entity)
             .contains::<Predicted>(),
-        "Predicted should still be present after the client becomes a HostClient"
+        "Predicted should be added after the client becomes a HostClient"
     );
 }
 
 #[test]
-fn test_interpolation_target_still_has_interpolated_when_client_becomes_host_client() {
+fn test_interpolation_target_backfills_interpolated_when_client_becomes_host_client() {
     let mut stepper = host_only_stepper_before_host_connect();
 
     let server_entity = stepper
@@ -254,12 +270,20 @@ fn test_interpolation_target_still_has_interpolated_when_client_becomes_host_cli
     stepper.frame_step(1);
 
     assert!(
-        stepper
+        !stepper
             .server_app
             .world()
             .entity(server_entity)
             .contains::<Interpolated>(),
-        "Interpolated is currently added independently of host-local backfill"
+        "the authoritative entity should not be Interpolated before it has a host-local receiver"
+    );
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<InterpolatedSend>(),
+        "InterpolationTarget should retain its sender-side marker"
     );
 
     connect_host(&mut stepper);
@@ -271,7 +295,7 @@ fn test_interpolation_target_still_has_interpolated_when_client_becomes_host_cli
             .world()
             .entity(server_entity)
             .contains::<Interpolated>(),
-        "Interpolated should still be present after the client becomes a HostClient"
+        "Interpolated should be added after the client becomes a HostClient"
     );
 }
 

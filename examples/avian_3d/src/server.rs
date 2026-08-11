@@ -59,8 +59,8 @@ fn handle_character_actions(
     let is_host_server = !host_server.is_empty();
     for (entity, mass, action_state, forces, predicted) in &mut query {
         // In host-client mode the client system runs on this same authoritative entity because
-        // PredictionTarget adds Predicted in the shared world. Let that system apply the action
-        // once; applying it here as well would double the force.
+        // the targeted host receiver is materialized as Predicted in the shared world. Let that
+        // system apply the action once; applying it here as well would double the force.
         if is_host_server && predicted {
             continue;
         }
