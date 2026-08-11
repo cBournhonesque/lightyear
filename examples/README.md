@@ -28,7 +28,6 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 - `avian_2d`: example that shows how to replicate a 2D physics simulation using Avian.
   We also use the `leafwing` feature for a better way to manage inputs.
 - `avian_3d`: example that shows clients controlling server-authoritative 3D objects simulated using Avian.
-- `projectiles`: advanced examples that showcases how to do projectile replication under various networking modes
 - `fps`: example that shows how to spawn player-objects directly on the Predicted timeline, and how to use lag compensation to compute collisions between predicted and interpolated entities.
 - `auth`: an example that shows how a client can get a `ConnectToken` to connect to a server
 - `lobby`: an example that shows how the network topology can be changed at runtime.
@@ -51,6 +50,9 @@ To build all compatible examples, use `just build_examples features=client,serve
 `headless=true` to omit the GUI from client/P2P builds, or `headless=false` to include it explicitly.
 Use `names=avian_3d` or a comma-separated list such as `names=avian_2d,avian_3d` to build only
 those example/demo packages.
+
+Larger interactive applications, including the projectiles networking test bed,
+live in [`demos/`](../demos/README.md).
 
 ### Testing in wasm with webtransport
 

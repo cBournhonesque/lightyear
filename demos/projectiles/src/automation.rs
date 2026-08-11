@@ -60,6 +60,7 @@ mod client {
         pressed_keys: Vec<KeyCode>,
         extra_keys: Vec<KeyCode>,
         auto_shoot: bool,
+        auto_aim: bool,
     }
 
     #[derive(Default)]
@@ -70,10 +71,15 @@ mod client {
 
     impl AutomationSettings {
         fn from_env() -> Self {
+            let auto_shoot = env_flag("LIGHTYEAR_AUTOSHOOT");
             Self {
                 pressed_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
                 extra_keys: parse_keys(env_string("LIGHTYEAR_AUTOKEYS")),
-                auto_shoot: env_flag("LIGHTYEAR_AUTOSHOOT"),
+                auto_shoot,
+                // Automated shooting keeps following a target for headless
+                // smoke runs. An ordinary GUI client now uses only its mouse
+                // and no longer silently tracks the bot.
+                auto_aim: auto_shoot || env_flag("LIGHTYEAR_AUTOAIM"),
             }
         }
     }
@@ -106,11 +112,15 @@ mod client {
     }
 
     pub(super) fn update_aim(
+        settings: Res<AutomationSettings>,
         client: Query<&LocalId, With<Client>>,
         bots: Query<&Position, With<Bot>>,
         players: Query<(&PlayerId, &Position), With<PlayerMarker>>,
         mut action_query: Query<&mut ActionMock, With<Action<MoveCursor>>>,
     ) {
+        if !settings.auto_aim {
+            return;
+        }
         let target = bots.iter().next().map(|position| position.0).or_else(|| {
             let Ok(client) = client.single() else {
                 return None;
@@ -142,6 +152,7 @@ mod client {
                 "q" | "keyq" => keys.push(KeyCode::KeyQ),
                 "e" | "keye" => keys.push(KeyCode::KeyE),
                 "keyr" => keys.push(KeyCode::KeyR),
+                "t" | "keyt" => keys.push(KeyCode::KeyT),
                 "space" | "shoot" => keys.push(KeyCode::Space),
                 "" | "none" => {}
                 other => warn!(token = other, "Ignoring unknown headless key token"),

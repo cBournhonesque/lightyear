@@ -19,10 +19,14 @@ use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 
 mod automation;
+#[cfg(feature = "server")]
+mod bot;
 #[cfg(feature = "client")]
 mod client;
 mod debug;
+mod hit_detection;
 mod protocol;
+mod representation;
 
 #[cfg(feature = "gui")]
 mod renderer;
@@ -30,9 +34,8 @@ mod renderer;
 #[cfg(feature = "server")]
 mod server;
 mod shared;
-
-#[derive(Resource)]
-pub(crate) struct HostClientMode;
+mod timeline;
+mod trajectory;
 
 fn main() {
     let cli = Cli::default();
@@ -56,7 +59,6 @@ fn main() {
         }
         #[cfg(all(feature = "client", feature = "server"))]
         Some(Mode::HostClient { client_id }) => {
-            app.insert_resource(HostClientMode);
             app.add_plugins(ExampleClientPlugin);
             app.add_plugins(ExampleServerPlugin);
             update_client(&mut app);

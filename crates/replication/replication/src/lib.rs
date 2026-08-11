@@ -159,9 +159,9 @@ pub mod prelude {
     pub use crate::diffable::Diffable;
 
     #[cfg(feature = "interpolation")]
-    pub use crate::send::InterpolationTarget;
+    pub use crate::send::{InterpolatedSend, InterpolationTarget};
     #[cfg(feature = "prediction")]
-    pub use crate::send::PredictionTarget;
+    pub use crate::send::{PredictedSend, PredictionTarget};
 
     #[cfg(feature = "client")]
     pub mod client {
@@ -181,9 +181,11 @@ pub enum ReplicationSystems {
     Send,
 }
 
-/// Plugin that registers replicated marker components (`Predicted`, `Interpolated`, `ControlledSend`)
-/// with replicon on both client and server. This ensures the component ID registry matches
-/// on both sides, which is required for correct deserialization.
+/// Plugin that registers sender-side marker components (`PredictedSend`,
+/// `InterpolatedSend`, `ControlledSend`) with Replicon on both client and
+/// server. Their custom receive functions materialize the corresponding
+/// receiver-local markers without putting those markers on authoritative
+/// send-side entities.
 struct SharedComponentRegistrationPlugin;
 
 impl Plugin for SharedComponentRegistrationPlugin {
@@ -192,11 +194,17 @@ impl Plugin for SharedComponentRegistrationPlugin {
         use bevy_replicon::prelude::{AppMarkerExt, AppRuleExt, RuleFns};
         app.init_resource::<registry::ComponentRegistry>();
         // The order of app.replicate() calls must be identical on client and server.
-        // These marker components are sent from server to client as part of entity replication.
+        // These sender markers are translated into receiver-local markers by
+        // their custom receive functions.
         #[cfg(feature = "prediction")]
-        app.replicate::<lightyear_core::prediction::Predicted>();
+        app.replicate::<send::PredictedSend>()
+            .set_receive_fns::<send::PredictedSend>(send::write_predicted, send::remove_predicted);
         #[cfg(feature = "interpolation")]
-        app.replicate::<lightyear_core::interpolation::Interpolated>();
+        app.replicate::<send::InterpolatedSend>()
+            .set_receive_fns::<send::InterpolatedSend>(
+                send::write_interpolated,
+                send::remove_interpolated,
+            );
         app.replicate::<control::ControlledSend>()
             .set_receive_fns::<control::ControlledSend>(
                 control::write_controlled,

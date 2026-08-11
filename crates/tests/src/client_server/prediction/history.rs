@@ -83,7 +83,7 @@ fn test_prediction_history_seeded_from_init_message() {
         .get_local(server_entity)
         .expect("entity was not replicated to client");
 
-    // The client entity should have Predicted (from the replicated PredictionTarget→Predicted requirement)
+    // The client entity should have Predicted after receiving PredictedSend.
     assert!(
         stepper
             .client_app()

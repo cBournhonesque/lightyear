@@ -1,11 +1,11 @@
 //! Handles spawning entities that are predicted
 
 use crate::control::{Controlled, ControlledBy, ControlledSend};
-#[cfg(feature = "interpolation")]
-use crate::prelude::InterpolationTarget;
-#[cfg(feature = "prediction")]
-use crate::prelude::PredictionTarget;
 use crate::prelude::Replicate;
+#[cfg(feature = "interpolation")]
+use crate::prelude::{InterpolatedSend, InterpolationTarget};
+#[cfg(feature = "prediction")]
+use crate::prelude::{PredictedSend, PredictionTarget};
 use crate::receive::ReplicationReceiver;
 use crate::registry::{ComponentKind, ComponentRegistry};
 use alloc::vec::Vec;
@@ -462,9 +462,13 @@ pub(crate) fn compute_default_hash(
                     && type_id != TypeId::of::<Replicate>()
                     && type_id != TypeId::of::<ControlledBy>();
                 #[cfg(feature = "prediction")]
-                let keep = keep && type_id != TypeId::of::<PredictionTarget>();
+                let keep = keep
+                    && type_id != TypeId::of::<PredictionTarget>()
+                    && type_id != TypeId::of::<PredictedSend>();
                 #[cfg(feature = "interpolation")]
-                let keep = keep && type_id != TypeId::of::<InterpolationTarget>();
+                let keep = keep
+                    && type_id != TypeId::of::<InterpolationTarget>()
+                    && type_id != TypeId::of::<InterpolatedSend>();
                 if keep {
                     return component_registry
                         .kind_map

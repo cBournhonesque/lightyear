@@ -197,8 +197,8 @@ pub struct ControlPlugin;
 impl Plugin for ControlPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ControlBit>();
-        // Note: app.replicate::<Controlled>() is called in SharedComponentRegistrationPlugin
-        // to ensure matching component IDs on both client and server.
+        // ControlledSend is registered in SharedComponentRegistrationPlugin
+        // so its wire ID and custom Controlled receive behavior match.
         app.add_observer(ControlledBy::on_insert);
         app.add_observer(ControlledBy::on_discard);
         app.add_observer(ControlledBy::handle_disconnection);

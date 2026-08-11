@@ -428,6 +428,13 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
         ))
         .id();
 
+    let server_entity_ref = stepper.server_app.world().entity(server_entity);
+    assert!(server_entity_ref.contains::<InterpolatedSend>());
+    assert!(
+        !server_entity_ref.contains::<Interpolated>(),
+        "an interpolation target must not mark the authoritative sender as interpolated"
+    );
+
     stepper.frame_step(2);
     stepper
         .server_app
@@ -449,6 +456,10 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
         client_entity_ref.get::<Interpolated>().is_some(),
         "entity should be interpolated on the client"
     );
+    assert!(
+        client_entity_ref.get::<InterpolatedSend>().is_none(),
+        "the sender-only interpolation marker must not be materialized on the receiver"
+    );
     let history = client_entity_ref
         .get::<ConfirmedHistory<CompCustomInterp>>()
         .expect(
@@ -457,6 +468,49 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
     assert!(
         history.start_present().is_some(),
         "custom-interpolated history should contain at least one confirmed update"
+    );
+}
+
+#[test]
+fn test_interpolation_target_removal_removes_receiver_marker() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            InterpolationTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .entity(client_entity)
+            .contains::<Interpolated>()
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .remove::<InterpolationTarget>();
+    stepper.frame_step(2);
+
+    assert!(
+        !stepper.client_apps[0]
+            .world()
+            .entity(client_entity)
+            .contains::<Interpolated>()
     );
 }
 
@@ -516,6 +570,13 @@ fn test_late_join_client_gets_predicted_marker_for_prediction_target_all() {
         ))
         .id();
 
+    let server_entity_ref = stepper.server_app.world().entity(server_entity);
+    assert!(server_entity_ref.contains::<PredictedSend>());
+    assert!(
+        !server_entity_ref.contains::<Predicted>(),
+        "a prediction target must not mark the authoritative sender as predicted"
+    );
+
     stepper.frame_step(3);
 
     let client_0_entity = stepper
@@ -531,6 +592,13 @@ fn test_late_join_client_gets_predicted_marker_for_prediction_target_all() {
             .get::<Predicted>(client_0_entity)
             .is_some(),
         "existing client should see the entity as predicted"
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<PredictedSend>(client_0_entity)
+            .is_none(),
+        "the sender-only prediction marker must not be materialized on the receiver"
     );
 
     stepper.new_client(ClientType::Netcode, None);
@@ -550,6 +618,49 @@ fn test_late_join_client_gets_predicted_marker_for_prediction_target_all() {
             .get::<Predicted>(client_1_entity)
             .is_some(),
         "late-joining client should see PredictionTarget::All entity as predicted"
+    );
+}
+
+#[test]
+fn test_prediction_target_removal_removes_receiver_marker() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .entity(client_entity)
+            .contains::<Predicted>()
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .remove::<PredictionTarget>();
+    stepper.frame_step(2);
+
+    assert!(
+        !stepper.client_apps[0]
+            .world()
+            .entity(client_entity)
+            .contains::<Predicted>()
     );
 }
 
