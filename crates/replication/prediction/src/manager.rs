@@ -99,6 +99,13 @@ pub struct PredictionManager {
     /// For input-based rollback: tracks earliest mismatch across remote clients
     pub earliest_mismatch_input: EarliestMismatchedInput,
 
+    /// Earliest tick that an input rollback may restore.
+    ///
+    /// A deterministic P2P session sets this to its agreed start tick so stale inputs cannot
+    /// restore prediction history from before the session's initial world snapshot.
+    #[doc(hidden)]
+    pub input_rollback_floor: Option<Tick>,
+
     #[doc(hidden)]
     pub deterministic_despawn: Vec<(Tick, Entity)>,
     #[doc(hidden)]
@@ -518,6 +525,7 @@ impl Default for PredictionManager {
             rollback_policy: RollbackPolicy::default(),
             correction_policy: CorrectionPolicy::default(),
             earliest_mismatch_input: EarliestMismatchedInput::default(),
+            input_rollback_floor: None,
             deterministic_skip_despawn: Vec::default(),
             deterministic_despawn: Vec::default(),
             rollback: RwLock::new(RollbackState::Default),
@@ -530,6 +538,12 @@ unsafe impl Send for PredictionManager {}
 unsafe impl Sync for PredictionManager {}
 
 impl PredictionManager {
+    /// Returns whether restoring `rollback_tick` stays within the active session's input history.
+    pub(crate) fn input_rollback_is_allowed(&self, rollback_tick: Tick) -> bool {
+        self.input_rollback_floor
+            .is_none_or(|floor| rollback_tick >= floor)
+    }
+
     /// Returns true if we are currently in a rollback state
     pub fn is_rollback(&self) -> bool {
         match *self.rollback.read().deref() {

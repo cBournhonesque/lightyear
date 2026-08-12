@@ -22,10 +22,6 @@ const PROJECTILE_LIFETIME_TICKS: i32 = 120;
 #[derive(Component)]
 struct DespawnAt(Tick);
 
-/// Marks the local character until its input map can be enabled after the first physics snapshot.
-#[derive(Component)]
-struct PendingLocalInput(Tick);
-
 pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
@@ -33,10 +29,6 @@ impl Plugin for ExampleP2PPlugin {
         app.insert_resource(PredictionManager::default());
         app.add_plugins(DeterministicReplicationPlugin);
         app.add_observer(spawn_fixed_world);
-        app.add_systems(
-            FixedPostUpdate,
-            enable_local_input.after(PredictionSystems::UpdateHistory),
-        );
         app.add_systems(FixedUpdate, (shoot, despawn_projectiles));
     }
 }
@@ -44,7 +36,6 @@ impl Plugin for ExampleP2PPlugin {
 fn spawn_fixed_world(
     _trigger: On<P2PStarted>,
     mut commands: Commands,
-    timeline: Res<LocalTimeline>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
@@ -91,34 +82,8 @@ fn spawn_fixed_world(
             ))
             .id();
         if peer_id == settings.local_peer_id {
-            commands
-                .entity(character)
-                .insert(PendingLocalInput(timeline.tick()));
+            commands.entity(character).insert(character_input_map());
         }
-    }
-}
-
-/// Enable input capture only after Avian and Lightyear have recorded the world's initial state.
-///
-/// The fixed world and its collider-tree proxies are created together when [`P2PStarted`] is
-/// triggered. Enabling input in the same tick would allow a late first input to roll back before
-/// the first complete physics snapshot, leaving live colliders paired with an empty restored
-/// collider tree. Waiting one complete warm-up tick makes the earliest possible input rollback
-/// target a world snapshot from after initialization. It also lets the per-collider rollback
-/// histories installed by Avian's observers record their initial proxy state.
-fn enable_local_input(
-    mut commands: Commands,
-    timeline: Res<LocalTimeline>,
-    local_characters: Query<(Entity, &PendingLocalInput)>,
-) {
-    for (entity, pending) in &local_characters {
-        if timeline.tick() <= pending.0 {
-            continue;
-        }
-        commands
-            .entity(entity)
-            .insert(character_input_map())
-            .remove::<PendingLocalInput>();
     }
 }
 
