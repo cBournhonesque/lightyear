@@ -530,7 +530,7 @@ mod tests {
     fn p2p_stable_input_targets_are_not_lifecycle_tracked() {
         let mut app = test_app();
         app.world_mut().spawn((
-            P2P,
+            P2P::Inactive,
             RemoteId(PeerId::Local(1)),
             Connected,
             ReplicationReceiver,
