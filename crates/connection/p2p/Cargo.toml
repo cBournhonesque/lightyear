@@ -22,12 +22,15 @@ lightyear_connection = { workspace = true, features = ["client"] }
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_messages = { workspace = true, features = ["client"] }
+lightyear_serde.workspace = true
 lightyear_sync = { workspace = true, features = ["client"] }
 lightyear_transport = { workspace = true, features = ["client"] }
 
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+bevy_time.workspace = true
 serde.workspace = true
+seahash.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
 tracing.workspace = true
 
