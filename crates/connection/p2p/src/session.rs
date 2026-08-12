@@ -351,13 +351,13 @@ pub struct P2PStop {
     pub unlink: bool,
 }
 
-/// Triggered at the agreed tick, immediately before the fixed simulation schedule.
+/// Triggered immediately before the fixed simulation advances to the agreed tick.
 ///
 /// Applications can observe this to create the shared deterministic world in the same order on
-/// every peer.
+/// every peer. Prediction treats the start tick as the oldest valid input rollback snapshot.
 #[derive(Event, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct P2PStarted {
-    /// Common tick at which deterministic play begins.
+    /// Common simulation start tick and earliest permitted input rollback target.
     pub start_tick: Tick,
 }
 

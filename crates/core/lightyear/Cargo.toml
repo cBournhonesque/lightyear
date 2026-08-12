@@ -99,6 +99,7 @@ p2p = [
   "client",
   "dep:lightyear_p2p",
   "lightyear_deterministic_replication?/p2p",
+  "lightyear_prediction?/p2p",
 ]
 ## Enables replicating entities between two peers
 replication = [

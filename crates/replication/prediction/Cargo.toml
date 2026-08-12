@@ -10,8 +10,9 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["lightyear_replication/std", "bevy_math/std"]
+std = ["lightyear_p2p?/std", "lightyear_replication/std", "bevy_math/std"]
 deterministic = []
+p2p = ["dep:lightyear_p2p"]
 server = ["dep:lightyear_messages"]
 metrics = ["dep:metrics", "lightyear_utils/metrics", "std"]
 
@@ -27,6 +28,7 @@ lightyear_sync.workspace = true
 lightyear_messages = { workspace = true, optional = true }
 lightyear_frame_interpolation.workspace = true
 lightyear_interpolation.workspace = true
+lightyear_p2p = { workspace = true, optional = true }
 
 # replication
 bevy_replicon.workspace = true
