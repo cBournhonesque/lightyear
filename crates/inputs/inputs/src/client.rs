@@ -304,7 +304,7 @@ fn finalize_last_confirmed_input(mut last_confirmed_input: ResMut<LastConfirmedI
 /// Cached input routing derived from [`NetworkingMetadata`].
 ///
 /// Client/server and host-client modes retain their single Link as the local ownership
-/// identity. P2P mode borrows the already-cached connected Link slice and treats `S::Marker` as
+/// identity. P2P mode borrows the already-cached joined Link slice and treats `S::Marker` as
 /// the local-input identity because each Link represents a remote peer.
 #[derive(Clone, Copy, Debug)]
 enum InputRoute<'a> {
@@ -324,12 +324,9 @@ impl<'a> InputRoute<'a> {
                 link: *client,
                 host_client: true,
             }),
-            NetworkTopology::P2P { connected, .. } if !connected.is_empty() => {
-                Some(Self::P2P(connected.as_slice()))
-            }
+            NetworkTopology::P2P(joined) => Some(Self::P2P(joined.as_slice())),
             NetworkTopology::Undefined
             | NetworkTopology::Server(_)
-            | NetworkTopology::P2P { .. }
             | NetworkTopology::Invalid(_) => None,
         }
     }
@@ -1159,7 +1156,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     // Preserve the conventional lockstep behavior: input delay guarantees that the sole remote
     // endpoint has supplied the current tick. P2P must inspect the actual global frontier because
     // one slow peer can still be missing while the others are ready.
-    if input_config.is_lockstep() && !matches!(metadata.mode, NetworkTopology::P2P { .. }) {
+    if input_config.is_lockstep() && !matches!(metadata.mode, NetworkTopology::P2P(_)) {
         last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
@@ -1462,10 +1459,7 @@ mod tests {
         assert!(client_server_route.accepts_local_target(Some(&owned_by_client)));
         assert!(!client_server_route.accepts_local_target(Some(&owned_by_other)));
 
-        let p2p = NetworkTopology::P2P {
-            connected: [client, other].into_iter().collect(),
-            declared_links: 2,
-        };
+        let p2p = NetworkTopology::P2P([client, other].into_iter().collect());
         let p2p_route = InputRoute::from_topology(&p2p).unwrap();
         assert!(p2p_route.accepts_local_target(None));
         assert!(p2p_route.accepts_local_target(Some(&owned_by_client)));
@@ -1477,10 +1471,7 @@ mod tests {
         let mut world = World::new();
         let link = world.spawn_empty().id();
         let target = world.spawn_empty().id();
-        let topology = NetworkTopology::P2P {
-            connected: [link].into_iter().collect(),
-            declared_links: 1,
-        };
+        let topology = NetworkTopology::P2P([link].into_iter().collect());
         let route = InputRoute::from_topology(&topology).unwrap();
         let prespawned = PreSpawned::new(0xCAFE);
 
@@ -1496,10 +1487,7 @@ mod tests {
         let mut world = World::new();
         let link = world.spawn_empty().id();
         let target = world.spawn_empty().id();
-        let topology = NetworkTopology::P2P {
-            connected: [link].into_iter().collect(),
-            declared_links: 1,
-        };
+        let topology = NetworkTopology::P2P([link].into_iter().collect());
         let route = InputRoute::from_topology(&topology).unwrap();
 
         let _ = input_target(route, target, None);

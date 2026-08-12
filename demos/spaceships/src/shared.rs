@@ -377,7 +377,7 @@ pub fn shared_player_firing(
                 prespawned,
             ))
             .id();
-        if matches!(metadata.mode, NetworkTopology::P2P { .. }) {
+        if metadata.mode.is_p2p() {
             commands
                 .entity(bullet_entity)
                 .insert(DeterministicPredicted::default());
@@ -698,7 +698,7 @@ pub(crate) fn process_collisions(
     mut hit_ev_writer: MessageWriter<BulletHitMessage>,
 ) {
     let is_server = !server.is_empty();
-    let is_p2p = matches!(metadata.mode, NetworkTopology::P2P { .. });
+    let is_p2p = metadata.mode.is_p2p();
     let tick = timeline.tick();
     // when A and B collide, it can be reported as one of:
     // * A collides with B

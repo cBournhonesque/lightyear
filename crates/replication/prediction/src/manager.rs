@@ -101,8 +101,8 @@ pub struct PredictionManager {
 
     /// Earliest tick that an input rollback may restore.
     ///
-    /// A deterministic P2P session sets this to its agreed start tick so stale inputs cannot
-    /// restore prediction history from before the session's initial world snapshot.
+    /// A deterministic P2P session sets this to the tick immediately before its agreed first
+    /// gameplay tick. That boundary is the session's initial world snapshot.
     #[doc(hidden)]
     pub input_rollback_floor: Option<Tick>,
 

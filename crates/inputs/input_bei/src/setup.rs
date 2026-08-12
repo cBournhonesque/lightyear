@@ -246,7 +246,7 @@ impl InputRegistryPlugin {
 fn receives_remote_inputs(topology: &NetworkTopology) -> bool {
     match topology {
         NetworkTopology::Client(_) => true,
-        NetworkTopology::P2P { connected, .. } => !connected.is_empty(),
+        NetworkTopology::P2P(_) => true,
         NetworkTopology::Undefined
         | NetworkTopology::Server(_)
         | NetworkTopology::HostClient { .. }

@@ -109,9 +109,9 @@ pub enum RollbackSystems {
 
 /// Installs prediction rollback detection, restoration, and replay.
 ///
-/// With the `p2p` feature, the plugin also tracks the active session's start tick and rejects
-/// input-driven rollback requests that would restore history from before that tick. This boundary
-/// is automatic; applications can install input components directly in a `P2PStarted` observer.
+/// With the `p2p` feature, the plugin also tracks the active session's initial snapshot and rejects
+/// input-driven rollback requests that would restore history from before it. This boundary is
+/// automatic; applications can install input components directly in a `P2PStarted` observer.
 pub struct RollbackPlugin;
 
 #[derive(Component)]
@@ -270,9 +270,9 @@ impl Plugin for RollbackPlugin {
 #[cfg(feature = "p2p")]
 /// Set the oldest history tick that input-driven rollback may restore for this P2P session.
 ///
-/// [`P2PStarted`] observers are allowed to create the deterministic world immediately. Any late
-/// input whose correction would require history from before that boundary is ignored by
-/// [`check_rollback`]. Applications do not need to delay installing their input components.
+/// [`P2PStarted`] observers create the deterministic world immediately before `start_tick` is
+/// simulated. A correction to input for that first gameplay tick must therefore restore the world
+/// at `start_tick - 1`; anything older predates the session and is ignored by [`check_rollback`].
 fn set_p2p_input_rollback_floor(
     trigger: On<P2PStarted>,
     prediction_manager: Option<ResMut<PredictionManager>>,
@@ -280,7 +280,7 @@ fn set_p2p_input_rollback_floor(
     let Some(mut prediction_manager) = prediction_manager else {
         return;
     };
-    prediction_manager.input_rollback_floor = Some(trigger.start_tick);
+    prediction_manager.input_rollback_floor = Some(trigger.start_tick - 1);
 }
 
 #[cfg(feature = "p2p")]
@@ -429,9 +429,10 @@ fn check_rollback(
                             prediction_manager: &PredictionManager,
                             commands: &mut Commands,
                             rollback: Rollback| {
-        // The P2P world does not exist before its agreed start tick. This guard applies only to
-        // input-driven reconciliation: authoritative state and explicit forced rollbacks retain
-        // their existing behavior because they may provide their own restoration data.
+        // The P2P world does not exist before the snapshot immediately preceding its agreed first
+        // gameplay tick. This guard applies only to input-driven reconciliation: authoritative
+        // state and explicit forced rollbacks retain their existing behavior because they may
+        // provide their own restoration data.
         if matches!(rollback, Rollback::FromInputs)
             && !prediction_manager.input_rollback_is_allowed(rollback_tick)
         {
@@ -439,7 +440,7 @@ fn check_rollback(
             debug!(
                 ?rollback_tick,
                 ?input_rollback_floor,
-                "Ignoring input rollback from before the P2P session start tick"
+                "Ignoring input rollback from before the P2P session boundary"
             );
             trace!(
                 target: "lightyear_debug::prediction",
@@ -1320,17 +1321,17 @@ mod tests {
             app.world()
                 .resource::<PredictionManager>()
                 .input_rollback_floor,
-            Some(Tick(10))
+            Some(Tick(9))
         );
         assert!(
             !app.world()
                 .resource::<PredictionManager>()
-                .input_rollback_is_allowed(Tick(9))
+                .input_rollback_is_allowed(Tick(8))
         );
         assert!(
             app.world()
                 .resource::<PredictionManager>()
-                .input_rollback_is_allowed(Tick(10))
+                .input_rollback_is_allowed(Tick(9))
         );
         assert!(
             app.world()

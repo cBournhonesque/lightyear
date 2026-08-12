@@ -295,21 +295,22 @@ impl TimelinePlugin {
     ) {
         let delta = TickDelta::from(trigger.trigger.send_interval);
         let duration = delta.to_duration(tick_duration.0);
-        if peer_metadata.mapping.contains_key(&trigger.from) {
-            debug!("Updating remote send interval to {:?}", duration);
-            // A single presentation cursor must be safe for every active replication source.
-            // Use the slowest advertised update interval; conventional client/server mode has
-            // only one source, while P2P conservatively uses the maximum.
-            interpolation_timeline.context.remote_send_interval =
-                if matches!(metadata.mode, NetworkTopology::P2P { .. }) {
-                    core::cmp::max(
-                        interpolation_timeline.context.remote_send_interval,
-                        duration,
-                    )
-                } else {
-                    duration
-                };
+        if !peer_metadata.mapping.contains_key(&trigger.from) {
+            return;
         }
+        let is_p2p = metadata.mode.is_p2p();
+        debug!("Updating remote send interval to {:?}", duration);
+        // A single presentation cursor must be safe for every active replication source. Use the
+        // slowest advertised update interval across joined P2P peers; conventional client/server
+        // mode has only one source.
+        interpolation_timeline.context.remote_send_interval = if is_p2p {
+            core::cmp::max(
+                interpolation_timeline.context.remote_send_interval,
+                duration,
+            )
+        } else {
+            duration
+        };
     }
 
     /// Run one interpolation synchronization sample against the selected remote source.
@@ -377,9 +378,9 @@ impl TimelinePlugin {
                     tick_duration.0,
                 );
             }
-            NetworkTopology::P2P { connected, .. } => {
+            NetworkTopology::P2P(joined) => {
                 let mut selected = None;
-                for &link in connected {
+                for &link in joined {
                     let Ok((remote, ping_manager)) = remotes.get(link) else {
                         continue;
                     };

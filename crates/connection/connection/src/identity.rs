@@ -27,7 +27,7 @@ pub fn is_host_server(metadata: Res<NetworkingMetadata>) -> bool {
     metadata.mode.is_host_server()
 }
 
-/// Returns true when the cached topology contains direct P2P Links.
+/// Returns true after the P2PStarted event has been triggered
 pub fn is_p2p(metadata: Res<NetworkingMetadata>) -> bool {
     metadata.mode.is_p2p()
 }
