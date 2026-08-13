@@ -30,7 +30,9 @@ use bevy_time::Time;
 use core::ops::Deref;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
+#[cfg(feature = "server")]
 use lightyear_connection::network_topology::NetworkingMetadata;
+#[cfg(feature = "server")]
 use lightyear_core::id::PeerId;
 use serde::{Deserialize, Serialize};
 
