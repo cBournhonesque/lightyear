@@ -144,7 +144,16 @@ struct ModeText;
 fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
     clients: Query<&LocalId, With<Client>>,
-    scores: Query<(&PlayerId, &Score), With<PlayerMarker>>,
+    scores: Query<
+        (
+            &PlayerId,
+            &Score,
+            Has<ControlledBy>,
+            Has<Predicted>,
+            Has<Interpolated>,
+        ),
+        With<PlayerMarker>,
+    >,
 ) {
     let Ok(mut text) = score_text.single_mut() else {
         return;
@@ -153,14 +162,28 @@ fn display_score(
         return;
     };
 
-    // Score is server-owned replicated state. The predicted player copy can
-    // retain an old value, while its confirmed/interpolated counterpart has
-    // the latest value. Match by stable PlayerId and choose the greatest copy;
-    // scores only increase in this example.
-    let score = scores
-        .iter()
-        .filter_map(|(player_id, score)| (player_id.0 == local_id.0).then_some(score.0))
-        .max()
+    // In a host-client world the authoritative and presentation entities can
+    // share a PlayerId. Prefer the authoritative copy there; otherwise use the
+    // local predicted/interpolated presentation copy. This remains correct now
+    // that the score can both increase and decrease.
+    let mut presentation_score = None;
+    let mut fallback_score = None;
+    let mut authoritative_score = None;
+    for (player_id, score, authoritative, predicted, interpolated) in &scores {
+        if player_id.0 != local_id.0 {
+            continue;
+        }
+        fallback_score = Some(score.0);
+        if predicted || interpolated {
+            presentation_score = Some(score.0);
+        }
+        if authoritative {
+            authoritative_score = Some(score.0);
+        }
+    }
+    let score = authoritative_score
+        .or(presentation_score)
+        .or(fallback_score)
         .unwrap_or(0);
     text.0 = format!("Score: {score}");
 }
@@ -309,26 +332,22 @@ fn add_bullet_visuals(
     trigger: On<Add, (Position, Rotation)>,
     // Hitscan are rendered differently
     query: Query<
-        (&ColorComponent, Has<Interpolated>),
-        (
-            Without<HitscanVisual>,
-            With<Position>,
-            // only add Transform when BOTH Position/Rotation are present
-            // otherwise the Transform will not get synced and the entity will
-            // appear in the middle of the screen
-            // This can happen because Rotation is added later than Position for
-            // interpolated bullets.
-            With<Rotation>,
-            With<BulletMarker>,
-            Without<Mesh2d>,
-        ),
+        (&ColorComponent, &Position, &Rotation, Has<Interpolated>),
+        (Without<HitscanVisual>, With<BulletMarker>, Without<Mesh2d>),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.entity) {
+    if let Ok((color, position, rotation, interpolated)) = query.get(trigger.entity) {
         commands.entity(trigger.entity).insert((
+            // State-Entity replication can insert Position/Rotation before Interpolated.
+            // Interpolation then moves that pose into history and removes the live
+            // Position/Rotation, but it does not remove Transform. Seed Transform from
+            // the transient pose so the bullet stays at its correct spawn position until
+            // the presentation tick restores Position/Rotation and normal sync resumes.
+            Transform::from_translation(position.0.extend(0.0))
+                .with_rotation(Quat::from_rotation_z(rotation.as_radians())),
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,

@@ -8,9 +8,10 @@
 
 use avian2d::prelude::RayHitData;
 use bevy::prelude::*;
+use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::ClientContext;
+use crate::protocol::{Bot, ClientContext, PlayerMarker, Score};
 use crate::shared::DespawnAfter;
 
 pub(crate) mod client_reported;
@@ -70,11 +71,10 @@ pub(crate) struct AuthoritativeProjectile;
 
 /// Exact world-space result of a successful collision query.
 ///
-/// This is deliberately local-only presentation: server-current and rewound
-/// policies create it on the server, while client-reported collision creates
-/// it on the shooting client.
-#[derive(Component, Clone, Copy, Debug)]
-pub(crate) struct HitImpact {
+/// It is also replicated from the server after a hit is accepted so an
+/// impact produced by a headless bot or server can be drawn in GUI clients.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct HitImpact {
     pub(crate) position: Vec2,
     pub(crate) normal: Vec2,
 }
@@ -88,17 +88,69 @@ pub(crate) fn remember_impact(
     origin: Vec2,
     direction: Dir2,
     hit: RayHitData,
-) {
-    let position = origin + direction.as_vec2() * hit.distance;
+) -> HitImpact {
+    let impact = impact_from_hit(origin, direction, hit);
+    remember_impact_value(commands, impact);
+    impact
+}
+
+pub(crate) fn impact_from_hit(origin: Vec2, direction: Dir2, hit: RayHitData) -> HitImpact {
+    HitImpact {
+        position: origin + direction.as_vec2() * hit.distance,
+        normal: hit.normal,
+    }
+}
+
+/// Retain an already-computed impact received from another app.
+pub(crate) fn remember_impact_value(commands: &mut Commands, impact: HitImpact) {
     commands.spawn((
-        HitImpact {
-            position,
-            normal: hit.normal,
-        },
+        impact,
         DespawnAfter(Timer::from_seconds(
             IMPACT_LIFETIME_SECONDS,
             TimerMode::Once,
         )),
         Name::new("Projectile impact point"),
     ));
+}
+
+/// Replicate an accepted impact so GUI clients can draw collisions performed
+/// by the authoritative server or the embedded bot's headless client.
+fn publish_impact(commands: &mut Commands, impact: HitImpact) {
+    commands.spawn((
+        impact,
+        Replicate::to_clients(NetworkTarget::All),
+        DespawnAfter(Timer::from_seconds(
+            IMPACT_LIFETIME_SECONDS,
+            TimerMode::Once,
+        )),
+        Name::new("Authoritative projectile impact point"),
+    ));
+}
+
+/// Apply the authoritative gameplay result and publish its debug geometry.
+pub(crate) fn accept_hit(
+    commands: &mut Commands,
+    shooter: Entity,
+    target: Entity,
+    impact: HitImpact,
+    bots: &Query<(), With<Bot>>,
+    scores: &mut Query<&mut Score, With<PlayerMarker>>,
+) {
+    publish_impact(commands, impact);
+    let scored_player = if bots.contains(shooter) {
+        if let Ok(mut score) = scores.get_mut(target) {
+            score.0 -= 1;
+            Some((target, score.0, -1))
+        } else {
+            None
+        }
+    } else if let Ok(mut score) = scores.get_mut(shooter) {
+        score.0 += 1;
+        Some((shooter, score.0, 1))
+    } else {
+        None
+    };
+    if let Some((player, score, delta)) = scored_player {
+        debug!(?player, score, delta, "Applied projectile score change");
+    }
 }

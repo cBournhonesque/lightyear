@@ -20,12 +20,14 @@ pub(crate) struct BotClient;
 mod embedded {
     use super::*;
     use crate::client::ExampleClientPlugin;
-    use crate::protocol::PlayerMarker;
+    use crate::protocol::{Bot, MoveCursor, PlayerMarker};
     use crate::shared::SharedPlugin;
     use avian2d::prelude::Position;
     use bevy::app::{AppExit, PluginsState};
     use bevy::platform::sync::Arc;
     use bevy::time::Stopwatch;
+    use bevy_enhanced_input::action::mock::ActionMock;
+    use bevy_enhanced_input::prelude::{Action, ActionValue};
     use core::ops::DerefMut;
     use core::sync::atomic::{AtomicU32, Ordering};
     use core::time::Duration;
@@ -232,11 +234,29 @@ mod embedded {
         time: Res<Time>,
         mut input: ResMut<ButtonInput<KeyCode>>,
         players: Query<&Position, (With<Controlled>, With<PlayerMarker>)>,
+        targets: Query<
+            &Position,
+            (
+                With<PlayerMarker>,
+                Without<Bot>,
+                Without<ControlledBy>,
+                Or<(With<Predicted>, With<Interpolated>)>,
+            ),
+        >,
+        mut aim_actions: Query<&mut ActionMock, With<Action<MoveCursor>>>,
         mut local: Local<BotLocal>,
     ) {
         let Some(position) = players.iter().next() else {
             return;
         };
+        if let Some(target) = targets.iter().next() {
+            for mut aim in &mut aim_actions {
+                // Aim at the pose actually rendered by the bot client. This
+                // exercises remote-projectile hit behavior under interpolation
+                // and the bot connection's latency conditioner.
+                aim.value = ActionValue::Axis2D(target.0);
+            }
+        }
         let BotLocal {
             mode_timer,
             key_timer,

@@ -21,8 +21,8 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use super::{AuthoritativeProjectile, remember_impact};
-use crate::protocol::{BulletMarker, PlayerId, PlayerMarker, Score};
+use super::{AuthoritativeProjectile, accept_hit, impact_from_hit};
+use crate::protocol::{Bot, BulletMarker, PlayerId, PlayerMarker, Score};
 use crate::representation::shot_buffer::{
     BufferedProjectileOf, BufferedSequence, ShotBuffer, finish_linear_projectile,
 };
@@ -38,6 +38,7 @@ pub(crate) fn hitscan_hits(
     targets: Query<(), (With<PlayerMarker>, With<ControlledBy>)>,
     players: Query<(Entity, &PlayerId), (With<PlayerMarker>, With<ControlledBy>)>,
     spatial_query: SpatialQuery,
+    bots: Query<(), With<Bot>>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
     for (shot, marker) in &hitscans {
@@ -56,10 +57,15 @@ pub(crate) fn hitscan_hits(
             &mut filter,
             &|entity| targets.contains(entity),
         ) {
-            remember_impact(&mut commands, shot.start, shot.direction(), hit);
-            if let Ok(mut score) = scores.get_mut(shooter) {
-                score.0 += 1;
-            }
+            let impact = impact_from_hit(shot.start, shot.direction(), hit);
+            accept_hit(
+                &mut commands,
+                shooter,
+                hit.entity,
+                impact,
+                &bots,
+                &mut scores,
+            );
         }
     }
 }
@@ -85,6 +91,7 @@ pub(crate) fn linear_hits(
     spatial_query: SpatialQuery,
     timeline: Res<LocalTimeline>,
     buffers: Query<&ShotBuffer>,
+    bots: Query<(), With<Bot>>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
     for (projectile, position, previous, marker, buffer_owner, sequence) in &projectiles {
@@ -108,19 +115,19 @@ pub(crate) fn linear_hits(
             &mut filter,
             &|entity| targets.contains(entity),
         ) {
-            remember_impact(
-                &mut commands,
-                previous.0,
-                Dir2::new_unchecked(direction),
-                hit,
-            );
+            let impact = impact_from_hit(previous.0, Dir2::new_unchecked(direction), hit);
             if let (Some(owner), Some(sequence)) = (buffer_owner, sequence) {
                 finish_linear_projectile(&mut commands, owner, sequence, &buffers, timeline.tick());
             }
             commands.entity(projectile).try_despawn();
-            if let Ok(mut score) = scores.get_mut(shooter) {
-                score.0 += 1;
-            }
+            accept_hit(
+                &mut commands,
+                shooter,
+                hit.entity,
+                impact,
+                &bots,
+                &mut scores,
+            );
         }
     }
 }

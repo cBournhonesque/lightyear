@@ -10,6 +10,74 @@ use lightyear_examples_common::automation::{
 
 use crate::protocol::{Bot, MoveCursor, PlayerId, PlayerMarker, Shoot};
 
+#[cfg(feature = "server")]
+use crate::{
+    hit_detection::HitPolicy, representation::RepresentationKind, timeline::TimelinePolicy,
+    trajectory::TrajectoryKind,
+};
+
+#[cfg(feature = "server")]
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase().replace(['-', ' '], "_"))
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn initial_trajectory() -> TrajectoryKind {
+    match env_value("LIGHTYEAR_INITIAL_TRAJECTORY").as_deref() {
+        None | Some("hitscan" | "hit_scan" | "0") => TrajectoryKind::Hitscan,
+        Some("linear" | "bullet" | "linear_projectile" | "1") => TrajectoryKind::Linear,
+        Some(value) => {
+            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_TRAJECTORY");
+            TrajectoryKind::default()
+        }
+    }
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn initial_representation() -> RepresentationKind {
+    match env_value("LIGHTYEAR_INITIAL_REPRESENTATION").as_deref() {
+        None | Some("state" | "state_entity" | "full" | "0") => RepresentationKind::StateEntity,
+        Some("fire_data" | "fire_data_entity" | "direction" | "1") => {
+            RepresentationKind::FireDataEntity
+        }
+        Some("shot_buffer" | "buffer" | "2") => RepresentationKind::ShotBuffer,
+        Some(value) => {
+            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_REPRESENTATION");
+            RepresentationKind::default()
+        }
+    }
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn initial_hit_policy() -> HitPolicy {
+    match env_value("LIGHTYEAR_INITIAL_HIT_POLICY").as_deref() {
+        None | Some("server_current" | "current" | "0") => HitPolicy::ServerCurrent,
+        Some("server_rewound" | "rewound" | "lag_comp" | "1") => HitPolicy::ServerRewound,
+        Some("client_reported" | "client" | "2") => HitPolicy::ClientReported,
+        Some(value) => {
+            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_HIT_POLICY");
+            HitPolicy::default()
+        }
+    }
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn initial_timeline() -> TimelinePolicy {
+    match env_value("LIGHTYEAR_INITIAL_TIMELINE").as_deref() {
+        None | Some("owner_predicted" | "default" | "0") => {
+            TimelinePolicy::OwnerPredictedRemotesInterpolated
+        }
+        Some("all_predicted" | "predicted" | "1") => TimelinePolicy::AllPredicted,
+        Some("all_interpolated" | "interpolated" | "2") => TimelinePolicy::AllInterpolated,
+        Some(value) => {
+            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_TIMELINE");
+            TimelinePolicy::default()
+        }
+    }
+}
+
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
 
