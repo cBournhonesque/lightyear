@@ -36,6 +36,9 @@ use bevy_utils::prelude::DebugName;
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 
+/// Default time without packet acknowledgement progress before a transport is disconnected.
+pub const DEFAULT_PACKET_ACK_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Bounds reusable per-packet ACK lists retained by one transport.
 const MAX_RETAINED_PACKET_MESSAGE_ACK_LISTS: usize = 64;
 /// Avoid retaining an unusually large ACK list after a pathological packet.
@@ -214,6 +217,13 @@ pub struct Transport {
     /// Stable fragment payload size derived from the link's minimum MTU.
     fragment_size: usize,
     pub compression: CompressionConfig,
+    /// Maximum time ACK-eliciting packets may make no acknowledgement progress.
+    ///
+    /// The deadline starts when a data packet enters the link. An acknowledgement restarts it if
+    /// sent packets remain, or disarms it when all sent data is acknowledged. If it expires, the
+    /// entire transport is reset and the link is disconnected. Idle transports and ACK-only
+    /// packets do not start the deadline. Set this to [`Duration::MAX`] to disable the watchdog.
+    pub packet_ack_timeout: Duration,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
     // - when we receive a packet, go through all messages and check which ones match the packet? there shouldn't be too many
@@ -247,6 +257,7 @@ impl Transport {
             compression_scratch: CompressionScratch::default(),
             fragment_size: FRAGMENT_SIZE,
             compression: CompressionConfig::default(),
+            packet_ack_timeout: DEFAULT_PACKET_ACK_TIMEOUT,
             packet_message_acks: Default::default(),
             send_channel,
             recv_channel,
@@ -262,6 +273,16 @@ impl Transport {
 
     pub fn set_compression(&mut self, compression: CompressionConfig) {
         self.compression = compression;
+    }
+
+    pub fn with_packet_ack_timeout(mut self, timeout: Duration) -> Self {
+        self.packet_ack_timeout = timeout;
+        self
+    }
+
+    /// Updates the maximum interval without packet acknowledgement progress.
+    pub fn set_packet_ack_timeout(&mut self, timeout: Duration) {
+        self.packet_ack_timeout = timeout;
     }
 
     /// Number of packet payload buffers allocated because none was ready in the local pool.

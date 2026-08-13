@@ -23,7 +23,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::Disconnected;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
-use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
+use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked, Unlink};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::adaptive_for_each_mut;
@@ -391,6 +391,31 @@ impl TransportPlugin {
                     Ok::<(), TransportError>(())
                 })
                 .ok();
+
+            let packet_ack_timeout = transport.packet_ack_timeout;
+            if transport
+                .packet_manager
+                .header_manager
+                .ack_timed_out(time.elapsed(), packet_ack_timeout)
+            {
+                error!(
+                    ?entity,
+                    ?packet_ack_timeout,
+                    "transport received no packet acknowledgement; unlinking connection"
+                );
+                let reason = alloc::format!(
+                    "Transport received no packet acknowledgement for {packet_ack_timeout:?}"
+                );
+                // Stop every channel, partial receive, retry, and queued payload immediately
+                // instead of waiting for the connection layer to observe Unlinked.
+                transport.reset(&channel_registry);
+                #[cfg(feature = "std")]
+                par_commands.command_scope(|mut commands| {
+                    commands.trigger(Unlink { entity, reason });
+                });
+                #[cfg(not(feature = "std"))]
+                commands.trigger(Unlink { entity, reason });
+            }
         });
     }
 
@@ -705,16 +730,27 @@ mod tests {
     use alloc::{vec, vec::Vec};
 
     use super::*;
-    use crate::channel::builder::{ChannelMode, ChannelSettings};
+    use crate::channel::builder::{ChannelMode, ChannelSettings, ReliableSettings};
     use crate::channel::registry::ChannelKind;
     use crate::packet::header::PacketHeaderManager;
     use crate::packet::packet::PacketId;
     use crate::packet::priority_manager::PriorityConfig;
     use bevy_ecs::system::RunSystemOnce;
+    use lightyear_connection::client::{Connected, ConnectionPlugin, Disconnected};
+    use lightyear_core::id::{PeerId, RemoteId};
+    use lightyear_link::Unlinked;
 
     struct RetryChannel;
     struct DiscardChannel;
     struct SmallMtuChannel;
+    struct AckTimeoutChannel;
+
+    #[derive(Resource, Default)]
+    struct UnlinkRequests(Vec<Entity>);
+
+    fn record_unlink(trigger: On<Unlink>, mut requests: ResMut<UnlinkRequests>) {
+        requests.0.push(trigger.entity);
+    }
 
     fn spawn_transport<C: crate::channel::Channel>(
         world: &mut World,
@@ -775,6 +811,70 @@ mod tests {
         assert_eq!(pending_candidates::<RetryChannel>(world, retry_entity), 1);
         assert_eq!(
             pending_candidates::<DiscardChannel>(world, discard_entity),
+            0
+        );
+    }
+
+    #[test]
+    fn packet_ack_timeout_unlinks_and_resets_transport() {
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            ..ChannelSettings::default()
+        };
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<AckTimeoutChannel>(settings);
+        let mut transport = Transport::default().with_packet_ack_timeout(Duration::from_secs(10));
+        transport.add_channel_send::<AckTimeoutChannel>(settings, channel_id);
+        transport.add_channel_receive::<AckTimeoutChannel>(settings, channel_id);
+
+        let mut app = App::new();
+        app.insert_resource(registry);
+        app.init_resource::<Time<Real>>();
+        app.init_resource::<LocalTimeline>();
+        app.init_resource::<UnlinkRequests>();
+        app.add_plugins((LinkPlugin, ConnectionPlugin));
+        app.add_observer(record_unlink);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Link::default(),
+                Linked,
+                transport,
+                RemoteId(PeerId::Server),
+                Connected,
+            ))
+            .id();
+        app.world()
+            .get::<Transport>(entity)
+            .unwrap()
+            .send_erased(channel_kind, Bytes::from_static(b"reliable"), 1.0)
+            .unwrap();
+
+        app.world_mut()
+            .run_system_once(TransportPlugin::buffer_send)
+            .unwrap();
+        assert_eq!(app.world().resource::<UnlinkRequests>().0.len(), 0);
+
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs(10));
+        app.world_mut()
+            .run_system_once(TransportPlugin::buffer_receive)
+            .unwrap();
+
+        let requests = &app.world().resource::<UnlinkRequests>().0;
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0], entity);
+        assert!(
+            app.world()
+                .get::<Unlinked>(entity)
+                .unwrap()
+                .reason
+                .contains("no packet acknowledgement")
+        );
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert_eq!(
+            pending_candidates::<AckTimeoutChannel>(app.world_mut(), entity),
             0
         );
     }
