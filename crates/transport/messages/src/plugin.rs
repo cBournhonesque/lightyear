@@ -420,7 +420,7 @@ mod tests {
         app.add_channel::<TimelineChannel>(
             ChannelSettings::default().on_timeline::<TestTimeline>(),
         );
-        app.init_resource::<lightyear_connection::client::PeerMetadata>();
+        app.init_resource::<lightyear_connection::network_topology::NetworkingMetadata>();
         app.register_message::<M>()
             .add_direction(NetworkDirection::Bidirectional);
         if register_event {

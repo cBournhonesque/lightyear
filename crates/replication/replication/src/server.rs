@@ -163,8 +163,9 @@ mod tests {
     use bevy_replicon::shared::backend::connected_client::{ConnectedClient, NetworkIdMap};
     use bevy_state::app::{AppExtStates, StatesPlugin};
     use bevy_state::state::State;
-    use lightyear_connection::client::{Connected, PeerMetadata};
+    use lightyear_connection::client::Connected;
     use lightyear_connection::client_of::ClientOf;
+    use lightyear_connection::network_topology::NetworkingMetadata;
     use lightyear_connection::server::{Started, Stopped};
     use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_link::prelude::{Link, LinkMtu, Server};
@@ -198,7 +199,7 @@ mod tests {
     fn app_with_server_state(state: ServerState) -> App {
         let mut app = App::new();
         app.add_plugins(StatesPlugin)
-            .init_resource::<PeerMetadata>()
+            .init_resource::<NetworkingMetadata>()
             .init_state::<ServerState>()
             .add_observer(on_server_started)
             .add_observer(on_server_stopped)

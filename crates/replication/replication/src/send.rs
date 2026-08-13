@@ -29,9 +29,9 @@ use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_time::Time;
 use core::ops::Deref;
-use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_core::id::PeerId;
 use serde::{Deserialize, Serialize};
 
@@ -233,8 +233,8 @@ impl ReplicationTargetT for () {
 
     fn pre_insert(world: &mut DeferredWorld, entity: Entity) {
         // update the authority broker if the entity is spawned on the server
-        if let Some(peer_metadata) = world.get_resource::<PeerMetadata>()
-            && let Some(server) = peer_metadata.mapping.get(&PeerId::Server)
+        if let Some(metadata) = world.get_resource::<NetworkingMetadata>()
+            && let Some(server) = metadata.peer_map.get(&PeerId::Server)
             && let Some(mut broker) = world.get_mut::<AuthorityBroker>(*server)
         {
             // only set the authority if it didn't have an owner already (in case the authority was replicated
@@ -680,7 +680,7 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                     );
                     return;
                 };
-                let peer_metadata = unsafe { unsafe_world.world() }.resource::<PeerMetadata>();
+                let metadata = unsafe { unsafe_world.world() }.resource::<NetworkingMetadata>();
                 let all_clients: alloc::vec::Vec<Entity> = server.collection().to_vec();
                 trace!(
                     ?entity,
@@ -703,7 +703,7 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                 }
                 target.apply_targets(
                     all_clients.into_iter(),
-                    &peer_metadata.mapping,
+                    &metadata.peer_map,
                     &mut |sender_entity: Entity| {
                         let Ok((mut visibility, host_client)) = world
                             .query_filtered::<(&mut ClientVisibility, Has<HostClient>), (

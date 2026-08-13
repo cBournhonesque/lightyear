@@ -1,12 +1,10 @@
-use bevy_ecs::resource::Resource;
-
 use crate::{ConnectToken, Error, Key, generate_key};
 use core::net::SocketAddr;
 use core::str::FromStr;
 
-#[derive(Resource, Default, Clone)]
+#[derive(Default, Clone)]
 #[allow(clippy::large_enum_variant)]
-/// Struct used to authenticate with the server when using the Netcode connection.
+/// Authentication used to construct a Netcode client connection.
 ///
 /// Netcode is a standard to establish secure connections between clients and game servers on top of
 /// an unreliable unordered transport such as UDP.

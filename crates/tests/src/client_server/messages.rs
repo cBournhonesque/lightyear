@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::Message;
 use lightyear::prelude::*;
-use lightyear_connection::client::PeerMetadata;
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_messages::multi::MultiMessageSender;
 use test_log::test;
 use tracing::trace;
@@ -91,12 +91,12 @@ impl<M> Default for TriggerBuffer<M> {
 /// System to check that we received the message on the server
 fn count_triggers_observer<M: Event + Debug + Clone>(
     trigger: On<RemoteEvent<M>>,
-    peer_metadata: Res<PeerMetadata>,
+    metadata: Res<NetworkingMetadata>,
     mut buffer: ResMut<TriggerBuffer<M>>,
 ) {
     info!("Received trigger: {:?}", trigger);
     // Get the entity that is 'receiving' the trigger
-    let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
+    let remote = *metadata.peer_map.get(&trigger.from).unwrap();
     buffer.0.push((remote, trigger.trigger.clone()));
 }
 
@@ -141,12 +141,12 @@ impl<M> Default for EntityTriggerBuffer<M> {
 /// System to check that we received the message on the server
 fn count_entity_triggers_observer<M: EntityEvent + Debug + Clone>(
     trigger: On<RemoteEvent<M>>,
-    peer_metadata: Res<PeerMetadata>,
+    metadata: Res<NetworkingMetadata>,
     mut buffer: ResMut<EntityTriggerBuffer<M>>,
 ) {
     info!("Received trigger: {:?}", trigger);
     // Get the entity that is 'receiving' the trigger
-    let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
+    let remote = *metadata.peer_map.get(&trigger.from).unwrap();
     buffer.0.push((
         remote,
         trigger.trigger.clone(),

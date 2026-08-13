@@ -5,6 +5,8 @@ use crate::p2p::P2P;
 use crate::server::{Started, Stopped};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
+use bevy_platform::collections::HashMap;
+use lightyear_core::id::PeerId;
 use lightyear_link::LinkSystems;
 use lightyear_link::prelude::{LinkOf, Server};
 use smallvec::SmallVec;
@@ -69,13 +71,16 @@ impl NetworkTopology {
 /// Cached metadata describing the networking configuration of this Bevy application.
 ///
 /// [`crate::ConnectionPlugin`] maintains this resource from role and lifecycle components. Users
-/// can read [`mode`](Self::mode), but do not need to update it themselves.
+/// can read [`mode`](Self::mode) and [`peer_map`](Self::peer_map), but do not need to
+/// update them themselves.
 #[derive(Resource, Debug, Clone)]
 pub struct NetworkingMetadata {
     /// The currently identified networking topology.
     pub mode: NetworkTopology,
-    // This is kept in the same resource as the mode, but mutated without triggering Bevy change
-    // detection. Consumers therefore only observe a change after `mode` itself changes.
+    /// Mapping from remote peer IDs to their local connection entities.
+    pub peer_map: HashMap<PeerId, Entity>,
+    // This is mutated without triggering Bevy change detection. Consumers therefore only observe
+    // a change after `mode` itself changes.
     dirty: bool,
 }
 
@@ -83,6 +88,7 @@ impl Default for NetworkingMetadata {
     fn default() -> Self {
         Self {
             mode: NetworkTopology::Undefined,
+            peer_map: HashMap::default(),
             dirty: true,
         }
     }
@@ -388,15 +394,12 @@ fn infer_standard_topology(client: Option<ReadyClient>, server: Option<Entity>) 
 mod tests {
     use super::*;
     use crate::client::DisconnectedReason;
-    use crate::client::PeerMetadata;
     use alloc::vec::Vec;
     use bevy_ecs::change_detection::DetectChanges;
     use lightyear_core::id::{PeerId, RemoteId};
 
     fn test_app() -> App {
         let mut app = App::new();
-        // Connected and Started maintain this existing shared connection resource in their hooks.
-        app.init_resource::<PeerMetadata>();
         app.add_plugins(crate::ConnectionPlugin);
         app.update();
         app
