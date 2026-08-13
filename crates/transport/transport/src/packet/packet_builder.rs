@@ -7,6 +7,7 @@ use crate::packet::compression::{
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{MessageData, SendCandidate};
+use crate::packet::nack::PacketNackSettings;
 use crate::packet::packet::{HEADER_BYTES, MessageMetadata, Packet, SendCommit};
 use crate::packet::packet_type::PacketType;
 use alloc::vec::Vec;
@@ -153,17 +154,33 @@ impl PacketBufferPool {
 
 impl Default for PacketBuilder {
     fn default() -> Self {
-        Self::new(1.5)
+        Self::with_nack_settings(PacketNackSettings::default())
     }
 }
 
 impl PacketBuilder {
-    pub fn new(nack_rtt_multiple: f32) -> Self {
+    pub fn new(nack_rtt_multiplier: f32) -> Self {
         Self {
-            header_manager: PacketHeaderManager::new(nack_rtt_multiple),
+            header_manager: PacketHeaderManager::new(nack_rtt_multiplier),
             buffer_pool: PacketBufferPool::new(DEFAULT_MTU),
             compression_output: Vec::new(),
         }
+    }
+
+    pub(crate) fn with_nack_settings(nack_settings: PacketNackSettings) -> Self {
+        Self {
+            header_manager: PacketHeaderManager::with_nack_settings(nack_settings),
+            buffer_pool: PacketBufferPool::new(DEFAULT_MTU),
+            compression_output: Vec::new(),
+        }
+    }
+
+    pub(crate) fn nack_settings(&self) -> PacketNackSettings {
+        self.header_manager.nack_settings
+    }
+
+    pub(crate) fn set_nack_settings(&mut self, settings: PacketNackSettings) {
+        self.header_manager.nack_settings = settings;
     }
 
     pub(crate) fn recycle_packet(&mut self, packet: Packet) {

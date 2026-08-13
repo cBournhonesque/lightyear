@@ -104,69 +104,6 @@ impl TransportPlugin {
                 .for_each(|channel_receive| {
                     channel_receive.update(time.elapsed());
                 });
-            // check which packets were lost
-            transport
-                .packet_manager
-                .header_manager
-                .update(time.elapsed(), &link.stats);
-            let packet_message_acks = &mut transport.packet_message_acks;
-            let senders = &mut transport.senders;
-            transport
-                .packet_manager
-                .header_manager
-                .lost_packets
-                .drain(..)
-                .try_for_each(|lost_packet| {
-                    #[cfg(feature = "metrics")]
-                    metrics::counter!("transport/packets_lost").increment(1);
-                    trace!(
-                        target: "lightyear_debug::transport",
-                        kind = "packet_lost",
-                        schedule = "PreUpdate",
-                        sample_point = "PreUpdate",
-                        entity = ?entity,
-                        packet_id = ?lost_packet,
-                        packet_loss = true,
-                        "transport packet marked lost"
-                    );
-                    #[cfg(feature = "std")]
-                    par_commands.command_scope(|mut commands| {
-                        commands.trigger(PacketLost {
-                            entity,
-                            packet_id: lost_packet.0,
-                        });
-                    });
-                    #[cfg(not(feature = "std"))]
-                    commands.trigger(PacketLost {
-                        entity,
-                        packet_id: lost_packet.0,
-                    });
-                    if let Some(mut message_acks) = packet_message_acks.take(&lost_packet) {
-                        let result =
-                            message_acks
-                                .drain(..)
-                                .try_for_each(|(channel_kind, message_ack)| {
-                                    let channel_send = senders
-                                        .get_mut(&channel_kind)
-                                        .ok_or(PacketError::ChannelNotFound)?;
-                                    // TODO: batch the messages?
-                                    trace!(
-                                        ?lost_packet,
-                                        ?channel_kind,
-                                        "message lost: {:?}",
-                                        message_ack.message_id
-                                    );
-                                    channel_send.message_nacks.push(message_ack.message_id);
-                                    channel_send.receive_nack(&message_ack);
-                                    Ok::<(), TransportError>(())
-                                });
-                        packet_message_acks.recycle(message_acks);
-                        result?;
-                    }
-                    Ok::<(), TransportError>(())
-                })
-                .ok();
-
             link.recv
                 .drain()
                 .try_for_each(|packet| {
@@ -344,6 +281,70 @@ impl TransportPlugin {
                 })
                 .inspect_err(|e| {
                     error!("Error processing packet: {e:?}");
+                })
+                .ok();
+
+            // Consume ACKs already queued for this frame before expiring packets. Otherwise a
+            // packet can lose its message-ACK mapping immediately before its ACK is processed.
+            transport
+                .packet_manager
+                .header_manager
+                .update(time.elapsed(), &link.stats);
+            let packet_message_acks = &mut transport.packet_message_acks;
+            let senders = &mut transport.senders;
+            transport
+                .packet_manager
+                .header_manager
+                .lost_packets
+                .drain(..)
+                .try_for_each(|lost_packet| {
+                    #[cfg(feature = "metrics")]
+                    metrics::counter!("transport/packets_lost").increment(1);
+                    trace!(
+                        target: "lightyear_debug::transport",
+                        kind = "packet_lost",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?entity,
+                        packet_id = ?lost_packet,
+                        packet_loss = true,
+                        "transport packet marked lost"
+                    );
+                    #[cfg(feature = "std")]
+                    par_commands.command_scope(|mut commands| {
+                        commands.trigger(PacketLost {
+                            entity,
+                            packet_id: lost_packet.0,
+                        });
+                    });
+                    #[cfg(not(feature = "std"))]
+                    commands.trigger(PacketLost {
+                        entity,
+                        packet_id: lost_packet.0,
+                    });
+                    if let Some(mut message_acks) = packet_message_acks.take(&lost_packet) {
+                        let result =
+                            message_acks
+                                .drain(..)
+                                .try_for_each(|(channel_kind, message_ack)| {
+                                    let channel_send = senders
+                                        .get_mut(&channel_kind)
+                                        .ok_or(PacketError::ChannelNotFound)?;
+                                    // TODO: batch the messages?
+                                    trace!(
+                                        ?lost_packet,
+                                        ?channel_kind,
+                                        "message lost: {:?}",
+                                        message_ack.message_id
+                                    );
+                                    channel_send.message_nacks.push(message_ack.message_id);
+                                    channel_send.receive_nack(&message_ack);
+                                    Ok::<(), TransportError>(())
+                                });
+                        packet_message_acks.recycle(message_acks);
+                        result?;
+                    }
+                    Ok::<(), TransportError>(())
                 })
                 .ok();
 
@@ -715,6 +716,7 @@ mod tests {
     struct RetryChannel;
     struct DiscardChannel;
     struct SmallMtuChannel;
+    struct AckBeforeTimeoutChannel;
 
     fn spawn_transport<C: crate::channel::Channel>(
         world: &mut World,
@@ -826,6 +828,88 @@ mod tests {
             .unwrap();
         world.run_system_once(TransportPlugin::buffer_send).unwrap();
         assert_eq!(world.get::<Link>(entity).unwrap().send.len(), 0);
+    }
+
+    #[test]
+    fn queued_ack_is_processed_before_packet_loss_timeout() {
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedReliable(Default::default()),
+            ..Default::default()
+        };
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<AckBeforeTimeoutChannel>(settings);
+
+        let mut sender_transport = Transport::default();
+        sender_transport.add_channel_send::<AckBeforeTimeoutChannel>(settings, channel_id);
+        let mut receiver_transport = Transport::default();
+        receiver_transport.add_channel_receive::<AckBeforeTimeoutChannel>(settings, channel_id);
+
+        let mut sender = World::new();
+        sender.insert_resource(registry.clone());
+        sender.init_resource::<Time<Real>>();
+        sender.init_resource::<LocalTimeline>();
+        let sender_entity = sender
+            .spawn((Link::default(), Linked, sender_transport))
+            .id();
+
+        let mut receiver = World::new();
+        receiver.insert_resource(registry);
+        receiver.init_resource::<Time<Real>>();
+        receiver.init_resource::<LocalTimeline>();
+        let receiver_entity = receiver
+            .spawn((Link::default(), Linked, receiver_transport))
+            .id();
+
+        sender
+            .get::<Transport>(sender_entity)
+            .unwrap()
+            .send_erased(channel_kind, Bytes::from_static(b"delivered"), 1.0)
+            .unwrap();
+        sender
+            .run_system_once(TransportPlugin::buffer_send)
+            .unwrap();
+        let data = sender
+            .get_mut::<Link>(sender_entity)
+            .unwrap()
+            .send
+            .pop()
+            .unwrap();
+        receiver
+            .get_mut::<Link>(receiver_entity)
+            .unwrap()
+            .recv
+            .push_raw(lightyear_link::recv_payload_from_bytes(data));
+        receiver
+            .run_system_once(TransportPlugin::buffer_receive)
+            .unwrap();
+        receiver
+            .run_system_once(TransportPlugin::buffer_send)
+            .unwrap();
+        let ack = receiver
+            .get_mut::<Link>(receiver_entity)
+            .unwrap()
+            .send
+            .pop()
+            .unwrap();
+
+        // The default packet NACK floor is 10 ms. Queue an ACK after that timeout so this
+        // receive pass would mark the packet lost first with the previous processing order.
+        sender
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_millis(11));
+        sender
+            .get_mut::<Link>(sender_entity)
+            .unwrap()
+            .recv
+            .push_raw(lightyear_link::recv_payload_from_bytes(ack));
+        sender
+            .run_system_once(TransportPlugin::buffer_receive)
+            .unwrap();
+
+        let transport = sender.get::<Transport>(sender_entity).unwrap();
+        let channel = transport.channel_send(channel_kind).unwrap();
+        assert_eq!(channel.message_acks().len(), 1);
+        assert!(channel.message_nacks().is_empty());
     }
 
     #[test]

@@ -22,6 +22,7 @@ pub(crate) mod header;
 
 pub mod compression;
 pub mod message;
+pub mod nack;
 
 // "module has the same name as its containing module" style nit.
 // clippy doesn't like this, but not much benefit to changing it now, so silence the warning.
