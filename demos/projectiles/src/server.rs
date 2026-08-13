@@ -1,9 +1,12 @@
-use crate::automation::AutomationServerPlugin;
+use crate::automation::{
+    AutomationServerPlugin, initial_hit_policy, initial_representation, initial_timeline,
+    initial_trajectory,
+};
 use crate::bot::BotClient;
 #[cfg(feature = "client")]
 use crate::bot::BotPlugin;
 use crate::hit_detection::{
-    HitImpact, HitPolicy, hit_policy_is, server_current,
+    HitImpact, HitPolicy, accept_hit, hit_policy_is, server_current,
     server_rewound::{self, LagCompensatedSilhouette},
 };
 use crate::protocol::*;
@@ -12,7 +15,6 @@ use crate::shared;
 use crate::timeline::TimelinePolicy;
 use crate::trajectory::TrajectoryKind;
 use avian2d::prelude::*;
-use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::prelude::*;
@@ -30,16 +32,11 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationServerPlugin);
-        app.init_resource::<GlobalActionLatch>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_plugins(LagCompensationPlugin);
 
         app.add_observer(handle_new_client);
         app.add_observer(spawn_player);
-        app.add_observer(release_global_action::<CycleTrajectory>);
-        app.add_observer(release_global_action::<CycleRepresentation>);
-        app.add_observer(release_global_action::<CycleHitPolicy>);
-        app.add_observer(release_global_action::<CycleTimeline>);
         app.add_observer(
             handle_client_reported_hit.run_if(hit_policy_is(HitPolicy::ClientReported)),
         );
@@ -114,21 +111,17 @@ fn spawn_global_actions(commands: &mut Commands, context: Entity) {
 ///
 /// `ActionOf` has a linked-spawn relationship, so despawning the player during
 /// an arena restart also cleans up these action entities.
-fn spawn_player_actions(commands: &mut Commands, player: Entity, is_bot: bool) {
+fn spawn_player_actions(commands: &mut Commands, player: Entity) {
     commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<MovePlayer>::new(),
         ReplicateLike { root: player },
     ));
-    // The bot deliberately has no aim action: its initial downward rotation is
-    // fixed, so all peers simulate the same simple strafing firing target.
-    if !is_bot {
-        commands.spawn((
-            ActionOf::<PlayerContext>::new(player),
-            Action::<MoveCursor>::new(),
-            ReplicateLike { root: player },
-        ));
-    }
+    commands.spawn((
+        ActionOf::<PlayerContext>::new(player),
+        Action::<MoveCursor>::new(),
+        ReplicateLike { root: player },
+    ));
     commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<Shoot>::new(),
@@ -171,99 +164,12 @@ fn apply_initial_input_config(
     input_config.rebroadcast_inputs = **timeline == TimelinePolicy::AllPredicted;
 }
 
-fn env_value(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase().replace(['-', ' '], "_"))
-}
-
-fn initial_trajectory() -> TrajectoryKind {
-    match env_value("LIGHTYEAR_INITIAL_TRAJECTORY").as_deref() {
-        None | Some("hitscan" | "hit_scan" | "0") => TrajectoryKind::Hitscan,
-        Some("linear" | "bullet" | "linear_projectile" | "1") => TrajectoryKind::Linear,
-        Some(value) => {
-            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_TRAJECTORY");
-            TrajectoryKind::default()
-        }
-    }
-}
-
-fn initial_representation() -> RepresentationKind {
-    match env_value("LIGHTYEAR_INITIAL_REPRESENTATION").as_deref() {
-        None | Some("state" | "state_entity" | "full" | "0") => RepresentationKind::StateEntity,
-        Some("fire_data" | "fire_data_entity" | "direction" | "1") => {
-            RepresentationKind::FireDataEntity
-        }
-        Some("shot_buffer" | "buffer" | "2") => RepresentationKind::ShotBuffer,
-        Some(value) => {
-            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_REPRESENTATION");
-            RepresentationKind::default()
-        }
-    }
-}
-
-fn initial_hit_policy() -> HitPolicy {
-    match env_value("LIGHTYEAR_INITIAL_HIT_POLICY").as_deref() {
-        None | Some("server_current" | "current" | "0") => HitPolicy::ServerCurrent,
-        Some("server_rewound" | "rewound" | "lag_comp" | "1") => HitPolicy::ServerRewound,
-        Some("client_reported" | "client" | "2") => HitPolicy::ClientReported,
-        Some(value) => {
-            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_HIT_POLICY");
-            HitPolicy::default()
-        }
-    }
-}
-
-fn initial_timeline() -> TimelinePolicy {
-    match env_value("LIGHTYEAR_INITIAL_TIMELINE").as_deref() {
-        None | Some("owner_predicted" | "default" | "0") => {
-            TimelinePolicy::OwnerPredictedRemotesInterpolated
-        }
-        Some("all_predicted" | "predicted" | "1") => TimelinePolicy::AllPredicted,
-        Some("all_interpolated" | "interpolated" | "2") => TimelinePolicy::AllInterpolated,
-        Some(value) => {
-            warn!(value, "Ignoring unknown LIGHTYEAR_INITIAL_TIMELINE");
-            TimelinePolicy::default()
-        }
-    }
-}
-
-#[derive(Resource, Default)]
-struct GlobalActionLatch {
-    active: HashSet<Entity>,
-}
-
-impl GlobalActionLatch {
-    fn start(&mut self, action: Entity) -> bool {
-        self.active.insert(action)
-    }
-
-    fn complete(&mut self, action: Entity) {
-        self.active.remove(&action);
-    }
-}
-
-fn release_global_action<A: InputAction>(
-    trigger: On<Complete<A>>,
-    mut latch: ResMut<GlobalActionLatch>,
-) {
-    latch.complete(trigger.action);
-}
-
-fn take_fired_once<A: InputAction>(
-    actions: &Query<(Entity, &ActionEvents), With<Action<A>>>,
-    latch: &mut GlobalActionLatch,
-) -> bool {
-    let mut fired = false;
-    for (entity, events) in actions {
-        if events.contains(ActionEvents::COMPLETE) || events.contains(ActionEvents::CANCEL) {
-            latch.complete(entity);
-        }
-        if events.contains(ActionEvents::FIRE) && latch.start(entity) {
-            fired = true;
-        }
-    }
-    fired
+fn action_started<A: InputAction>(actions: &Query<&ActionEvents, With<Action<A>>>) -> bool {
+    // START is BEI's one-tick rising edge. FIRE remains set on every tick while
+    // a bool action is held, which was why the old code needed a manual latch.
+    actions
+        .iter()
+        .any(|events| events.contains(ActionEvents::START))
 }
 
 /// Apply requested axis selections, then reset the single arena.
@@ -283,11 +189,10 @@ fn apply_global_actions_and_reset_arena(
         ),
         With<ClientContext>,
     >,
-    trajectory_actions: Query<(Entity, &ActionEvents), With<Action<CycleTrajectory>>>,
-    representation_actions: Query<(Entity, &ActionEvents), With<Action<CycleRepresentation>>>,
-    hit_actions: Query<(Entity, &ActionEvents), With<Action<CycleHitPolicy>>>,
-    timeline_actions: Query<(Entity, &ActionEvents), With<Action<CycleTimeline>>>,
-    mut latch: ResMut<GlobalActionLatch>,
+    trajectory_actions: Query<&ActionEvents, With<Action<CycleTrajectory>>>,
+    representation_actions: Query<&ActionEvents, With<Action<CycleRepresentation>>>,
+    hit_actions: Query<&ActionEvents, With<Action<CycleHitPolicy>>>,
+    timeline_actions: Query<&ActionEvents, With<Action<CycleTimeline>>>,
     mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
     arena_entities: Query<
         Entity,
@@ -305,19 +210,19 @@ fn apply_global_actions_and_reset_arena(
     let (trajectory, representation, hit_policy, timeline) = &mut *config;
     let mut changed = false;
 
-    if take_fired_once(&trajectory_actions, &mut latch) {
+    if action_started(&trajectory_actions) {
         **trajectory = trajectory.next();
         changed = true;
     }
-    if take_fired_once(&representation_actions, &mut latch) {
+    if action_started(&representation_actions) {
         **representation = representation.next();
         changed = true;
     }
-    if take_fired_once(&hit_actions, &mut latch) {
+    if action_started(&hit_actions) {
         **hit_policy = hit_policy.next();
         changed = true;
     }
-    if take_fired_once(&timeline_actions, &mut latch) {
+    if action_started(&timeline_actions) {
         **timeline = timeline.next();
         changed = true;
     }
@@ -396,7 +301,7 @@ fn spawn_player_for_link(
         player.insert(Bot);
     }
     let player = player.id();
-    spawn_player_actions(commands, player, is_bot);
+    spawn_player_actions(commands, player);
     info!(?player, ?client_id, "Spawned one player for connected peer");
 }
 
@@ -405,18 +310,24 @@ fn spawn_player_for_link(
 fn handle_client_reported_hit(
     trigger: On<RemoteEvent<HitDetected>>,
     players: Query<(), With<PlayerMarker>>,
+    bots: Query<(), With<Bot>>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
+    mut commands: Commands,
 ) {
     if !players.contains(trigger.trigger.target) {
         return;
     }
-    if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
-        score.0 += 1;
-        debug!(
-            shooter = ?trigger.trigger.shooter,
-            target = ?trigger.trigger.target,
-            score = score.0,
-            "Accepted client-reported hit"
-        );
-    }
+    accept_hit(
+        &mut commands,
+        trigger.trigger.shooter,
+        trigger.trigger.target,
+        trigger.trigger.impact,
+        &bots,
+        &mut scores,
+    );
+    debug!(
+        shooter = ?trigger.trigger.shooter,
+        target = ?trigger.trigger.target,
+        "Accepted client-reported hit"
+    );
 }

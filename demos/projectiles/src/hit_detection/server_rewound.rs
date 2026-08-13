@@ -28,8 +28,8 @@ use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{LagCompensationRayHit, LagCompensationSpatialQuery};
 
-use super::{AuthoritativeProjectile, remember_impact};
-use crate::protocol::{BulletMarker, PlayerId, PlayerMarker, Score};
+use super::{AuthoritativeProjectile, HitImpact, accept_hit, impact_from_hit};
+use crate::protocol::{Bot, BulletMarker, PlayerId, PlayerMarker, Score};
 use crate::representation::shot_buffer::{
     BufferedProjectileOf, BufferedSequence, ShotBuffer, finish_linear_projectile,
 };
@@ -55,13 +55,8 @@ pub(crate) struct LagCompensatedSilhouette {
 
 const SILHOUETTE_LIFETIME: f32 = 0.65;
 
-fn remember_hit(
-    commands: &mut Commands,
-    origin: Vec2,
-    direction: Dir2,
-    result: LagCompensationRayHit,
-) {
-    remember_impact(commands, origin, direction, result.hit);
+fn remember_hit(origin: Vec2, direction: Dir2, result: LagCompensationRayHit) -> HitImpact {
+    let impact = impact_from_hit(origin, direction, result.hit);
 
     debug!(
         target = ?result.hit.entity,
@@ -71,6 +66,7 @@ fn remember_hit(
         rotation = ?result.rotation,
         "Lag-compensated hit used this historical target pose"
     );
+    impact
 }
 
 /// Show every historical target pose tested for one shooter's query, including
@@ -146,6 +142,7 @@ pub(crate) fn hitscan_hits(
     host_clients: Query<(), With<HostClient>>,
     lag_compensation: LagCompensationSpatialQuery,
     silhouettes: Query<(Entity, &LagCompensatedSilhouette)>,
+    bots: Query<(), With<Bot>>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
     for (shot, marker) in &hitscans {
@@ -173,10 +170,9 @@ pub(crate) fn hitscan_hits(
             &|entity| targets.contains(entity),
             &mut filter,
         ) {
-            remember_hit(&mut commands, shot.start, shot.direction(), result);
-            if let Ok(mut score) = scores.get_mut(shooter) {
-                score.0 += 1;
-            }
+            let target = result.hit.entity;
+            let impact = remember_hit(shot.start, shot.direction(), result);
+            accept_hit(&mut commands, shooter, target, impact, &bots, &mut scores);
         }
     }
 }
@@ -201,6 +197,7 @@ pub(crate) fn linear_hits(
     lag_compensation: LagCompensationSpatialQuery,
     silhouettes: Query<(Entity, &LagCompensatedSilhouette)>,
     buffers: Query<&ShotBuffer>,
+    bots: Query<(), With<Bot>>,
     mut scores: Query<&mut Score, With<PlayerMarker>>,
 ) {
     let mut sampled_shooters = HashSet::new();
@@ -236,7 +233,8 @@ pub(crate) fn linear_hits(
             &mut filter,
         ) {
             let direction = Dir2::new_unchecked(direction);
-            remember_hit(&mut commands, previous.0, direction, result);
+            let target = result.hit.entity;
+            let impact = remember_hit(previous.0, direction, result);
             if let (Some(owner), Some(sequence)) = (buffer_owner, sequence) {
                 finish_linear_projectile(
                     &mut commands,
@@ -247,9 +245,7 @@ pub(crate) fn linear_hits(
                 );
             }
             commands.entity(projectile).try_despawn();
-            if let Ok(mut score) = scores.get_mut(shooter) {
-                score.0 += 1;
-            }
+            accept_hit(&mut commands, shooter, target, impact, &bots, &mut scores);
         }
     }
 }

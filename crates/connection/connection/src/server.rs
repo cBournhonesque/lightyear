@@ -101,9 +101,7 @@ pub struct Stopped;
 impl Stopped {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         clear_server_mapping(
-            &mut world
-                .resource_mut::<NetworkingMetadata>()
-                .peer_map,
+            &mut world.resource_mut::<NetworkingMetadata>().peer_map,
             context.entity,
         );
         trace!("Stopped added: removing Started/Starting");
@@ -172,9 +170,7 @@ fn clear_server_mapping(peer_map: &mut HashMap<PeerId, Entity>, entity: Entity) 
 
 fn clear_server_mapping_on_despawn(mut world: DeferredWorld, context: HookContext) {
     clear_server_mapping(
-        &mut world
-            .resource_mut::<NetworkingMetadata>()
-            .peer_map,
+        &mut world.resource_mut::<NetworkingMetadata>().peer_map,
         context.entity,
     );
 }

@@ -13,7 +13,7 @@ use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::hit_detection::HitPolicy;
+use crate::hit_detection::{HitImpact, HitPolicy};
 use crate::representation::{
     RepresentationKind,
     fire_data_entity::FireData,
@@ -34,9 +34,9 @@ pub struct PlayerId(pub PeerId);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerMarker;
 
-/// Number of authoritative hits credited to this player.
+/// Signed score: a non-bot gains one for a hit and loses one when hit by the bot.
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
-pub struct Score(pub usize);
+pub struct Score(pub i32);
 
 #[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
@@ -101,6 +101,7 @@ pub struct HitDetected {
     pub shooter: Entity,
     #[entities]
     pub target: Entity,
+    pub impact: HitImpact,
 }
 
 pub struct HitChannel;
@@ -150,6 +151,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<Bot>().replicate();
 
         app.component::<BulletMarker>().replicate();
+        app.component::<HitImpact>().replicate();
         app.component::<ProjectileFireTick>().replicate().predict();
         // Start/end are predicted state, while lifetime is local presentation.
         // Ignore lifetime drift when deciding whether authoritative geometry

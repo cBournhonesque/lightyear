@@ -63,9 +63,7 @@ impl Connected {
             .entity(context.entity)
             .remove::<(Connecting, Disconnected)>();
         if let Some(mut metadata) = world.get_resource_mut::<NetworkingMetadata>() {
-            metadata
-                .peer_map
-                .insert(peer_id, context.entity);
+            metadata.peer_map.insert(peer_id, context.entity);
         }
     }
 }

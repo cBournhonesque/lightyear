@@ -382,7 +382,7 @@ pub(crate) fn player_bundle(client_id: PeerId, is_bot: bool) -> impl Bundle {
     let color = color_from_id(client_id);
     // The example's initial forward direction is +Y. Put the human below the
     // bot facing up, and the bot above the human facing down. The bot then
-    // strafes horizontally without changing its aim.
+    // strafes horizontally while aiming at the human pose rendered by its client.
     let position = if is_bot {
         Position::from_xy(0.0, 180.0)
     } else {

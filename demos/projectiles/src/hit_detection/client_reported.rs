@@ -143,10 +143,11 @@ pub(crate) fn hitscan_hits(
                 distance = hit.distance,
                 "Client reporting hitscan hit"
             );
-            remember_impact(&mut commands, shot.start, shot.direction(), hit);
+            let impact = remember_impact(&mut commands, shot.start, shot.direction(), hit);
             sender.trigger::<HitChannel>(HitDetected {
                 shooter,
                 target: hit.entity,
+                impact,
             });
         }
     }
@@ -204,7 +205,7 @@ pub(crate) fn linear_hits(
                     distance = hit.distance,
                     "Client reporting linear-projectile hit"
                 );
-                remember_impact(
+                let impact = remember_impact(
                     &mut commands,
                     previous_position,
                     Dir2::new_unchecked(direction),
@@ -213,6 +214,7 @@ pub(crate) fn linear_hits(
                 sender.trigger::<HitChannel>(HitDetected {
                     shooter,
                     target: hit.entity,
+                    impact,
                 });
             }
             commands.entity(projectile).try_despawn();
