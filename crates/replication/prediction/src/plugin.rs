@@ -29,9 +29,12 @@ use lightyear_replication::prespawn::PreSpawnedReceiver;
 /// Plugin that installs client-side prediction systems.
 ///
 /// The systems run when the application contains a [`PredictionManager`] resource and its cached
-/// network topology is a conventional client or P2P session. Insert a [`PredictionManager`]
-/// resource to opt the application into one global prediction and rollback pipeline. Host-client
-/// and server topologies remain authoritative and do not run it.
+/// network topology is a conventional client or active P2P session. P2P candidates do not run the
+/// pipeline: deterministic play and its rollback history begin at the agreed session start tick.
+/// Prediction-history writers also require a synchronized timeline and therefore never record
+/// values under pre-sync tick labels. Insert a [`PredictionManager`] resource to opt the
+/// application into one global prediction and rollback pipeline. Host-client and server
+/// topologies remain authoritative and do not run it.
 #[derive(Default)]
 pub struct PredictionPlugin;
 
@@ -71,10 +74,7 @@ pub enum PredictionSystems {
     All,
 }
 
-// NOTE: we need to run the prediction systems even if we're not synced, because we want
-//  our HistoryBuffer to contain values for components/resources that were updated before syncing
-//  is done.
-/// Returns true if this application opted into prediction and has a supported remote topology.
+/// Returns true if this application opted into prediction and has a supported active topology.
 pub(crate) fn should_run(
     manager: Option<Res<PredictionManager>>,
     metadata: Res<NetworkingMetadata>,
@@ -82,7 +82,7 @@ pub(crate) fn should_run(
     manager.is_some()
         && matches!(
             metadata.mode,
-            NetworkTopology::Client(_) | NetworkTopology::P2P { .. }
+            NetworkTopology::Client(_) | NetworkTopology::P2P(_)
         )
 }
 
@@ -94,12 +94,8 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     app.world_mut().register_component::<ConfirmedHistory<C>>();
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
-    // Without this observer, the component's `PredictionHistory<C>` buffer
-    // would not get its tick values shifted on timeline-sync, so any
-    // history entries accumulated pre-sync would point to stale
-    // (pre-sync) ticks after the client clock jumps forward.
-    //
-    // Do not shift `ConfirmedHistory<C>` here: confirmed samples are resolved
+    // This also supports explicit resynchronization after prediction has begun. Do not shift
+    // `ConfirmedHistory<C>` here: confirmed samples are resolved
     // through `ReplicationCheckpointMap` and are already in authoritative
     // server tick space. Shifting them can move an init-message seed into the
     // future and make rollback prefer stale state over later server updates.
@@ -269,6 +265,7 @@ impl Plugin for PredictionPlugin {
 mod tests {
     use super::*;
     use bevy_ecs::system::RunSystemOnce;
+    use lightyear_connection::p2p::P2P;
     use lightyear_core::timeline::Rollback;
 
     #[test]
@@ -354,10 +351,13 @@ mod tests {
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
         assert!(app.world_mut().run_system_once(should_run).unwrap());
 
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
-            connected: Default::default(),
-            declared_links: 1,
-        };
+        app.world_mut().entity_mut(client).insert(P2P::Candidate);
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Undefined;
+        assert!(!app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().entity_mut(client).insert(P2P::Joined);
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::P2P([client].into_iter().collect());
         assert!(app.world_mut().run_system_once(should_run).unwrap());
 
         app.world_mut().resource_mut::<NetworkingMetadata>().mode =

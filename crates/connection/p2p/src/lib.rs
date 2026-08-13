@@ -1,10 +1,12 @@
 //! Deterministic peer-to-peer session lifecycle for Lightyear.
 //!
-//! Applications declare ordinary [`P2P`](lightyear_connection::p2p::P2P) Links, then trigger
-//! [`P2PStart`] when the desired cohort is present. The session waits for those Links and the
-//! synchronized input timeline, then chooses one shared future start tick.
+//! Applications declare [`P2P::Inactive`](lightyear_connection::p2p::P2P::Inactive) Links, then
+//! trigger [`P2PStart`] when the desired cohort is present. The current inactive Links become
+//! candidates; the session waits for them and the synchronized input timeline, chooses one shared
+//! future start tick, then marks them joined.
 //!
-//! The session does not own peer discovery, Link connection, or network topology. Stopping it can
+//! [`P2PSessionPlugin`] owns the barrier bookkeeping; applications do not need to configure a
+//! [`P2PSession`]. The session does not own peer discovery or Link connection. Stopping it can
 //! either preserve every Link for a lobby/rematch or unlink every currently declared P2P Link.
 
 #![no_std]

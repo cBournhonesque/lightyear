@@ -1,9 +1,11 @@
-use crate::client::{Disconnected, DisconnectedReason, Disconnecting, PeerMetadata};
+use crate::client::{Disconnected, DisconnectedReason, Disconnecting};
 use crate::client_of::ClientOf;
+use crate::network_topology::NetworkingMetadata;
 use bevy_app::{App, Last, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
+use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use lightyear_core::id::PeerId;
@@ -61,8 +63,8 @@ pub struct Started;
 impl Started {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         world
-            .resource_mut::<PeerMetadata>()
-            .mapping
+            .resource_mut::<NetworkingMetadata>()
+            .peer_map
             .insert(PeerId::Server, context.entity);
         trace!("Started added: removing Starting/Stopped");
         world
@@ -98,7 +100,12 @@ pub struct Stopped;
 
 impl Stopped {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        clear_server_mapping(&mut world.resource_mut::<PeerMetadata>(), context.entity);
+        clear_server_mapping(
+            &mut world
+                .resource_mut::<NetworkingMetadata>()
+                .peer_map,
+            context.entity,
+        );
         trace!("Stopped added: removing Started/Starting");
         world
             .commands()
@@ -157,14 +164,19 @@ impl ConnectionPlugin {
     }
 }
 
-fn clear_server_mapping(metadata: &mut PeerMetadata, entity: Entity) {
-    if metadata.mapping.get(&PeerId::Server) == Some(&entity) {
-        metadata.mapping.remove(&PeerId::Server);
+fn clear_server_mapping(peer_map: &mut HashMap<PeerId, Entity>, entity: Entity) {
+    if peer_map.get(&PeerId::Server) == Some(&entity) {
+        peer_map.remove(&PeerId::Server);
     }
 }
 
 fn clear_server_mapping_on_despawn(mut world: DeferredWorld, context: HookContext) {
-    clear_server_mapping(&mut world.resource_mut::<PeerMetadata>(), context.entity);
+    clear_server_mapping(
+        &mut world
+            .resource_mut::<NetworkingMetadata>()
+            .peer_map,
+        context.entity,
+    );
 }
 
 #[deprecated(note = "Use `crate::identity::is_server` instead")]
@@ -184,7 +196,7 @@ impl Plugin for ConnectionPlugin {
 #[cfg(test)]
 mod tests {
     use super::{Started, Stopped, Stopping};
-    use crate::client::PeerMetadata;
+    use crate::network_topology::NetworkingMetadata;
     use bevy_app::App;
     use lightyear_core::id::PeerId;
     use lightyear_link::server::Server;
@@ -192,13 +204,13 @@ mod tests {
     #[test]
     fn server_mapping_is_cleared_when_stopped() {
         let mut app = App::new();
-        app.init_resource::<PeerMetadata>();
+        app.init_resource::<NetworkingMetadata>();
         let server = app.world_mut().spawn((Server::default(), Started)).id();
 
         assert_eq!(
             app.world()
-                .resource::<PeerMetadata>()
-                .mapping
+                .resource::<NetworkingMetadata>()
+                .peer_map
                 .get(&PeerId::Server),
             Some(&server)
         );
@@ -207,8 +219,8 @@ mod tests {
 
         assert_eq!(
             app.world()
-                .resource::<PeerMetadata>()
-                .mapping
+                .resource::<NetworkingMetadata>()
+                .peer_map
                 .get(&PeerId::Server),
             Some(&server)
         );
@@ -217,22 +229,22 @@ mod tests {
 
         assert!(
             !app.world()
-                .resource::<PeerMetadata>()
-                .mapping
+                .resource::<NetworkingMetadata>()
+                .peer_map
                 .contains_key(&PeerId::Server)
         );
     }
 
     #[test]
-    fn despawned_server_clears_peer_metadata() {
+    fn despawned_server_clears_peer_map() {
         let mut app = App::new();
-        app.init_resource::<PeerMetadata>();
+        app.init_resource::<NetworkingMetadata>();
         let server = app.world_mut().spawn((Server::default(), Started)).id();
 
         assert_eq!(
             app.world()
-                .resource::<PeerMetadata>()
-                .mapping
+                .resource::<NetworkingMetadata>()
+                .peer_map
                 .get(&PeerId::Server),
             Some(&server)
         );
@@ -241,8 +253,8 @@ mod tests {
 
         assert!(
             !app.world()
-                .resource::<PeerMetadata>()
-                .mapping
+                .resource::<NetworkingMetadata>()
+                .peer_map
                 .contains_key(&PeerId::Server)
         );
     }

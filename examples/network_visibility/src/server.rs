@@ -2,7 +2,6 @@ use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_movement_behaviour};
 use bevy::prelude::*;
-use lightyear::connection::client::PeerMetadata;
 use lightyear::input::native::prelude::{ActionState, InputMarker};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -125,7 +124,7 @@ pub(crate) fn init(mut commands: Commands) {
 /// Here we perform more "immediate" interest management: we will make a circle visible to a client
 /// depending on the distance to the client's entity
 pub(crate) fn interest_management(
-    peer_metadata: Res<PeerMetadata>,
+    metadata: Res<NetworkingMetadata>,
     player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
     circle_query: Query<
         (Entity, &Position, &VisibilityPolicy),
@@ -134,7 +133,7 @@ pub(crate) fn interest_management(
     mut commands: Commands,
 ) {
     for (client_id, position) in player_query.iter() {
-        let Some(sender_entity) = peer_metadata.mapping.get(&client_id.0) else {
+        let Some(sender_entity) = metadata.peer_map.get(&client_id.0) else {
             error!("Could not find sender entity for client: {:?}", client_id);
             return;
         };

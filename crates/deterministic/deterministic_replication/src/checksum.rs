@@ -29,6 +29,7 @@ use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata
 use lightyear_connection::server::Started;
 #[cfg(any(feature = "p2p", feature = "server"))]
 use lightyear_core::id::RemoteId;
+#[cfg(feature = "server")]
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 #[cfg(feature = "client")]
@@ -220,11 +221,18 @@ impl ChecksumSendPlugin {
             NetworkTopology::Client(link) | NetworkTopology::HostClient { client: link, .. } => {
                 Some(link)
             }
-            #[cfg(feature = "p2p")]
-            NetworkTopology::P2P { ref connected, .. } if !connected.is_empty() => None,
+            NetworkTopology::P2P(_) => {
+                #[cfg(feature = "p2p")]
+                {
+                    None
+                }
+                #[cfg(not(feature = "p2p"))]
+                {
+                    return;
+                }
+            }
             NetworkTopology::Undefined
             | NetworkTopology::Server(_)
-            | NetworkTopology::P2P { .. }
             | NetworkTopology::Invalid(_) => return,
         };
         #[cfg(feature = "replication")]
@@ -265,13 +273,13 @@ impl ChecksumSendPlugin {
 
         #[cfg(feature = "p2p")]
         {
-            let NetworkTopology::P2P { connected, .. } = &metadata.mode else {
+            let NetworkTopology::P2P(joined) = &metadata.mode else {
                 return;
             };
             let checksum = compute_history_checksum(&mut world, confirmed_tick);
             pending_checksums.record_local(confirmed_tick, checksum, log_p2p_comparison);
             pending_checksums.clean(confirmed_tick);
-            Self::send_p2p_checksum(&mut senders, connected, confirmed_tick, checksum);
+            Self::send_p2p_checksum(&mut senders, joined, confirmed_tick, checksum);
         }
     }
 
@@ -383,16 +391,16 @@ pub struct ChecksumReceivePlugin;
 
 #[cfg(feature = "p2p")]
 impl ChecksumReceivePlugin {
-    /// Drain checksum samples from every connected P2P Link.
+    /// Drain checksum samples from every joined P2P Link that currently has a receiver.
     fn receive_p2p_checksum_messages(
         metadata: Res<NetworkingMetadata>,
         mut messages: Query<(&mut MessageReceiver<ChecksumMessage>, &RemoteId)>,
         mut pending_checksums: ResMut<PendingP2PChecksums>,
     ) {
-        let NetworkTopology::P2P { connected, .. } = &metadata.mode else {
+        let NetworkTopology::P2P(joined) = &metadata.mode else {
             return;
         };
-        for &link in connected {
+        for &link in joined {
             let Ok((mut receiver, remote_id)) = messages.get_mut(link) else {
                 continue;
             };

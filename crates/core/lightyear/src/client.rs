@@ -37,6 +37,9 @@ impl PluginGroup for ClientPlugins {
             tick_duration: self.tick_duration,
         });
 
+        #[cfg(feature = "p2p")]
+        let builder = builder.add(lightyear_p2p::P2PSessionPlugin);
+
         #[cfg(feature = "replication")]
         let builder = builder.add(LightyearRepliconClientBackend);
 

@@ -220,7 +220,7 @@ pub(crate) fn shoot_bullet(
     let has_client = !client.is_empty();
     let is_host_server = !host_server.is_empty();
     let client_is_synced = input_timeline.is_some();
-    let is_p2p = matches!(metadata.mode, NetworkTopology::P2P { .. });
+    let is_p2p = metadata.mode.is_p2p();
     for (
         id,
         position,

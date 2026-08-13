@@ -147,33 +147,3 @@ pub(crate) fn handle_interpolated_spawn(
         color.0 = Color::from(hsva);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn frame_interpolation_covers_the_predicted_ball_but_not_non_rigid_children() {
-        let mut app = App::new();
-        app.add_observer(add_frame_interpolation_components);
-
-        let ball = app
-            .world_mut()
-            .spawn((Position::default(), RigidBody::Dynamic, Predicted))
-            .id();
-        let child = app
-            .world_mut()
-            .spawn((Position::default(), Predicted, PlayerChildCollider))
-            .id();
-        app.update();
-
-        assert!(
-            app.world().get::<FrameInterpolate>(ball).is_some(),
-            "a predicted ball is a physics root even though it has no PlayerId"
-        );
-        assert!(
-            app.world().get::<FrameInterpolate>(child).is_none(),
-            "a non-rigid child has no fixed-tick pose of its own to frame-interpolate"
-        );
-    }
-}

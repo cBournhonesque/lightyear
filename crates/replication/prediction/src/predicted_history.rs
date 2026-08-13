@@ -21,7 +21,7 @@ use lightyear_core::tick::Tick;
 use lightyear_core::timeline::LocalTimelineShift;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
-use lightyear_sync::prelude::InputTimelineConfig;
+use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
@@ -89,14 +89,16 @@ impl<C> PredictionHistory<C> {
 // Systems
 // ============================================================================
 
-/// We store every update on the predicted entity in the PredictionHistory
+/// Store every update on the predicted entity in the [`PredictionHistory`].
 ///
-/// This system only handles changes, removals are handled in `apply_component_removal`
+/// [`SyncedLocalTimeline`] skips this system until timeline synchronization has completed, so
+/// pre-sync component values are never recorded under invalid local tick labels. This system only
+/// handles changes; removals are handled by [`apply_component_removal_predicted`].
 pub(crate) fn update_prediction_history<T: Component + Clone>(
     manager: Res<PredictionManager>,
     input_config: Res<InputTimelineConfig>,
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
-    timeline: Res<LocalTimeline>,
+    timeline: SyncedLocalTimeline,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
@@ -200,10 +202,11 @@ pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
     }
 }
 /// If a predicted component is removed on the [`Predicted`] entity, add the removal to the history.
+/// [`SyncedLocalTimeline`] skips this observer before timeline synchronization has completed.
 pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: On<Remove, C>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
-    timeline: Res<LocalTimeline>,
+    timeline: SyncedLocalTimeline,
 ) {
     let tick = timeline.tick();
     if let Ok(mut history) = predicted_query.get_mut(trigger.entity) {
@@ -486,6 +489,7 @@ mod tests {
     use crate::manager::{RollbackPolicy, StateRollbackMetadata};
     use bevy_app::{App, Update};
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
+    use lightyear_sync::prelude::LocalTimelineSync;
     use lightyear_sync::timeline::input::InputDelayConfig;
     use serde::{Deserialize, Serialize};
 
@@ -544,7 +548,56 @@ mod tests {
             ..Default::default()
         });
         app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
+        let mut sync = LocalTimelineSync::default();
+        sync.set_synced(true);
+        app.insert_resource(sync);
         app
+    }
+
+    #[test]
+    fn prediction_history_is_not_recorded_until_timeline_sync() {
+        let mut app = App::new();
+        app.init_resource::<LocalTimeline>();
+        app.init_resource::<LocalTimelineSync>();
+        app.insert_resource(PredictionManager::default());
+        app.insert_resource(InputTimelineConfig::default());
+        app.add_systems(Update, update_prediction_history::<TestValue>);
+        app.add_observer(apply_component_removal_predicted::<TestValue>);
+
+        let entity = app
+            .world_mut()
+            .spawn((TestValue(1.0), PredictionHistory::<TestValue>::default()))
+            .id();
+
+        app.update();
+        assert!(
+            app.world()
+                .get::<PredictionHistory<TestValue>>(entity)
+                .unwrap()
+                .is_empty(),
+            "an unsynchronized local tick must not label a prediction sample"
+        );
+
+        app.world_mut().entity_mut(entity).remove::<TestValue>();
+        assert!(
+            app.world()
+                .get::<PredictionHistory<TestValue>>(entity)
+                .unwrap()
+                .is_empty(),
+            "an unsynchronized local tick must not label a removal sample"
+        );
+
+        app.world_mut()
+            .resource_mut::<LocalTimelineSync>()
+            .set_synced(true);
+        app.world_mut().entity_mut(entity).insert(TestValue(2.0));
+        app.update();
+
+        let history = app
+            .world()
+            .get::<PredictionHistory<TestValue>>(entity)
+            .unwrap();
+        assert_eq!(history.get(Tick(0)), Some(&TestValue(2.0)));
     }
 
     #[test]

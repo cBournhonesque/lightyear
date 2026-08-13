@@ -4,7 +4,7 @@ use bevy::ecs::entity::UniqueEntityArray;
 use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::*;
-use lightyear_connection::client::PeerMetadata;
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_core::id::RemoteId;
 use lightyear_messages::Message;
 use lightyear_messages::multi::MultiMessageSender;
@@ -218,12 +218,12 @@ impl<M> Default for TriggerBuffer<M> {
 /// System to check that we received the message on the server
 fn count_triggers_observer<M: Event + Debug + Clone>(
     trigger: On<RemoteEvent<M>>,
-    peer_metadata: Res<PeerMetadata>,
+    metadata: Res<NetworkingMetadata>,
     mut buffer: ResMut<TriggerBuffer<M>>,
 ) {
     info!("Received trigger: {:?}", trigger);
     // Get the entity that is 'receiving' the trigger
-    let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
+    let remote = *metadata.peer_map.get(&trigger.from).unwrap();
     buffer
         .0
         .push((remote, trigger.trigger.clone(), Entity::PLACEHOLDER));

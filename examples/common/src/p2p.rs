@@ -59,7 +59,7 @@ pub fn input_target_for_peer(
     target
 }
 
-/// Add the client-side Lightyear plugins and session state used by a direct P2P example.
+/// Add the client-side Lightyear plugins used by a direct P2P example.
 pub(crate) fn configure_app(
     app: &mut App,
     tick_duration: Duration,
@@ -69,8 +69,6 @@ pub(crate) fn configure_app(
 ) {
     validate_roster(peer_id, player_count);
     app.add_plugins(ClientPlugins { tick_duration });
-    app.add_plugins(P2PSessionPlugin);
-    app.insert_resource(P2PSession::new(player_count));
     app.insert_resource(P2PSettings {
         local_peer_id: peer_id,
         player_count,
@@ -101,7 +99,7 @@ pub(crate) fn spawn_connections(
         let local_addr = peer_addr(base_port, peer_id, remote_peer_id);
         let remote_addr = peer_addr(base_port, remote_peer_id, peer_id);
         app.world_mut().spawn((
-            P2P,
+            P2P::default(),
             RawClient,
             LocalId(local_id),
             RemoteId(PeerId::Entity(u64::from(remote_peer_id))),

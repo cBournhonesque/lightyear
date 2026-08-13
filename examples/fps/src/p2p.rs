@@ -18,9 +18,6 @@ use crate::shared::{color_from_id, BOT_RADIUS};
 
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4650_5300_0000_0000;
 
-#[derive(Component)]
-struct PendingLocalInput(Tick);
-
 pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
@@ -28,10 +25,6 @@ impl Plugin for ExampleP2PPlugin {
         app.insert_resource(PredictionManager::default());
         app.add_plugins(DeterministicReplicationPlugin);
         app.add_observer(spawn_fixed_world);
-        app.add_systems(
-            FixedPostUpdate,
-            enable_local_input.after(PredictionSystems::UpdateHistory),
-        );
 
         app.add_systems(
             FixedPostUpdate,
@@ -69,7 +62,6 @@ fn compute_hits(
 fn spawn_fixed_world(
     _trigger: On<P2PStarted>,
     mut commands: Commands,
-    timeline: Res<LocalTimeline>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
@@ -130,26 +122,7 @@ fn spawn_fixed_world(
             ))
             .id();
         if peer_id == settings.local_peer_id {
-            commands
-                .entity(player)
-                .insert(PendingLocalInput(timeline.tick()));
+            commands.entity(player).insert(player_input_map());
         }
-    }
-}
-
-/// Enable local input after the initial Avian rollback state has been recorded.
-fn enable_local_input(
-    mut commands: Commands,
-    timeline: Res<LocalTimeline>,
-    local_players: Query<(Entity, &PendingLocalInput)>,
-) {
-    for (entity, pending) in &local_players {
-        if timeline.tick() <= pending.0 {
-            continue;
-        }
-        commands
-            .entity(entity)
-            .insert(player_input_map())
-            .remove::<PendingLocalInput>();
     }
 }

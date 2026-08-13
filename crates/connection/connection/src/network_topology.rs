@@ -5,14 +5,17 @@ use crate::p2p::P2P;
 use crate::server::{Started, Stopped};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
+use bevy_platform::collections::HashMap;
+use lightyear_core::id::PeerId;
 use lightyear_link::LinkSystems;
 use lightyear_link::prelude::{LinkOf, Server};
 use smallvec::SmallVec;
 
 /// The ready networking role of this Bevy application.
 ///
-/// Entities are only included after their relevant lifecycle has completed: clients and P2P links
-/// must be [`Connected`], and servers must be [`Started`].
+/// Conventional clients are included after they are [`Connected`] and servers after they are
+/// [`Started`]. P2P is exposed only after its start barrier has completed. Systems that need to
+/// inspect lobby or startup participation should query [`P2P`] components directly.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum NetworkTopology {
     /// No networking topology has been identified yet.
@@ -29,14 +32,11 @@ pub enum NetworkTopology {
         /// The connected host-client link entity.
         client: Entity,
     },
-    /// The declared and currently connected direct peer links in this P2P session.
-    P2P {
-        /// Connected P2P Link entities, sorted by local [`Entity`] ID.
-        connected: SmallVec<[Entity; 4]>,
-        /// Total number of Link entities carrying the [`P2P`] marker, including disconnected
-        /// Links. This lets consumers test startup readiness without rediscovering the roster.
-        declared_links: u8,
-    },
+    /// Direct peer Links that crossed the barrier and participate in deterministic gameplay.
+    ///
+    /// This roster is always non-empty. Its currently [`Connected`] joined Links are sorted by
+    /// local [`Entity`] ID, and disconnected Links are omitted.
+    P2P(SmallVec<[Entity; 4]>),
     /// The ready entities do not form one supported networking topology.
     Invalid(NetworkTopologyError),
 }
@@ -62,22 +62,25 @@ impl NetworkTopology {
         matches!(self, Self::HostClient { .. })
     }
 
-    /// Returns true when direct P2P Links have been declared.
+    /// Returns true when a direct P2P session has crossed its start barrier.
     pub fn is_p2p(&self) -> bool {
-        matches!(self, Self::P2P { .. })
+        matches!(self, Self::P2P(_))
     }
 }
 
 /// Cached metadata describing the networking configuration of this Bevy application.
 ///
 /// [`crate::ConnectionPlugin`] maintains this resource from role and lifecycle components. Users
-/// can read [`mode`](Self::mode), but do not need to update it themselves.
+/// can read [`mode`](Self::mode) and [`peer_map`](Self::peer_map), but do not need to
+/// update them themselves.
 #[derive(Resource, Debug, Clone)]
 pub struct NetworkingMetadata {
     /// The currently identified networking topology.
     pub mode: NetworkTopology,
-    // This is kept in the same resource as the mode, but mutated without triggering Bevy change
-    // detection. Consumers therefore only observe a change after `mode` itself changes.
+    /// Mapping from remote peer IDs to their local connection entities.
+    pub peer_map: HashMap<PeerId, Entity>,
+    // This is mutated without triggering Bevy change detection. Consumers therefore only observe
+    // a change after `mode` itself changes.
     dirty: bool,
 }
 
@@ -85,6 +88,7 @@ impl Default for NetworkingMetadata {
     fn default() -> Self {
         Self {
             mode: NetworkTopology::Undefined,
+            peer_map: HashMap::default(),
             dirty: true,
         }
     }
@@ -236,7 +240,7 @@ fn network_topology_is_dirty(metadata: Res<NetworkingMetadata>) -> bool {
 
 fn refresh_network_topology(
     mut metadata: ResMut<NetworkingMetadata>,
-    p2p_markers: Query<Entity, With<P2P>>,
+    p2p_links: Query<(Entity, &P2P, Has<Connected>)>,
     ready_clients: Query<
         (Entity, Has<P2P>, Has<HostClient>, Option<&LinkOf>),
         (With<Client>, With<Connected>),
@@ -247,10 +251,13 @@ fn refresh_network_topology(
     let malformed_host = malformed_hosts
         .iter()
         .min_by_key(|entity| entity.index_u32());
-    let first_p2p = p2p_markers.iter().min_by_key(|entity| entity.index_u32());
+    let first_active_p2p = p2p_links
+        .iter()
+        .filter_map(|(entity, state, _)| (*state != P2P::Inactive).then_some(entity))
+        .min_by_key(|entity| entity.index_u32());
     let next = if let Some(client) = malformed_host {
         NetworkTopology::Invalid(NetworkTopologyError::HostClientWithoutClient { client })
-    } else if let Some(p2p) = first_p2p {
+    } else if let Some(p2p) = first_active_p2p {
         // A connected non-P2P Client is conventional. HostClient is conventional even if it was
         // accidentally combined with P2P on the same Link.
         let conventional_client = ready_clients
@@ -266,22 +273,20 @@ fn refresh_network_topology(
                 server,
             })
         } else {
-            let declared_links = u8::try_from(p2p_markers.iter().count()).unwrap_or_else(|_| {
-                tracing::error!(
-                    maximum = u8::MAX,
-                    "P2P topology declared more Links than its cached count can represent"
-                );
-                u8::MAX
-            });
-            let mut connected: SmallVec<[Entity; 4]> = ready_clients
+            let has_candidates = p2p_links
                 .iter()
-                .filter(|(_, is_p2p, _, _)| *is_p2p)
-                .map(|(entity, _, _, _)| entity)
-                .collect();
-            connected.sort_unstable_by_key(|entity| entity.index_u32());
-            NetworkTopology::P2P {
-                connected,
-                declared_links,
+                .any(|(_, state, _)| *state == P2P::Candidate);
+            let mut joined = SmallVec::<[Entity; 4]>::new();
+            for (entity, state, connected) in &p2p_links {
+                if *state == P2P::Joined && connected {
+                    joined.push(entity);
+                }
+            }
+            joined.sort_unstable_by_key(|entity| entity.index_u32());
+            if has_candidates || joined.is_empty() {
+                NetworkTopology::Undefined
+            } else {
+                NetworkTopology::P2P(joined)
             }
         }
     } else {
@@ -389,15 +394,12 @@ fn infer_standard_topology(client: Option<ReadyClient>, server: Option<Entity>) 
 mod tests {
     use super::*;
     use crate::client::DisconnectedReason;
-    use crate::client::PeerMetadata;
     use alloc::vec::Vec;
     use bevy_ecs::change_detection::DetectChanges;
     use lightyear_core::id::{PeerId, RemoteId};
 
     fn test_app() -> App {
         let mut app = App::new();
-        // Connected and Started maintain this existing shared connection resource in their hooks.
-        app.init_resource::<PeerMetadata>();
         app.add_plugins(crate::ConnectionPlugin);
         app.update();
         app
@@ -479,62 +481,62 @@ mod tests {
     }
 
     #[test]
-    fn p2p_mode_exists_before_any_peer_is_connected_and_sorts_ready_links() {
+    fn p2p_mode_contains_only_connected_links_after_the_barrier() {
         let mut app = test_app();
-        let first = app.world_mut().spawn(P2P).id();
-        let second = app.world_mut().spawn(P2P).id();
+        let first = app.world_mut().spawn(P2P::Inactive).id();
+        let second = app.world_mut().spawn(P2P::Inactive).id();
 
         app.update();
-        assert_eq!(
-            mode(&app),
-            &NetworkTopology::P2P {
-                connected: SmallVec::new(),
-                declared_links: 2,
-            }
-        );
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
-        // Connect in reverse order to prove that insertion order does not affect the cache.
-        app.world_mut()
-            .entity_mut(second)
-            .insert((RemoteId(PeerId::Local(2)), Connected));
+        app.world_mut().entity_mut(first).insert(P2P::Candidate);
+        app.world_mut().entity_mut(second).insert(P2P::Candidate);
+        app.update();
+
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
+        assert!(!mode(&app).is_p2p());
+
+        app.world_mut().entity_mut(first).insert(P2P::Joined);
+        app.update();
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
+        assert!(!mode(&app).is_p2p());
+
+        app.world_mut().entity_mut(second).insert(P2P::Joined);
         app.world_mut()
             .entity_mut(first)
             .insert((RemoteId(PeerId::Local(1)), Connected));
+        app.world_mut()
+            .entity_mut(second)
+            .insert((RemoteId(PeerId::Local(2)), Connected));
         app.update();
-
         assert_eq!(
             mode(&app),
-            &NetworkTopology::P2P {
-                connected: SmallVec::from_slice(&[first, second]),
-                declared_links: 2,
-            }
+            &NetworkTopology::P2P(SmallVec::from_slice(&[first, second]))
         );
+        assert!(mode(&app).is_p2p());
 
-        app.world_mut().entity_mut(first).insert(Disconnected {
+        app.world_mut().entity_mut(second).insert(Disconnected {
             reason: DisconnectedReason::UserRequested(Some("test".into())),
         });
         app.update();
         assert_eq!(
             mode(&app),
-            &NetworkTopology::P2P {
-                connected: SmallVec::from_slice(&[second]),
-                declared_links: 2,
-            }
+            &NetworkTopology::P2P(SmallVec::from_slice(&[first]))
         );
 
         app.world_mut().despawn(second);
         app.update();
         assert_eq!(
             mode(&app),
-            &NetworkTopology::P2P {
-                connected: SmallVec::new(),
-                declared_links: 1,
-            }
+            &NetworkTopology::P2P(SmallVec::from_slice(&[first]))
         );
 
-        app.world_mut().entity_mut(first).remove::<P2P>();
+        app.world_mut().entity_mut(first).insert(Disconnected {
+            reason: DisconnectedReason::UserRequested(Some("test".into())),
+        });
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Undefined);
+        assert_eq!(app.world().entity(first).get::<P2P>(), Some(&P2P::Joined));
     }
 
     #[test]
@@ -542,7 +544,7 @@ mod tests {
         let mut app = test_app();
         let peer = app
             .world_mut()
-            .spawn((P2P, RemoteId(PeerId::Local(1)), Connected))
+            .spawn((P2P::Candidate, RemoteId(PeerId::Local(1)), Connected))
             .id();
         let client = connect_client(&mut app, 2);
         let server = start_server(&mut app);
@@ -559,23 +561,26 @@ mod tests {
     }
 
     #[test]
+    fn inactive_p2p_links_do_not_activate_or_conflict_with_conventional_topology() {
+        let mut app = test_app();
+        app.world_mut()
+            .spawn((P2P::Inactive, RemoteId(PeerId::Local(1)), Connected));
+        let client = connect_client(&mut app, 2);
+
+        app.update();
+        assert_eq!(mode(&app), &NetworkTopology::Client(client));
+    }
+
+    #[test]
     fn unready_conventional_roles_do_not_conflict_with_p2p() {
         let mut app = test_app();
-        let peer = app
-            .world_mut()
-            .spawn((P2P, RemoteId(PeerId::Local(1)), Connected))
-            .id();
+        app.world_mut()
+            .spawn((P2P::Candidate, RemoteId(PeerId::Local(1)), Connected));
         app.world_mut().spawn(Client);
         app.world_mut().spawn(Server::default());
 
         app.update();
-        assert_eq!(
-            mode(&app),
-            &NetworkTopology::P2P {
-                connected: SmallVec::from_slice(&[peer]),
-                declared_links: 1,
-            }
-        );
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
     }
 
     #[test]

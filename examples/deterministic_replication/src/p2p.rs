@@ -3,6 +3,7 @@
 //! Every peer creates the same fixed physics world and player roster locally. No entity state is
 //! replicated and no peer is authoritative; only tick-indexed player inputs cross the network.
 
+use crate::client::player_input_map;
 use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
 use crate::shared;
 use bevy::prelude::*;
@@ -46,17 +47,22 @@ fn spawn_fixed_world(
             peer_id,
             PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
         );
-        commands.spawn((
-            PlayerId(id),
-            PlayerActivationTick(start_tick),
-            shared::player_bundle(id),
-            DeterministicPredicted {
-                skip_despawn: true,
-                enable_rollback_after: 0,
-            },
-            input_target,
-            ActionState::<PlayerActions>::default(),
-            LeafwingBuffer::<PlayerActions>::default(),
-        ));
+        let player = commands
+            .spawn((
+                PlayerId(id),
+                PlayerActivationTick(start_tick),
+                shared::player_bundle(id),
+                DeterministicPredicted {
+                    skip_despawn: true,
+                    enable_rollback_after: 0,
+                },
+                input_target,
+                ActionState::<PlayerActions>::default(),
+                LeafwingBuffer::<PlayerActions>::default(),
+            ))
+            .id();
+        if peer_id == settings.local_peer_id {
+            commands.entity(player).insert(player_input_map());
+        }
     }
 }

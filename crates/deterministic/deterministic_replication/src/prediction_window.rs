@@ -43,7 +43,7 @@ fn update_prediction_window_wait(
 
     let active_topology = match &metadata.mode {
         NetworkTopology::Client(_) => true,
-        NetworkTopology::P2P { connected, .. } => !connected.is_empty(),
+        NetworkTopology::P2P(_) => true,
         NetworkTopology::Undefined
         | NetworkTopology::Server(_)
         | NetworkTopology::HostClient { .. }
@@ -138,10 +138,7 @@ mod tests {
             let mut topology_world = World::new();
             let link = topology_world.spawn_empty().id();
             let topology = if p2p {
-                NetworkTopology::P2P {
-                    connected: [link].into_iter().collect(),
-                    declared_links: 1,
-                }
+                NetworkTopology::P2P([link].into_iter().collect())
             } else {
                 NetworkTopology::Client(link)
             };
