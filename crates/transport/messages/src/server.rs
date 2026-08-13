@@ -13,10 +13,10 @@ use bevy_ecs::{
     relationship::RelationshipTarget,
     system::{Local, Res, SystemParam},
 };
-use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::network_target::{NetworkTarget, NetworkTargetResolver};
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_link::prelude::Server;
 use lightyear_transport::channel::Channel;
 
@@ -28,7 +28,7 @@ use lightyear_transport::channel::Channel;
 #[derive(SystemParam)]
 pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
     sender: MultiMessageSender<'w, 's, F>,
-    metadata: Res<'w, PeerMetadata>,
+    metadata: Res<'w, NetworkingMetadata>,
     resolver: Local<'s, NetworkTargetResolver>,
 }
 
@@ -58,7 +58,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         let targets = self.resolver.resolve(
             target,
             server.collection().as_slice(),
-            &self.metadata.mapping,
+            &self.metadata.peer_map,
         );
         self.sender
             .send_with_priority::<M, C>(message, targets, priority)

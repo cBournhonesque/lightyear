@@ -51,7 +51,7 @@ pub(crate) fn handle_connected(
 
 We do this by listening to `Connected` component being added on the entity.
 We can access the id of the client that connected by using the `RemoteId` component, which is added to the entity when the connection is established and contains the client's [`PeerId`]
-(the inverse mapping from `PeerId` to `Entity` is stored in the `PeerMetadata` resource)
+(the inverse mapping from `PeerId` to `Entity` is stored in `NetworkingMetadata::peer_map`)
 
 Finally we are free to spawn an entity for that player, that we can replicate using the `Replicate` component.
 On that component you need to specify the `NetworkTarget` to which the entity should be replicated.

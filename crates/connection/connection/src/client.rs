@@ -1,12 +1,12 @@
+use crate::network_topology::NetworkingMetadata;
 use alloc::string::String;
 use bevy_app::{App, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
-use bevy_ecs::{reflect::ReflectResource, world::DeferredWorld};
-use bevy_platform::collections::HashMap;
+use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
-use lightyear_core::id::{PeerId, RemoteId};
+use lightyear_core::id::RemoteId;
 use lightyear_link::LinkStart;
 use lightyear_link::prelude::{Server, UnlinkReason, Unlinked};
 #[allow(unused_imports)]
@@ -62,8 +62,10 @@ impl Connected {
             .commands()
             .entity(context.entity)
             .remove::<(Connecting, Disconnected)>();
-        if let Some(mut metadata) = world.get_resource_mut::<PeerMetadata>() {
-            metadata.mapping.insert(peer_id, context.entity);
+        if let Some(mut metadata) = world.get_resource_mut::<NetworkingMetadata>() {
+            metadata
+                .peer_map
+                .insert(peer_id, context.entity);
         }
     }
 }
@@ -123,8 +125,8 @@ impl Disconnected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         if let Some(peer_id) = world.get::<RemoteId>(context.entity).map(|c| c.0) {
             world
-                .resource_mut::<PeerMetadata>()
-                .mapping
+                .resource_mut::<NetworkingMetadata>()
+                .peer_map
                 .remove(&peer_id);
         }
         world
@@ -177,14 +179,6 @@ impl ClientStateItem<'_, '_> {
     }
 }
 
-/// Resource that maintains a mapping from a remote PeerId to the corresponding local Entity
-/// that is connected to that peer
-#[derive(Resource, Debug, Default, Reflect)]
-#[reflect(Resource)]
-pub struct PeerMetadata {
-    pub mapping: HashMap<PeerId, Entity>,
-}
-
 pub struct ConnectionPlugin;
 
 impl ConnectionPlugin {
@@ -217,7 +211,7 @@ impl ConnectionPlugin {
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PeerMetadata>();
+        app.init_resource::<NetworkingMetadata>();
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect_if_link_fails);
     }
@@ -228,6 +222,7 @@ mod tests {
     use super::*;
     use crate::client_of::ClientOf;
     use bevy_ecs::world::World;
+    use lightyear_core::id::PeerId;
 
     #[test]
     fn test_connection() {}

@@ -71,7 +71,7 @@ use bevy_app::{App, Plugin};
 use bevy_ecs::entity::{EntityHashMap, MapEntities};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use lightyear_connection::client::PeerMetadata;
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_connection::prelude::NetworkDirection;
 use lightyear_core::id::PeerId;
 use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
@@ -252,7 +252,7 @@ impl AuthorityPlugin {
     fn handle_authority_request(
         mut trigger: On<RemoteEvent<AuthorityTransferEvent>>,
         mut broker: BrokerQuery,
-        metadata: Res<PeerMetadata>,
+        metadata: Res<NetworkingMetadata>,
         sender_query: Query<
             (
                 &mut EventSender<AuthorityGrantedEvent>,
@@ -264,7 +264,7 @@ impl AuthorityPlugin {
         mut commands: Commands,
     ) {
         let entity = trigger.event_target();
-        let Some(&sender_entity) = metadata.mapping.get(&trigger.from) else {
+        let Some(&sender_entity) = metadata.peer_map.get(&trigger.from) else {
             return;
         };
         // SAFETY: we make sure to not alias the sender_entity
@@ -339,7 +339,7 @@ impl AuthorityPlugin {
                         // forward the request to the peer that currently has authority
                         Some(p) => {
                             if *p != trigger.from
-                                && let Some(&forward_sender_entity) = metadata.mapping.get(p)
+                                && let Some(&forward_sender_entity) = metadata.peer_map.get(p)
                                 && let Ok((_, mut forward_sender)) =
                                     // SAFETY: we make sure to not alias the sender_entity with the forward_sender_entity
                                     unsafe {
@@ -384,7 +384,7 @@ impl AuthorityPlugin {
                         // forward the message to the correct peer
                         Some(p) => {
                             if p != trigger.from
-                                && let Some(&forward_sender_entity) = metadata.mapping.get(&p)
+                                && let Some(&forward_sender_entity) = metadata.peer_map.get(&p)
                                 && let Ok((_, mut forward_response_sender)) =
                                     // SAFETY: we make sure to not alias the sender_entity with the forward_sender_entity
                                     unsafe {
@@ -477,14 +477,14 @@ impl AuthorityPlugin {
 
     fn handle_authority_response(
         trigger: On<RemoteEvent<AuthorityGrantedEvent>>,
-        metadata: Res<PeerMetadata>,
+        metadata: Res<NetworkingMetadata>,
         mut broker: BrokerQuery,
         sender_query: Query<&mut EventSender<AuthorityGrantedEvent>, Without<ReplicationState>>,
         mut query: Query<Option<&mut ReplicationState>>,
         mut commands: Commands,
     ) {
         let entity = trigger.event_target();
-        let Some(&sender_entity) = metadata.mapping.get(&trigger.from) else {
+        let Some(&sender_entity) = metadata.peer_map.get(&trigger.from) else {
             return;
         };
         // SAFETY: the original peer cannot be the same as the sender_entity
@@ -497,7 +497,7 @@ impl AuthorityPlugin {
         if let Ok(mut broker) = broker.single_mut() {
             // the response needs to be propagated back to the original peer
             if let Some(p) = trigger.trigger.from {
-                if let Some(&forward_sender_entity) = metadata.mapping.get(&p)
+                if let Some(&forward_sender_entity) = metadata.peer_map.get(&p)
                     && let Ok(mut forward_response_sender) =
                         // SAFETY: the original peer cannot be the same as the sender_entity
                         unsafe { sender_query.get_unchecked(forward_sender_entity) }
@@ -547,7 +547,7 @@ impl AuthorityPlugin {
 
     fn give_authority(
         trigger: On<GiveAuthority>,
-        metadata: Res<PeerMetadata>,
+        metadata: Res<NetworkingMetadata>,
         mut broker: BrokerQuery,
         mut sender_query: Query<
             &mut EventSender<AuthorityTransferEvent>,
@@ -574,7 +574,7 @@ impl AuthorityPlugin {
                     }
                     Some(PeerId::Server) => {}
                     Some(p) => {
-                        if let Some(sender_entity) = metadata.mapping.get(&p)
+                        if let Some(sender_entity) = metadata.peer_map.get(&p)
                             && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
                         {
                             state.lose_authority(*sender_entity);
@@ -591,7 +591,7 @@ impl AuthorityPlugin {
                 // if we have full control, we are allowed to transfer the authority from another peer
                 auth_mut @ Some(Some(_)) if has_full_control => {
                     let current_owner = auth_mut.as_ref().unwrap().unwrap();
-                    if let Some(sender_entity) = metadata.mapping.get(&current_owner)
+                    if let Some(sender_entity) = metadata.peer_map.get(&current_owner)
                         && let Ok(mut trigger_sender) =
                             // SAFETY: we make sure to not alias
                             unsafe { sender_query.get_unchecked(*sender_entity) }
@@ -621,7 +621,7 @@ impl AuthorityPlugin {
                             }
                             Some(p) => {
                                 if p != current_owner
-                                    && let Some(forward_sender_entity) = metadata.mapping.get(&p)
+                                    && let Some(forward_sender_entity) = metadata.peer_map.get(&p)
                                     && let Ok(mut forward_trigger_sender) =
                                         // SAFETY: we make sure to not alias p and current_owner
                                         unsafe {
@@ -667,7 +667,7 @@ impl AuthorityPlugin {
                             *auth_mut.unwrap() = Some(PeerId::Server);
                         }
                         Some(p) => {
-                            if let Some(sender_entity) = metadata.mapping.get(&p)
+                            if let Some(sender_entity) = metadata.peer_map.get(&p)
                                 && let Ok(mut forward_trigger_sender) =
                                     // SAFETY: we make sure to not alias p and current_owner
                                     unsafe { sender_query.get_unchecked(*sender_entity) }
@@ -689,7 +689,7 @@ impl AuthorityPlugin {
             }
         } else {
             // on client: send request to the server which knows who to forward the request to
-            if let Some(sender_entity) = metadata.mapping.get(&PeerId::Server)
+            if let Some(sender_entity) = metadata.peer_map.get(&PeerId::Server)
                 && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
             {
                 commands.entity(entity).remove::<HasAuthority>();
@@ -705,7 +705,7 @@ impl AuthorityPlugin {
 
     fn request_authority(
         trigger: On<RequestAuthority>,
-        metadata: Res<PeerMetadata>,
+        metadata: Res<NetworkingMetadata>,
         mut broker: BrokerQuery,
         mut sender_query: Query<
             &mut EventSender<AuthorityTransferEvent>,
@@ -726,7 +726,7 @@ impl AuthorityPlugin {
                     }
                     Some(PeerId::Server) => {}
                     Some(p) => {
-                        if let Some(sender_entity) = metadata.mapping.get(p)
+                        if let Some(sender_entity) = metadata.peer_map.get(p)
                             && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
                         {
                             debug_assert!(
@@ -748,7 +748,7 @@ impl AuthorityPlugin {
             }
         } else {
             // on client: send request to the server which knows who to forward the request to
-            if let Some(sender_entity) = metadata.mapping.get(&PeerId::Server)
+            if let Some(sender_entity) = metadata.peer_map.get(&PeerId::Server)
                 && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
                 && query
                     .get(entity)

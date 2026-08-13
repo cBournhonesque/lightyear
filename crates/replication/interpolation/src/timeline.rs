@@ -12,7 +12,7 @@ use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::{marker::PhantomData, time::Duration};
-use lightyear_connection::client::{Client, Connected, Disconnected, PeerMetadata};
+use lightyear_connection::client::{Client, Connected, Disconnected};
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_connection::p2p::P2P;
@@ -289,13 +289,12 @@ impl TimelinePlugin {
     fn receive_sender_metadata(
         trigger: On<RemoteEvent<SenderMetadata>>,
         tick_duration: Res<TickDuration>,
-        peer_metadata: Res<PeerMetadata>,
         metadata: Res<NetworkingMetadata>,
         mut interpolation_timeline: ResMut<InterpolationTimeline>,
     ) {
         let delta = TickDelta::from(trigger.trigger.send_interval);
         let duration = delta.to_duration(tick_duration.0);
-        if !peer_metadata.mapping.contains_key(&trigger.from) {
+        if !metadata.peer_map.contains_key(&trigger.from) {
             return;
         }
         let is_p2p = metadata.mode.is_p2p();

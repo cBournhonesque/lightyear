@@ -171,7 +171,8 @@ impl Plugin for HostPlugin {
 #[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
-    use crate::client::{ConnectionPlugin, PeerMetadata};
+    use crate::client::ConnectionPlugin;
+    use crate::network_topology::NetworkingMetadata;
 
     fn test_app() -> App {
         let mut app = App::new();
@@ -260,8 +261,8 @@ mod tests {
         );
         assert_eq!(
             app.world()
-                .resource::<PeerMetadata>()
-                .mapping
+                .resource::<NetworkingMetadata>()
+                .peer_map
                 .get(&PeerId::Local(0)),
             Some(&client)
         );
