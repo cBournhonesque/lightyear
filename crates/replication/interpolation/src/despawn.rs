@@ -1,4 +1,5 @@
 use bevy_app::{App, Update};
+use bevy_ecs::entity_disabling::Disabled;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::EntityWorldMut;
 use bevy_replicon::prelude::RepliconTick;
@@ -11,6 +12,7 @@ use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use tracing::error;
 
+use crate::InterpolationPending;
 use crate::plugin::InterpolationSystems;
 use crate::timeline::InterpolationTimeline;
 
@@ -82,7 +84,10 @@ fn resolve_despawn_tick(world: &World, message_tick: RepliconTick) -> Option<Tic
 
 pub(crate) fn despawn_interpolated_entities(
     interpolation: Res<InterpolationTimeline>,
-    query: Query<(Entity, &DelayedInterpolatedDespawn)>,
+    query: Query<
+        (Entity, &DelayedInterpolatedDespawn),
+        (Allow<InterpolationPending>, Allow<Disabled>),
+    >,
     mut commands: Commands,
 ) {
     let interpolation_tick = interpolation.now().tick();

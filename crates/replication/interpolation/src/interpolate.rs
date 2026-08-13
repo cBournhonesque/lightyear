@@ -17,7 +17,7 @@ use lightyear_core::ecs_utils::{
     table_component_slice, table_for_archetype, write_component_with_change_detection,
 };
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, NetworkTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, InterpolationPending, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::tick::TickDuration;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
@@ -299,6 +299,10 @@ fn queue_history_presence<C: Component + Clone>(
             deferred_apply.remove::<C>(entity);
         }
         Some(HistoryState::Updated(value)) if !present => {
+            // Re-enable the entity in the same structural change that materializes its first
+            // interpolation-time component. Observers for this real insertion therefore see an
+            // entity that is no longer pending.
+            deferred_apply.remove::<InterpolationPending>(entity);
             deferred_apply.insert(entity, value);
         }
         _ => {}
@@ -407,6 +411,7 @@ mod tests {
     use bevy_app::{App, Update};
     use bevy_ecs::archetype::Archetype;
     use bevy_ecs::component::Component;
+    use bevy_ecs::entity_disabling::Disabled;
     use bevy_ecs::query::{QueryFilter, QueryState};
     use bevy_ecs::schedule::IntoScheduleConfigs;
     use bevy_math::{
@@ -453,6 +458,25 @@ mod tests {
 
     #[derive(Component)]
     struct DisabledRule;
+
+    #[derive(Resource, Default)]
+    struct MaterializedObservation {
+        count: usize,
+        was_pending: bool,
+        was_disabled: bool,
+    }
+
+    fn observe_materialized_test_component(
+        trigger: On<Add, TestComp>,
+        state: Query<(Has<InterpolationPending>, Has<Disabled>)>,
+        mut observation: ResMut<MaterializedObservation>,
+    ) {
+        observation.count += 1;
+        if let Ok((pending, disabled)) = state.get(trigger.entity) {
+            observation.was_pending = pending;
+            observation.was_disabled = disabled;
+        }
+    }
 
     static BUNDLE2_PRIORITY_CALLS: AtomicUsize = AtomicUsize::new(0);
     static BUNDLE3_PRIORITY_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -1471,6 +1495,47 @@ mod tests {
         app.update();
 
         assert!(!app.world().entity(entity).contains::<TestComp>());
+    }
+
+    #[test]
+    fn pending_entity_is_enabled_when_first_interpolated_component_materializes() {
+        let mut app = setup_app(Tick(9), 40);
+        app.register_disabling_component::<InterpolationPending>();
+        app.init_resource::<MaterializedObservation>();
+        app.add_observer(observe_materialized_test_component);
+        add_interpolation_test_systems(&mut app);
+
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(10), TestComp(4.0));
+        let entity = app
+            .world_mut()
+            .spawn((Interpolated, InterpolationPending, Disabled, history))
+            .id();
+
+        app.update();
+
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+        assert!(!app.world().entity(entity).contains::<TestComp>());
+        assert_eq!(app.world().resource::<MaterializedObservation>().count, 0);
+
+        set_interpolation_tick(&mut app, Tick(10));
+        app.update();
+
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(4.0)));
+        assert!(app.world().entity(entity).contains::<Disabled>());
+        let observation = app.world().resource::<MaterializedObservation>();
+        assert_eq!(observation.count, 1);
+        assert!(!observation.was_pending);
+        assert!(observation.was_disabled);
     }
 
     #[test]

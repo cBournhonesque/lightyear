@@ -16,3 +16,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, Reflect, Serialize, Deserialize, Component)]
 #[reflect(Component)]
 pub struct Interpolated;
+
+/// Temporarily disables a newly received [`Interpolated`] entity until its first
+/// live interpolated component reaches the interpolation timeline.
+///
+/// [`lightyear_interpolation`](https://docs.rs/lightyear_interpolation) registers
+/// this as a Bevy disabling component. It is inserted after replication receive,
+/// so observers still react normally when [`Interpolated`] is added, and removed
+/// in the same structural change that materializes the first live interpolated
+/// component.
+#[derive(Debug, Clone, Copy, Default, Reflect, Component)]
+#[reflect(Component)]
+pub struct InterpolationPending;
