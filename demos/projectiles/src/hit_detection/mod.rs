@@ -116,15 +116,16 @@ pub(crate) fn remember_impact_value(commands: &mut Commands, impact: HitImpact) 
 /// Replicate an accepted impact so GUI clients can draw collisions performed
 /// by the authoritative server or the embedded bot's headless client.
 fn publish_impact(commands: &mut Commands, impact: HitImpact) {
-    commands.spawn((
+    let mut marker = commands.spawn((
         impact,
-        Replicate::to_clients(NetworkTarget::All),
         DespawnAfter(Timer::from_seconds(
             IMPACT_LIFETIME_SECONDS,
             TimerMode::Once,
         )),
         Name::new("Authoritative projectile impact point"),
     ));
+    #[cfg(feature = "server")]
+    marker.insert(Replicate::to_clients(NetworkTarget::All));
 }
 
 /// Apply the authoritative gameplay result and publish its debug geometry.
