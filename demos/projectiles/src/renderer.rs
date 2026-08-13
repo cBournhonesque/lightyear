@@ -332,22 +332,21 @@ fn add_bullet_visuals(
     trigger: On<Add, (Position, Rotation)>,
     // Hitscan are rendered differently
     query: Query<
-        (&ColorComponent, &Position, &Rotation, Has<Interpolated>),
-        (Without<HitscanVisual>, With<BulletMarker>, Without<Mesh2d>),
+        (&ColorComponent, Has<Interpolated>),
+        (
+            Without<HitscanVisual>,
+            With<Position>,
+            With<Rotation>,
+            With<BulletMarker>,
+            Without<Mesh2d>,
+        ),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, position, rotation, interpolated)) = query.get(trigger.entity) {
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
         commands.entity(trigger.entity).insert((
-            // State-Entity replication can insert Position/Rotation before Interpolated.
-            // Interpolation then moves that pose into history and removes the live
-            // Position/Rotation, but it does not remove Transform. Seed Transform from
-            // the transient pose so the bullet stays at its correct spawn position until
-            // the presentation tick restores Position/Rotation and normal sync resumes.
-            Transform::from_translation(position.0.extend(0.0))
-                .with_rotation(Quat::from_rotation_z(rotation.as_radians())),
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
