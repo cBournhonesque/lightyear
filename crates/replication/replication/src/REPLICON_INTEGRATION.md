@@ -124,9 +124,8 @@ Action entities (spawned by `bevy_enhanced_input`) need to be replicated via the
 
 ### Priority 4: Replication Edge Cases
 
-**Affects**: 3 replication tests
+**Affects**: 2 replication tests
 
-- **`test_component_remove_not_replicating`**: Removing `Replicated` with replicon causes a despawn on remote, not a pause. Need a different mechanism to pause/resume replication.
 - **`test_owned_by`**: `ControlledBy` + disconnect behavior not integrated with replicon.
 - **`test_reinsert_replicate`**: Crossbeam channel disconnects during `Replicate` re-insertion. Likely a race condition in transport channel teardown/recreation.
 

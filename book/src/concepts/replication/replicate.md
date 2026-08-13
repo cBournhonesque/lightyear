@@ -17,10 +17,10 @@ those components will be replicated.
 However the entity state will always be 'consistent': the remote entity will always contain the exact same combination
 of components as the local entity, even if it's a bit delayed.
 
-You can remove the `ReplicationTarget` component to pause the replication. This can be useful when you want to despawn the
-entity on the server without replicating the despawn.
+Adding `Replicate` also adds the required `Replicating` marker. You can remove `Replicating` to pause replication
+without changing the target. This can be useful when you want to despawn the entity on the server without replicating the despawn.
 (e.g. an entity can be despawned immediately on the server, but needs to remain alive on the client to play a dying
-animation)
+animation). Reinsert `Replicating` to resume replication.
 
 You can find some of the other usages in the [advanced_replication](../advanced_replication/title.md) section.
 

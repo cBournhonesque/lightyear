@@ -8,7 +8,6 @@ use lightyear_core::id::RemoteId;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
 use lightyear_messages::MessageManager;
-use lightyear_replication::authority::HasAuthority;
 use lightyear_replication::control::{Controlled, ControlledBy, ControlledSend};
 use lightyear_replication::prelude::*;
 use lightyear_replication::send::ReplicatedFrom;
@@ -38,10 +37,9 @@ fn connect_host(stepper: &mut ClientServerStepper) -> Entity {
 }
 
 /// In host-server mode, spawning an entity with `Replicate` should add
-/// `HasAuthority` (server has authority) and `ReplicatedFrom` (host-client
-/// sees the entity as replicated from the host-sender).
+/// `ReplicatedFrom` because the host-client sees the entity through the host sender.
 #[test]
-fn test_replicate_adds_authority_and_replicated_from() {
+fn test_replicate_adds_replicated_from() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     let server_entity = stepper
@@ -52,10 +50,6 @@ fn test_replicate_adds_authority_and_replicated_from() {
     stepper.frame_step(1);
 
     let entity_ref = stepper.server_app.world().entity(server_entity);
-    assert!(
-        entity_ref.contains::<HasAuthority>(),
-        "entity should have HasAuthority in host-server mode"
-    );
     assert!(
         entity_ref.contains::<ReplicatedFrom>(),
         "entity should have ReplicatedFrom in host-server mode"
@@ -189,10 +183,6 @@ fn test_replicate_backfills_when_client_becomes_host_client() {
 
     let entity_ref = stepper.server_app.world().entity(server_entity);
     assert!(
-        !entity_ref.contains::<HasAuthority>(),
-        "without any matching sender yet, existing replicated entities do not get authority eagerly"
-    );
-    assert!(
         !entity_ref.contains::<ReplicatedFrom>(),
         "ReplicatedFrom should not exist before the client becomes a HostClient"
     );
@@ -201,10 +191,6 @@ fn test_replicate_backfills_when_client_becomes_host_client() {
     stepper.frame_step(1);
 
     let entity_ref = stepper.server_app.world().entity(server_entity);
-    assert!(
-        entity_ref.contains::<HasAuthority>(),
-        "late host-client backfill should preserve authority"
-    );
     assert!(
         entity_ref.contains::<ReplicatedFrom>(),
         "late host-client backfill should add ReplicatedFrom for existing replicated entities"

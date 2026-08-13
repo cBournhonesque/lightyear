@@ -541,8 +541,7 @@ fn test_despawn_non_visible_logspam() {
 }
 
 /// https://github.com/cBournhonesque/lightyear/issues/1347
-/// If `lose_visibility` clears metadata in ReplicationState, then multiple calls to `lose_visibility`
-/// will remove the authority information and prevent the entity from getting replicated!
+/// Repeated `lose_visibility` calls should not disturb the entity's replication target.
 #[test]
 fn test_spawn_multiple_lose_visibility() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
