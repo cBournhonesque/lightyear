@@ -5,7 +5,7 @@ use crate::protocol::{
 };
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
-use bevy_replicon::prelude::{Replicated as RepliconReplicated, RepliconTick};
+use bevy_replicon::prelude::RepliconTick;
 use lightyear::prelude::{ConfirmedHistory, InterpolationTimeline};
 use lightyear_connection::client::{Disconnected, DisconnectedReason};
 use lightyear_connection::network_target::NetworkTarget;
@@ -243,6 +243,13 @@ fn test_entity_despawn() {
         stepper.frame_step(direction.propagation_frames());
         let mirrored_entity = target_entity(&stepper, direction, source_entity)
             .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        let replicating = with_source_world(&mut stepper, direction, |world| {
+            world.entity(source_entity).contains::<Replicating>()
+        });
+        assert!(
+            replicating,
+            "Replicate should insert the required Replicating marker for {direction:?}"
+        );
 
         with_source_world(&mut stepper, direction, |world| {
             world.despawn(source_entity);
@@ -816,56 +823,89 @@ fn test_component_remove() {
     }
 }
 
-/// Check that component removes are not replicated if the entity does not have Replicating
-/// TODO: removing Replicated with replicon causes a despawn on remote, not a pause
+/// Check that component removes are not replicated while replication is paused.
 #[test]
-#[ignore]
 fn test_component_remove_not_replicating() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+        let source_entity =
+            spawn_on_source(&mut stepper, direction, (direction.replicate(), CompA(1.0)));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(), CompA(1.0)))
-        .id();
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .unwrap();
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(1.0)
-    );
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).remove::<Replicating>();
+            world.entity_mut(source_entity).remove::<CompA>();
+        });
+        stepper.frame_step(direction.propagation_frames());
 
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        // TODO: removing Replicated will pause the replication instead of sending a despawn
-        .remove::<RepliconReplicated>();
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .remove::<CompA>();
-    stepper.frame_step(1);
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .is_some()
-    );
+        let retained_component = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            retained_component,
+            Some(CompA(1.0)),
+            "component remove should not replicate while paused for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).insert(Replicating);
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let mapped_after_resume = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        assert_eq!(
+            mapped_after_resume, mirrored_entity,
+            "resuming should reuse the remote entity for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).insert(CompA(2.0));
+        });
+        stepper.frame_step(direction.propagation_frames());
+        let resumed_component = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            resumed_component,
+            Some(CompA(2.0)),
+            "component inserts should replicate after resuming for {direction:?}"
+        );
+    }
+}
+
+/// Removing the replication target changes visibility instead of pausing replication in place.
+#[test]
+fn test_remove_replication_target_despawns_remote_entity() {
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+        let source_entity = spawn_on_source(&mut stepper, direction, (direction.replicate(),));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).remove::<Replicate>();
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let remote_exists = with_target_world(&mut stepper, direction, |world| {
+            world.get_entity(mirrored_entity).is_ok()
+        });
+        assert!(
+            !remote_exists,
+            "removing Replicate should despawn the remote entity for {direction:?}"
+        );
+        let replicating = with_source_world(&mut stepper, direction, |world| {
+            world.entity(source_entity).contains::<Replicating>()
+        });
+        assert!(
+            !replicating,
+            "removing Replicate should also remove Replicating for {direction:?}"
+        );
+    }
 }
 
 /// Check that if we remove a non-replicated component, the replicate component does not get removed
@@ -1123,185 +1163,6 @@ fn test_component_replicate_once_with_custom_serde() {
         );
     }
 }
-
-// /// Default = replicate_once
-// /// GlobalOverride = replicate_always
-// /// PerSenderOverride = replicate_once
-// #[test]
-// fn test_component_replicate_once_overrides() {
-//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-//
-//     let client_entity = stepper
-//         .client_app()
-//         .world_mut()
-//         .spawn((Replicate::to_server(), CompReplicateOnce(1.0)))
-//         .id();
-//     stepper.frame_step(1);
-//     let server_entity = stepper
-//         .client_of(0)
-//         .get::<MessageManager>()
-//         .unwrap()
-//         .entity_mapper
-//         .get_local(client_entity)
-//         .unwrap();
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .entity(server_entity)
-//             .get::<CompReplicateOnce>()
-//             .expect("component missing"),
-//         &CompReplicateOnce(1.0)
-//     );
-//
-//     let mut overrides = ComponentReplicationOverrides::<CompReplicateOnce>::default();
-//     overrides.global_override(ComponentReplicationOverride {
-//         replicate_always: true,
-//         ..default()
-//     });
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .insert(overrides);
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .get_mut::<CompReplicateOnce>()
-//         .unwrap()
-//         .0 = 2.0;
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .entity(server_entity)
-//             .get::<CompReplicateOnce>()
-//             .expect("component missing"),
-//         &CompReplicateOnce(2.0)
-//     );
-//
-//     stepper.client_apps[0]
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .get_mut::<ComponentReplicationOverrides<CompReplicateOnce>>()
-//         .unwrap()
-//         .override_for_sender(
-//             ComponentReplicationOverride {
-//                 replicate_once: true,
-//                 ..default()
-//             },
-//             stepper.client_entities[0],
-//         );
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .get_mut::<CompReplicateOnce>()
-//         .unwrap()
-//         .0 = 3.0;
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .entity(server_entity)
-//             .get::<CompReplicateOnce>()
-//             .expect("component missing"),
-//         &CompReplicateOnce(2.0)
-//     );
-// }
-
-// /// Default = disabled
-// /// GlobalOverride = enabled
-// /// PerSenderOverride = disabled
-// #[test]
-// fn test_component_disabled_overrides() {
-//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-//
-//     let client_entity = stepper
-//         .client_app()
-//         .world_mut()
-//         .spawn((Replicate::to_server(), CompDisabled(1.0)))
-//         .id();
-//     stepper.frame_step(1);
-//     let server_entity = stepper
-//         .client_of(0)
-//         .get::<MessageManager>()
-//         .unwrap()
-//         .entity_mapper
-//         .get_local(client_entity)
-//         .unwrap();
-//     assert!(
-//         stepper
-//             .server_app
-//             .world()
-//             .entity(server_entity)
-//             .get::<CompDisabled>()
-//             .is_none()
-//     );
-//
-//     info!("enabled global");
-//     let mut overrides = ComponentReplicationOverrides::<CompDisabled>::default();
-//     overrides.global_override(ComponentReplicationOverride {
-//         enable: true,
-//         ..default()
-//     });
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .insert(overrides);
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .get_mut::<CompDisabled>()
-//         .unwrap()
-//         .0 = 2.0;
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .entity(server_entity)
-//             .get::<CompDisabled>()
-//             .expect("component missing"),
-//         &CompDisabled(2.0)
-//     );
-//
-//     info!("disabled for sender");
-//     stepper.client_apps[0]
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .get_mut::<ComponentReplicationOverrides<CompDisabled>>()
-//         .unwrap()
-//         .override_for_sender(
-//             ComponentReplicationOverride {
-//                 disable: true,
-//                 ..default()
-//             },
-//             stepper.client_entities[0],
-//         );
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(client_entity)
-//         .get_mut::<CompDisabled>()
-//         .unwrap()
-//         .0 = 3.0;
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .server_app
-//             .world()
-//             .entity(server_entity)
-//             .get::<CompDisabled>()
-//             .expect("component missing"),
-//         &CompDisabled(2.0)
-//     );
-// }
 
 /// When a client disconnects, entities it controlled (via ControlledBy with SessionBased lifetime)
 /// should be despawned on the server.
@@ -1725,7 +1586,7 @@ fn test_persistent_replicated_entity_honors_remote_despawn() {
     );
 }
 
-/// Removing Replicon's sender marker before despawning keeps the despawn local to the sender.
+/// Removing `Replicating` before despawning keeps the despawn local to the sender.
 #[test]
 fn test_sender_can_despawn_without_replicating_despawn() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -1748,7 +1609,7 @@ fn test_sender_can_despawn_without_replicating_despawn() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .remove::<RepliconReplicated>();
+        .remove::<Replicating>();
     stepper.server_app.world_mut().despawn(server_entity);
     stepper.frame_step(2);
 
@@ -1757,7 +1618,7 @@ fn test_sender_can_despawn_without_replicating_despawn() {
             .world()
             .get_entity(client_entity)
             .is_ok(),
-        "Removing Replicated before despawning should suppress the remote despawn"
+        "Removing Replicating before despawning should suppress the remote despawn"
     );
 }
 

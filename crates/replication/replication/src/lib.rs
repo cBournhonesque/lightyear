@@ -3,12 +3,13 @@
 //! This crate handles replicating ECS entities and their components across the
 //! network. It wraps `bevy_replicon`'s low-level replication machinery and adds
 //! lightyear-specific features: prediction/interpolation targets, network
-//! visibility, authority, hierarchy propagation, and pre-spawning.
+//! visibility, hierarchy propagation, and pre-spawning.
 //!
 //! # Getting started
 //!
-//! Add [`Replicate`] to an entity to start replicating it. On the server, you
-//! typically specify which clients should receive the entity:
+//! Add [`Replicate`] to an entity to start replicating it. This automatically
+//! inserts [`Replicating`]. On the server, you typically specify which clients
+//! should receive the entity:
 //!
 //! ```rust,ignore
 //! commands.spawn((
@@ -29,6 +30,8 @@
 //! `PredictionTarget` is the send-side way to enable prediction for an entity;
 //! the receiver can also insert [`Predicted`] directly on the received entity.
 //! Each target uses a [`ReplicationMode`] to specify the set of recipients.
+//! Remove [`Replicating`] to pause replication without despawning the remote
+//! entity, then insert it again to resume.
 //!
 //! A [`ReplicationSender`] component must be present on the link entity
 //! (the entity that represents the connection to a remote peer) to enable
@@ -57,15 +60,9 @@
 //!
 //! For interest management based on spatial regions, see [`RoomPlugin`].
 //!
-//! ## Authority and control
+//! ## Control
 //!
 //! [`ControlledBy`] marks which link entity "owns" a replicated entity.
-//! [`HasAuthority`] indicates the local peer currently has authority.
-//! See [`AuthorityBroker`] for tracking authority across the replication
-//! hierarchy.
-//!
-//! Authority is currently not working since replicon only supports server to client
-//! replication.
 //!
 //! ## Pre-spawning
 //!
@@ -78,6 +75,7 @@
 //! [`prespawn::PreSpawnedReceiver`] resource.
 //!
 //! [`Replicate`]: crate::send::Replicate
+//! [`Replicating`]: crate::send::Replicating
 //! [`ReplicationTarget<()>`]: crate::send::ReplicationTarget
 //! [`PredictionTarget`]: crate::send::PredictionTarget
 //! [`InterpolationTarget`]: crate::send::InterpolationTarget
@@ -93,8 +91,6 @@
 //! [`VisibilityExt::lose_visibility_always_present`]: crate::visibility::immediate::VisibilityExt::lose_visibility_always_present
 //! [`RoomPlugin`]: crate::visibility::room::RoomPlugin
 //! [`ControlledBy`]: crate::control::ControlledBy
-//! [`HasAuthority`]: crate::authority::HasAuthority
-//! [`AuthorityBroker`]: crate::authority::AuthorityBroker
 //! [`PreSpawned`]: crate::prespawn::PreSpawned
 #![no_std]
 
@@ -110,7 +106,6 @@ use bevy_ecs::prelude::SystemSet;
 #[cfg(feature = "server")]
 pub mod server;
 
-pub mod authority;
 pub mod channels;
 pub mod checkpoint;
 #[cfg(feature = "client")]
@@ -139,7 +134,6 @@ pub mod prelude {
     pub use bevy_replicon::server::{PriorityMap, ReplicatePriority};
 
     pub use crate::ReplicationSystems;
-    pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
     pub use crate::checkpoint::ReplicationCheckpointMap;
     pub use crate::control::{Controlled, ControlledBy, ControlledSend, Lifetime};
     pub use crate::deferred_entity::DeferredEntityCommands;
@@ -148,7 +142,7 @@ pub mod prelude {
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
     pub use crate::receive::{Persistent, ReplicationReceiver};
-    pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender, ReplicationState};
+    pub use crate::send::{Replicate, ReplicatedFrom, Replicating, ReplicationSender};
 
     pub use crate::registry::ComponentRegistry;
     pub use crate::registry::TransformLinearInterpolation;
