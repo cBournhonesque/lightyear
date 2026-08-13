@@ -8,6 +8,7 @@ use crate::rules::{
 use crate::timeline::InterpolationTimeline;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::StorageType;
+use bevy_ecs::entity_disabling::Disabled;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
@@ -31,18 +32,22 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
     ((current - start) as f32 + overstep) / (end - start) as f32
 }
 
-/// Updates interpolation histories and component presence.
+/// Updates interpolation histories, component presence, and entity readiness.
 ///
 /// This is intentionally archetype-driven: a local
 /// [`InterpolatedArchetypes`](crate::archetypes::InterpolatedArchetypes) cache
 /// stores the highest-priority matching rule per archetype/component and the
 /// type-erased history functions that should run for each cached archetype.
 ///
-/// Component insertion/removal happens here so custom interpolation systems that
-/// run after [`crate::plugin::InterpolationSystems::Prepare`] see the live
-/// component set matching the interpolation timeline.
+/// Component insertion/removal and spawn-tick readiness happen here so custom
+/// interpolation systems that run after [`crate::plugin::InterpolationSystems::Prepare`]
+/// see the live entity and component set matching the interpolation timeline.
 pub(crate) fn update_interpolation_history(
     mut interpolation_world: InterpolationWorld,
+    pending_entities: Query<
+        (Entity, &InterpolationPending),
+        (Allow<InterpolationPending>, Allow<Disabled>),
+    >,
     timeline: Res<InterpolationTimeline>,
     interpolation_registry: Res<InterpolationRegistry>,
     checkpoints: Res<ReplicationCheckpointMap>,
@@ -57,6 +62,13 @@ pub(crate) fn update_interpolation_history(
     let tick_duration = tick_duration.as_deref().map(|duration| duration.0);
 
     let mut deferred_apply = DeferredEntityCommands::default();
+
+    // Enable the interpolated entity when the interpolation timeline reaches the remote spawn tick
+    for (entity, pending) in &pending_entities {
+        if current_interpolate_tick >= pending.spawn_tick {
+            deferred_apply.remove::<InterpolationPending>(entity);
+        }
+    }
 
     interpolation_world.update_archetypes(&interpolation_registry);
     let world = interpolation_world.world;
@@ -299,10 +311,6 @@ fn queue_history_presence<C: Component + Clone>(
             deferred_apply.remove::<C>(entity);
         }
         Some(HistoryState::Updated(value)) if !present => {
-            // Re-enable the entity in the same structural change that materializes its first
-            // interpolation-time component. Observers for this real insertion therefore see an
-            // entity that is no longer pending.
-            deferred_apply.remove::<InterpolationPending>(entity);
             deferred_apply.insert(entity, value);
         }
         _ => {}
@@ -1498,7 +1506,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_entity_is_enabled_when_first_interpolated_component_materializes() {
+    fn pending_entity_is_enabled_when_interpolation_reaches_spawn_tick() {
         let mut app = setup_app(Tick(9), 40);
         app.register_disabling_component::<InterpolationPending>();
         app.init_resource::<MaterializedObservation>();
@@ -1509,7 +1517,14 @@ mod tests {
         history.insert_present(Tick(10), TestComp(4.0));
         let entity = app
             .world_mut()
-            .spawn((Interpolated, InterpolationPending, Disabled, history))
+            .spawn((
+                Interpolated,
+                InterpolationPending {
+                    spawn_tick: Tick(10),
+                },
+                Disabled,
+                history,
+            ))
             .id();
 
         app.update();
@@ -1536,6 +1551,118 @@ mod tests {
         assert_eq!(observation.count, 1);
         assert!(!observation.was_pending);
         assert!(observation.was_disabled);
+    }
+
+    #[test]
+    fn historyless_pending_entity_is_enabled_at_spawn_tick() {
+        let mut app = setup_app(Tick(9), 40);
+        app.register_disabling_component::<InterpolationPending>();
+        add_interpolation_test_systems(&mut app);
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                InterpolationPending {
+                    spawn_tick: Tick(10),
+                },
+            ))
+            .id();
+
+        app.update();
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+
+        set_interpolation_tick(&mut app, Tick(10));
+        app.update();
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+
+        let mut query = app
+            .world_mut()
+            .query_filtered::<Entity, With<Interpolated>>();
+        assert_eq!(query.iter(app.world()).count(), 1);
+        assert!(query.get(app.world(), entity).is_ok());
+    }
+
+    #[test]
+    fn pending_entity_with_live_component_is_enabled_at_spawn_tick() {
+        let mut app = setup_app(Tick(9), 40);
+        app.register_disabling_component::<InterpolationPending>();
+        add_interpolation_test_systems(&mut app);
+
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(10), TestComp(4.0));
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                InterpolationPending {
+                    spawn_tick: Tick(10),
+                },
+                TestComp(4.0),
+                history,
+            ))
+            .id();
+
+        app.update();
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+
+        set_interpolation_tick(&mut app, Tick(10));
+        app.update();
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(4.0)));
+    }
+
+    #[test]
+    fn materialized_component_does_not_enable_entity_before_spawn_tick() {
+        let mut app = setup_app(Tick(9), 40);
+        app.register_disabling_component::<InterpolationPending>();
+        add_interpolation_test_systems(&mut app);
+
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(9), TestComp(4.0));
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                InterpolationPending {
+                    spawn_tick: Tick(10),
+                },
+                history,
+            ))
+            .id();
+
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(4.0)));
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+
+        set_interpolation_tick(&mut app, Tick(10));
+        app.update();
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
     }
 
     #[test]

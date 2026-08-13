@@ -461,11 +461,13 @@ mod prediction {
 #[cfg(feature = "interpolation")]
 mod interpolation {
     use super::*;
+    use crate::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
     use bevy_replicon::bytes::Bytes;
     use bevy_replicon::prelude::RuleFns;
     use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
     use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
     use lightyear_core::interpolation::Interpolated;
+    use lightyear_core::tick::Tick;
 
     /// Sender-side marker that materializes as [`Interpolated`] on the receiver.
     ///
@@ -476,6 +478,19 @@ mod interpolation {
         Component, Clone, Copy, Debug, Default, PartialEq, Reflect, Serialize, Deserialize,
     )]
     pub struct InterpolatedSend;
+
+    /// Transient component added when [`Interpolated`] is inserted by replication.
+    /// Used to add [`InterpolationPending`] to the entity.
+    ///
+    /// [`InterpolationPending`] is not added directly so that observers that
+    /// react on Add<Interpolated> can still fire.
+    #[doc(hidden)]
+    #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct ReplicatedInterpolationStart {
+        /// Authoritative tick carried by the replication message that added
+        /// [`Interpolated`].
+        pub tick: Tick,
+    }
 
     /// Controls which clients run server-authoritative interpolation for this entity.
     ///
@@ -533,11 +548,29 @@ mod interpolation {
     ) -> bevy_ecs::error::Result<()> {
         let _ = rule_fns.deserialize(ctx, message)?;
         entity.insert(Interpolated);
+        let Some(tick) = entity
+            .world()
+            .get_resource::<ReplicationCheckpointMap>()
+            .and_then(|checkpoints| resolve_message_tick(checkpoints, ctx.message_tick))
+        else {
+            error!(
+                entity = ?ctx.entity,
+                message_tick = ?ctx.message_tick,
+                "missing authoritative checkpoint mapping for replicated interpolation start"
+            );
+            debug_assert!(
+                false,
+                "missing authoritative checkpoint mapping for replicated interpolation start"
+            );
+            return Ok(());
+        };
+        entity.insert(ReplicatedInterpolationStart { tick });
         Ok(())
     }
 
     pub(crate) fn remove_interpolated(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
         entity.remove::<Interpolated>();
+        entity.remove::<ReplicatedInterpolationStart>();
     }
 
     /// Component-level visibility for [`InterpolatedSend`].
