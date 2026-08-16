@@ -84,13 +84,14 @@ pub(crate) fn handle_connected(
 /// The server owns and replicates action entities so the owning client can
 /// target them in input messages and remote clients can receive rebroadcasted
 /// input for prediction.
+///
+/// `InputPlugin<C>` installs `HierarchySendPlugin<ActionOf<C>>`, which makes
+/// each action entity replicate like its context entity. The action therefore
+/// does not need its own `Replicate` component.
 fn spawn_action_entities(commands: &mut Commands, player_entity: Entity) {
     commands.spawn((
         ActionOf::<Player>::new(player_entity),
         Action::<Movement>::new(),
-        ReplicateLike {
-            root: player_entity,
-        },
     ));
 }
 

@@ -26,6 +26,8 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
+#[cfg(feature = "server")]
+use lightyear_replication::hierarchy::HierarchySendPlugin;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -47,8 +49,9 @@ use serde::de::DeserializeOwned;
 ///
 /// BEI uses separate "action entities" with [`ActionOf<C>`] to represent
 /// individual actions. In the server-authoritative flow, spawn those action
-/// entities on the server and replicate them to clients along with the context
-/// entity. The owning client should add local-only [`Bindings`] once its local
+/// entities on the server. They automatically replicate like their context
+/// entity, including its replication, prediction, and interpolation targets.
+/// The owning client should add local-only [`Bindings`] once its local
 /// controlled context has the replicated [`Action`] entity in its
 /// [`ActionOf<C>`]/`Actions<C>` relationship.
 ///
@@ -112,6 +115,12 @@ impl<
         // we register the context C entity so that it can be replicated from the server to the client
         app.replicate::<C>();
         app.replicate_once::<ActionOf<C>>();
+        #[cfg(feature = "server")]
+        // A dual-feature protocol is also built in client-only apps, but the
+        // hierarchy sender installs observers that require Replicon's server resources.
+        if app.is_plugin_added::<bevy_replicon::server::ServerPlugin>() {
+            app.add_plugins(HierarchySendPlugin::<ActionOf<C>>::default());
+        }
         #[cfg(feature = "client")]
         {
             use crate::disable::{disable_context_actions, enable_context_actions};
