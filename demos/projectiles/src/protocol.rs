@@ -21,7 +21,10 @@ use crate::representation::{
 };
 use crate::shared::{DespawnAtTick, ProjectileFireTick};
 use crate::timeline::TimelinePolicy;
-use crate::trajectory::{TrajectoryKind, hitscan::HitscanVisual};
+use crate::trajectory::{
+    TrajectoryKind,
+    hitscan::{HitscanVisual, interpolate_visual},
+};
 
 pub const BULLET_SIZE: f32 = 3.0;
 
@@ -159,6 +162,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<HitscanVisual>()
             .replicate()
             .predict()
+            .add_interpolation_with(interpolate_visual)
             .with_rollback_condition(hitscan_geometry_should_rollback);
         // The fire-data parent itself is the owner's prespawned predicted
         // entity. Tracking its immutable firing facts lets authoritative data

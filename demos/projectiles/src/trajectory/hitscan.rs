@@ -45,6 +45,23 @@ impl HitscanVisual {
     }
 }
 
+/// Sample hitscan presentation state on the interpolation timeline.
+///
+/// In particular, keeping `lifetime` on that timeline prevents a remote trace
+/// from finishing its fade while `InterpolationPending` is still hiding it.
+pub(crate) fn interpolate_visual(
+    start: HitscanVisual,
+    end: HitscanVisual,
+    t: f32,
+) -> HitscanVisual {
+    HitscanVisual {
+        start: start.start.lerp(end.start, t),
+        end: start.end.lerp(end.end, t),
+        lifetime: start.lifetime + (end.lifetime - start.lifetime) * t,
+        max_lifetime: start.max_lifetime + (end.max_lifetime - start.max_lifetime) * t,
+    }
+}
+
 /// Advance the frame-time fade for every trail.
 ///
 /// Projectile lifetime itself is fixed-tick based when a `DespawnAtTick`
@@ -65,5 +82,33 @@ pub(crate) fn update_visuals(
         if !fixed_tick_expiry && visual.lifetime >= visual.max_lifetime {
             commands.entity(entity).try_despawn();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interpolation_keeps_hitscan_fade_on_the_presentation_timeline() {
+        let start = HitscanVisual {
+            start: Vec2::ZERO,
+            end: Vec2::Y,
+            lifetime: 0.0,
+            max_lifetime: 0.5,
+        };
+        let end = HitscanVisual {
+            start: Vec2::X,
+            end: Vec2::ONE,
+            lifetime: 0.2,
+            max_lifetime: 0.5,
+        };
+
+        let sampled = interpolate_visual(start, end, 0.5);
+
+        assert_eq!(sampled.start, Vec2::new(0.5, 0.0));
+        assert_eq!(sampled.end, Vec2::new(0.5, 1.0));
+        assert_eq!(sampled.lifetime, 0.1);
+        assert_eq!(sampled.max_lifetime, 0.5);
     }
 }
