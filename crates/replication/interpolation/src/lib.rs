@@ -251,9 +251,10 @@
 //! [`plugin::InterpolationSystems::Interpolate`] so they see histories after Lightyear
 //! has updated component presence for the interpolation timeline.
 //!
-//! Entities whose [`Interpolated`] marker is received through replication also receive
-//! [`InterpolationPending`]. Bevy treats this as a disabling component until the interpolation
-//! timeline reaches the authoritative tick that added the marker.
+//! Entities whose [`Interpolated`] marker is received through replication and own at least one
+//! interpolation history also receive [`InterpolationPending`] at the end of the receive frame.
+//! Bevy treats this as a disabling component until the interpolation timeline reaches the
+//! authoritative tick that added the marker. Historyless entities are ready immediately.
 //! Systems that intentionally need to inspect entities during this interval can opt in with
 //! `Allow<InterpolationPending>`.
 #![no_std]

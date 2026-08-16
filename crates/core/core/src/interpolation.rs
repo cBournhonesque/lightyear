@@ -20,14 +20,15 @@ use crate::tick::Tick;
 pub struct Interpolated;
 
 /// Temporarily disables an entity whose [`Interpolated`] marker was received
-/// through replication until the interpolation timeline reaches the marker's
-/// authoritative server tick.
+/// through replication and owns interpolation history until the interpolation
+/// timeline reaches the marker's authoritative server tick.
 ///
 /// [`lightyear_interpolation`](https://docs.rs/lightyear_interpolation) registers
-/// this as a Bevy disabling component. It is inserted after replication receive,
-/// once component-add observer command chains have completed. Client-local
-/// [`Interpolated`] insertions do not receive this component. It is removed in the
-/// same structural change that materializes the entity at the interpolation timeline.
+/// this as a Bevy disabling component. It is inserted at the end of the receive
+/// frame, after component-add observer chains and downstream engine response
+/// systems have completed. Client-local [`Interpolated`] insertions do not receive
+/// this component, and historyless entities are ready immediately. It is removed
+/// in the same structural change that materializes the entity at the interpolation timeline.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Reflect, Component)]
 #[reflect(Component)]
 pub struct InterpolationPending {

@@ -21,13 +21,9 @@ impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
 
-        // Catch-up queries defer render setup while InterpolationPending disables
-        // a replicated entity. Adding Visibility from lifecycle observers would
-        // let Bevy's visibility propagation miss the component while disabled.
-        app.add_systems(
-            Update,
-            (add_player_visuals, add_bullet_visuals, add_hitscan_visual),
-        );
+        app.add_observer(add_bullet_visuals);
+        app.add_systems(Update, add_player_visuals);
+        app.add_observer(add_hitscan_visual);
         app.add_systems(PostUpdate, draw_hit_impacts);
 
         if !app.is_plugin_added::<FrameInterpolationPlugin>() {
@@ -331,11 +327,12 @@ fn add_player_visuals(
     }
 }
 
-/// Add visuals once a bullet is active on its presentation timeline.
+/// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
+    trigger: On<Add, (Position, Rotation)>,
     // Hitscan are rendered differently
     query: Query<
-        (Entity, &ColorComponent, Has<Interpolated>),
+        (&ColorComponent, Has<Interpolated>),
         (
             Without<HitscanVisual>,
             With<Position>,
@@ -348,8 +345,8 @@ fn add_bullet_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (entity, color, interpolated) in &query {
-        commands.entity(entity).insert((
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -362,110 +359,23 @@ fn add_bullet_visuals(
         // if not interpolated, then the entity gets updated in FixedUpdate and needs
         // FrameInterpolation to be smooth
         if !interpolated {
-            commands.entity(entity).insert(FrameInterpolate);
+            commands.entity(trigger.entity).insert(FrameInterpolate);
         }
     }
 }
 
-/// Add visuals once a hitscan is active on its presentation timeline.
+/// Add visuals to hitscan effects
 fn add_hitscan_visual(
-    query: Query<
-        Entity,
-        (
-            With<HitscanVisual>,
-            With<ColorComponent>,
-            Without<Visibility>,
-        ),
-    >,
+    trigger: On<Add, HitscanVisual>,
+    query: Query<(&HitscanVisual, &ColorComponent)>,
     mut commands: Commands,
 ) {
-    for entity in &query {
+    if let Ok((visual, color)) = query.get(trigger.entity) {
         // For now, we'll use gizmos to draw the line in a separate system
         // This is a simple implementation; in a real game you might want
         // more sophisticated line rendering
         commands
-            .entity(entity)
+            .entity(trigger.entity)
             .insert((Visibility::default(), Name::new("HitscanLine")));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy::camera::visibility::VisibilityPlugin;
-    use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
-
-    fn setup_app() -> App {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<ColorMaterial>>();
-        app.init_resource::<Assets<SkinnedMeshInverseBindposes>>();
-        app.register_disabling_component::<InterpolationPending>();
-        app.add_plugins(VisibilityPlugin);
-        app.add_systems(Update, (add_bullet_visuals, add_hitscan_visual));
-        app
-    }
-
-    #[test]
-    fn interpolated_bullet_visual_is_added_only_after_pending_is_removed() {
-        let mut app = setup_app();
-        let entity = app
-            .world_mut()
-            .spawn((
-                BulletMarker {
-                    shooter: PeerId::Local(1),
-                },
-                ColorComponent(Color::WHITE),
-                Position(Vec2::ZERO),
-                Rotation::default(),
-                Interpolated,
-                InterpolationPending {
-                    spawn_tick: Tick(10),
-                },
-            ))
-            .id();
-
-        app.update();
-        assert!(!app.world().entity(entity).contains::<Mesh2d>());
-
-        app.world_mut()
-            .entity_mut(entity)
-            .remove::<InterpolationPending>();
-        app.update();
-
-        let entity_ref = app.world().entity(entity);
-        assert!(entity_ref.contains::<Mesh2d>());
-        assert!(entity_ref.contains::<Visibility>());
-        assert!(entity_ref.get::<InheritedVisibility>().unwrap().get());
-        assert!(!entity_ref.contains::<FrameInterpolate>());
-    }
-
-    #[test]
-    fn interpolated_hitscan_visual_is_added_only_after_pending_is_removed() {
-        let mut app = setup_app();
-        let entity = app
-            .world_mut()
-            .spawn((
-                BulletMarker {
-                    shooter: PeerId::Local(1),
-                },
-                ColorComponent(Color::WHITE),
-                HitscanVisual::new(Vec2::ZERO, Rotation::default(), 0.5),
-                Interpolated,
-                InterpolationPending {
-                    spawn_tick: Tick(10),
-                },
-            ))
-            .id();
-
-        app.update();
-        assert!(!app.world().entity(entity).contains::<Visibility>());
-
-        app.world_mut()
-            .entity_mut(entity)
-            .remove::<InterpolationPending>();
-        app.update();
-
-        assert!(app.world().entity(entity).contains::<Visibility>());
     }
 }
