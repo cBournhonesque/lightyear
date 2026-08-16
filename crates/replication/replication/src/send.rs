@@ -482,8 +482,8 @@ mod interpolation {
     /// Transient component added when [`Interpolated`] is inserted by replication.
     /// Used to add [`InterpolationPending`] to the entity.
     ///
-    /// [`InterpolationPending`] is not added directly so that observers that
-    /// react on Add<Interpolated> can still fire.
+    /// [`InterpolationPending`] is not added directly so that replication-time
+    /// component-add observer command chains complete before the entity is disabled.
     #[doc(hidden)]
     #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
     pub struct ReplicatedInterpolationStart {

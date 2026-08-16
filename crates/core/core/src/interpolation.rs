@@ -24,10 +24,10 @@ pub struct Interpolated;
 /// authoritative server tick.
 ///
 /// [`lightyear_interpolation`](https://docs.rs/lightyear_interpolation) registers
-/// this as a Bevy disabling component. It is inserted by an observer after the
-/// other [`Interpolated`] add observers have run. Client-local [`Interpolated`]
-/// insertions do not receive this component. It is removed in the same structural
-/// change that materializes the entity at the interpolation timeline.
+/// this as a Bevy disabling component. It is inserted after replication receive,
+/// once component-add observer command chains have completed. Client-local
+/// [`Interpolated`] insertions do not receive this component. It is removed in the
+/// same structural change that materializes the entity at the interpolation timeline.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Reflect, Component)]
 #[reflect(Component)]
 pub struct InterpolationPending {
