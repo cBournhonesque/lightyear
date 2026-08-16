@@ -1401,9 +1401,12 @@ pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
     where
         C: SyncComponent + RepliconDiffable + Ease;
 
-    /// The remote updates will be stored in a [`ConfirmedHistory<C>`] component
-    /// but the user has to define the interpolation logic themselves
-    /// (`lightyear` won't perform any kind of interpolation)
+    /// Store remote updates in [`ConfirmedHistory<C>`] and manage delayed
+    /// component presence without interpolating an already-present component.
+    ///
+    /// Lightyear inserts the exact history value when its add tick reaches the
+    /// interpolation timeline. The user owns any subsequent changes to the live
+    /// component.
     fn add_custom_interpolation(self) -> Self
     where
         C: SyncComponent;

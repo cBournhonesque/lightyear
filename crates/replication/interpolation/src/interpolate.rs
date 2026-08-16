@@ -1554,6 +1554,60 @@ mod tests {
     }
 
     #[test]
+    fn history_only_component_is_added_exactly_when_pending_entity_becomes_ready() {
+        let mut app = setup_app(Tick(9), 40);
+        app.register_disabling_component::<InterpolationPending>();
+        app.init_resource::<MaterializedObservation>();
+        app.add_observer(observe_materialized_test_component);
+        QueryState::<&Archetype, With<HistoryOnlyRule>>::new(app.world_mut());
+        insert_rule::<TestComp, With<HistoryOnlyRule>>(
+            &mut app,
+            InterpolationFns::history_only(),
+            InterpolationRuleConfig { priority: 100 },
+        );
+        add_interpolation_test_systems(&mut app);
+
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(10), TestComp(0.0));
+        history.insert_present(Tick(20), TestComp(0.2));
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                InterpolationPending {
+                    spawn_tick: Tick(10),
+                },
+                HistoryOnlyRule,
+                history,
+            ))
+            .id();
+
+        app.update();
+        assert!(!app.world().entity(entity).contains::<TestComp>());
+        assert_eq!(app.world().resource::<MaterializedObservation>().count, 0);
+
+        set_interpolation_tick(&mut app, Tick(10));
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(0.0)));
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+        let observation = app.world().resource::<MaterializedObservation>();
+        assert_eq!(observation.count, 1);
+        assert!(!observation.was_pending);
+
+        // A custom system owns the live value after materialization; newer
+        // confirmed samples remain in history and are not applied automatically.
+        app.world_mut().get_mut::<TestComp>(entity).unwrap().0 = 0.05;
+        set_interpolation_tick(&mut app, Tick(15));
+        app.update();
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(0.05)));
+    }
+
+    #[test]
     fn historyless_pending_entity_is_enabled_at_spawn_tick() {
         let mut app = setup_app(Tick(9), 40);
         app.register_disabling_component::<InterpolationPending>();

@@ -2,7 +2,6 @@ use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{apply_interpolation, update_interpolation_history};
 use crate::registry::{InterpolationRegistry, finalize_interpolation_registry};
 use crate::timeline::TimelinePlugin;
-use alloc::vec::Vec;
 use bevy_app::{App, Last, Plugin, Update};
 use bevy_ecs::{
     component::Component,
@@ -117,41 +116,22 @@ fn backfill_confirmed_histories_on_interpolated(
 }
 
 /// After app and engine response systems finish, disables newly replicated
-/// entities whose interpolated component histories are not ready yet.
+/// interpolated entities until their spawn tick is reached.
 fn mark_replicated_interpolation_pending(
     replicated_starts: Query<
         (Entity, &ReplicatedInterpolationStart),
-        (
-            With<ReplicatedInterpolationStart>,
-            Allow<Disabled>,
-            Allow<InterpolationPending>,
-        ),
+        (Allow<Disabled>, Allow<InterpolationPending>),
     >,
-    interpolation_registry: Res<InterpolationRegistry>,
     mut commands: Commands,
 ) {
-    let history_component_ids = interpolation_registry
-        .confirmed_history_backfill_fns()
-        .map(|(_, history_component_id, _)| history_component_id)
-        .collect::<Vec<_>>();
-    let starts = replicated_starts
-        .iter()
-        .map(|(entity, start)| (entity, start.tick))
-        .collect::<Vec<_>>();
-    commands.queue(move |world: &mut World| {
-        for (entity, spawn_tick) in starts {
-            let Ok(mut entity) = world.get_entity_mut(entity) else {
-                continue;
-            };
-            if history_component_ids
-                .iter()
-                .any(|component_id| entity.contains_id(*component_id))
-            {
-                entity.insert(InterpolationPending { spawn_tick });
-            }
-            entity.remove::<ReplicatedInterpolationStart>();
-        }
-    });
+    for (entity, start) in &replicated_starts {
+        commands
+            .entity(entity)
+            .insert(InterpolationPending {
+                spawn_tick: start.tick,
+            })
+            .remove::<ReplicatedInterpolationStart>();
+    }
 }
 
 impl Plugin for InterpolationPlugin {
@@ -163,6 +143,10 @@ impl Plugin for InterpolationPlugin {
         app.register_disabling_component::<InterpolationPending>();
         configure_delayed_interpolated_despawn(app);
         app.add_observer(backfill_confirmed_histories_on_interpolated);
+        // Keep the entity enabled through component-add observer chains and
+        // PostUpdate engine response systems such as visibility propagation.
+        // Last still runs before render extraction, so the entity cannot render
+        // before its interpolation timeline reaches the replicated spawn tick.
         app.add_systems(Last, mark_replicated_interpolation_pending);
 
         // Host-Clients have no interpolation delay
@@ -195,16 +179,13 @@ impl Plugin for InterpolationPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::AppInterpolationExt;
-    use crate::rules::InterpolationFns;
     use bevy_app::{PostUpdate, PreUpdate};
     use bevy_replicon::client::confirm_history::ConfirmHistory;
     use bevy_replicon::prelude::Remote;
     use bevy_replicon::prelude::RepliconTick;
-    use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_replication::ReplicationSystems;
 
-    #[derive(Component, Clone, PartialEq)]
+    #[derive(Component)]
     struct PendingTestComponent;
 
     #[derive(Resource, Default)]
@@ -235,10 +216,6 @@ mod tests {
 
     const SPAWN_TICK: Tick = Tick(10);
 
-    fn register_pending_test_history(app: &mut App) {
-        app.interpolate_with::<PendingTestComponent>(InterpolationFns::history_only());
-    }
-
     fn receive_interpolated_entity(mut commands: Commands, mut received: ResMut<ReceivedEntity>) {
         if received.0.is_none() {
             received.0 = Some(
@@ -247,7 +224,6 @@ mod tests {
                         Interpolated,
                         ReplicatedInterpolationStart { tick: SPAWN_TICK },
                         Remote,
-                        ConfirmedHistory::<PendingTestComponent>::default(),
                     ))
                     .id(),
             );
@@ -321,12 +297,9 @@ mod tests {
     fn interpolation_pending_is_added_after_receive_observers_run() {
         let mut app = App::new();
         app.register_disabling_component::<InterpolationPending>();
-        app.init_resource::<InterpolationRegistry>();
         app.init_resource::<ReceivedEntity>();
         app.init_resource::<InterpolatedAddObservation>();
         app.init_resource::<ScheduleObservation>();
-        register_pending_test_history(&mut app);
-        app.add_observer(backfill_confirmed_histories_on_interpolated);
         app.add_observer(observe_interpolated_add);
         app.add_systems(
             PreUpdate,
@@ -377,11 +350,8 @@ mod tests {
     fn interpolation_pending_is_added_after_chained_add_observers_run() {
         let mut app = App::new();
         app.register_disabling_component::<InterpolationPending>();
-        app.init_resource::<InterpolationRegistry>();
         app.init_resource::<ReceivedEntity>();
         app.init_resource::<ObserverAddedComponentObservation>();
-        register_pending_test_history(&mut app);
-        app.add_observer(backfill_confirmed_histories_on_interpolated);
         app.add_observer(add_component_from_interpolated);
         app.add_observer(observe_added_component);
         app.add_systems(
@@ -410,11 +380,9 @@ mod tests {
     }
 
     #[test]
-    fn historyless_replicated_interpolation_is_ready_immediately() {
+    fn historyless_replicated_interpolation_is_pending_until_spawn_tick() {
         let mut app = App::new();
         app.register_disabling_component::<InterpolationPending>();
-        app.init_resource::<InterpolationRegistry>();
-        app.add_observer(backfill_confirmed_histories_on_interpolated);
         app.add_systems(Last, mark_replicated_interpolation_pending);
 
         let entity = app
@@ -427,10 +395,11 @@ mod tests {
 
         app.update();
 
-        assert!(
-            !app.world()
-                .entity(entity)
-                .contains::<InterpolationPending>()
+        assert_eq!(
+            app.world().entity(entity).get::<InterpolationPending>(),
+            Some(&InterpolationPending {
+                spawn_tick: SPAWN_TICK
+            })
         );
         assert!(
             !app.world()
@@ -441,15 +410,13 @@ mod tests {
         let mut default_query = app
             .world_mut()
             .query_filtered::<Entity, With<Interpolated>>();
-        assert_eq!(default_query.iter(app.world()).count(), 1);
+        assert_eq!(default_query.iter(app.world()).count(), 0);
     }
 
     #[test]
     fn interpolation_pending_is_not_added_when_client_marks_remote_entity_interpolated() {
         let mut app = App::new();
         app.register_disabling_component::<InterpolationPending>();
-        app.init_resource::<InterpolationRegistry>();
-        app.add_observer(backfill_confirmed_histories_on_interpolated);
         app.add_systems(Last, mark_replicated_interpolation_pending);
 
         let entity = app

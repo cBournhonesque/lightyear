@@ -480,7 +480,7 @@ mod interpolation {
     pub struct InterpolatedSend;
 
     /// Transient component added when [`Interpolated`] is inserted by replication.
-    /// Used to determine whether the entity needs [`InterpolationPending`].
+    /// Carries the authoritative spawn tick into [`InterpolationPending`].
     ///
     /// [`InterpolationPending`] is not added directly so that component-add
     /// observer chains and downstream engine response systems complete before

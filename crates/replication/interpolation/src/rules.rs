@@ -305,12 +305,16 @@ impl<C> InterpolationFns<C> {
         }
     }
 
-    /// Stores and prepares interpolation history, but does not apply `C`.
+    /// Stores and prepares interpolation history and manages delayed component
+    /// presence, but does not interpolate an already-present `C`.
     ///
     /// Use this when Lightyear should receive component updates into
-    /// [`ConfirmedHistory<C>`](lightyear_core::prelude::ConfirmedHistory), but visible interpolation is handled by a user
-    /// system. For example, a system may sample several histories and write a
-    /// render-only component.
+    /// [`ConfirmedHistory<C>`](lightyear_core::prelude::ConfirmedHistory). When
+    /// the component's add tick reaches the interpolation timeline, Lightyear
+    /// inserts that exact history value. Subsequent visible interpolation is
+    /// handled by a user system. For example, a system may sample several
+    /// histories and write a render-only component, or advance local
+    /// presentation state from the exact replicated starting value.
     ///
     /// # Examples
     ///

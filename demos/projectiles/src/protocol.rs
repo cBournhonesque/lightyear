@@ -159,6 +159,10 @@ impl Plugin for ProtocolPlugin {
         app.component::<HitscanVisual>()
             .replicate()
             .predict()
+            // Preserve exact server samples and materialize the visual when its
+            // add tick reaches the interpolation timeline. The local update
+            // system owns the presentation lifetime, so no lerp is needed.
+            .add_custom_interpolation()
             .with_rollback_condition(hitscan_geometry_should_rollback);
         // The fire-data parent itself is the owner's prespawned predicted
         // entity. Tracking its immutable firing facts lets authoritative data
