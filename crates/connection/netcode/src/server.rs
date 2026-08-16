@@ -276,6 +276,7 @@ fn server_addr_matches(local_addr: SocketAddr, token_addr: SocketAddr) -> bool {
 /// let server = Server::with_config(protocol_id, private_key, cfg).unwrap();
 /// ```
 pub struct ServerConfig<Ctx> {
+    pub(crate) max_clients: usize,
     num_disconnect_packets: usize,
     keep_alive_send_rate: f64,
     token_expire_secs: i32,
@@ -289,6 +290,7 @@ pub struct ServerConfig<Ctx> {
 impl Default for ServerConfig<()> {
     fn default() -> Self {
         Self {
+            max_clients: MAX_CLIENTS,
             num_disconnect_packets: 10,
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
@@ -309,6 +311,7 @@ impl<Ctx> ServerConfig<Ctx> {
     /// Create a new server configuration with context that will be passed to the callbacks.
     pub fn with_context(ctx: Ctx) -> Self {
         Self {
+            max_clients: MAX_CLIENTS,
             num_disconnect_packets: 10,
             keep_alive_send_rate: PACKET_SEND_RATE_SEC,
             token_expire_secs: TOKEN_EXPIRE_SEC,
@@ -319,6 +322,14 @@ impl<Ctx> ServerConfig<Ctx> {
             on_disconnect: None,
         }
     }
+
+    /// Set the maximum number of simultaneous client connections.
+    /// The default is 256 clients.
+    pub fn max_clients(mut self, max_clients: usize) -> Self {
+        self.max_clients = max_clients;
+        self
+    }
+
     /// Set the number of redundant disconnect packets that will be sent to a client when the server is disconnecting it. <br>
     /// The default is 10 packets.
     pub fn num_disconnect_packets(mut self, num: usize) -> Self {
@@ -712,7 +723,7 @@ impl<Ctx> Server<Ctx> {
                 token.client_id,
             )));
         };
-        if self.num_connected_clients() >= MAX_CLIENTS {
+        if self.num_connected_clients() >= self.cfg.max_clients {
             self.send_netcode_packet(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 token.server_to_client_key,
@@ -788,7 +799,7 @@ impl<Ctx> Server<Ctx> {
             return Ok(());
         };
 
-        if self.num_connected_clients() >= MAX_CLIENTS {
+        if self.num_connected_clients() >= self.cfg.max_clients {
             self.send_netcode_packet(
                 DeniedPacket::create(DeniedReason::ServerFull),
                 client.send_key,

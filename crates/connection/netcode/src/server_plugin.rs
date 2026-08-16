@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES};
+use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES, server::MAX_CLIENTS};
 use aeronet_io::connection::LocalAddr;
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
@@ -43,6 +43,8 @@ pub struct NetcodeServer {
 // TODO: should be part of the NetcodeServer component
 #[derive(Debug, Clone)]
 pub struct NetcodeConfig {
+    /// Maximum number of simultaneous client connections accepted by the server.
+    pub max_clients: usize,
     pub num_disconnect_packets: usize,
     pub keep_alive_send_rate: f64,
     /// Set the duration (in seconds) after which the server disconnects a client if they don't hear from them.
@@ -62,6 +64,7 @@ pub struct NetcodeConfig {
 impl Default for NetcodeConfig {
     fn default() -> Self {
         Self {
+            max_clients: MAX_CLIENTS,
             num_disconnect_packets: 10,
             keep_alive_send_rate: 1.0 / 10.0,
             client_timeout_secs: 3,
@@ -74,6 +77,11 @@ impl Default for NetcodeConfig {
 }
 
 impl NetcodeConfig {
+    pub fn with_max_clients(mut self, max_clients: usize) -> Self {
+        self.max_clients = max_clients;
+        self
+    }
+
     pub fn with_protocol_id(mut self, protocol_id: u64) -> Self {
         self.protocol_id = protocol_id;
         self
@@ -107,6 +115,7 @@ impl NetcodeServer {
             .on_disconnect(|id, entity, ctx| {
                 ctx.disconnections.push((id, entity));
             });
+        cfg = cfg.max_clients(config.max_clients);
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
@@ -410,6 +419,18 @@ impl NetcodeServerPlugin {
             )?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_clients_is_forwarded_to_the_server() {
+        let server = NetcodeServer::new(NetcodeConfig::default().with_max_clients(42));
+
+        assert_eq!(server.inner.cfg.max_clients, 42);
     }
 }
 
