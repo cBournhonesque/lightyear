@@ -8,6 +8,7 @@ use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
+use crate::packet::nack::PacketNackSettings;
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
 use crate::packet::stats_manager::packet::PacketStatsManager;
@@ -115,13 +116,6 @@ impl PacketHeader {
 // we can only send acks for the last 32 packets ids before the last received packet
 const ACK_BITFIELD_SIZE: u8 = 32;
 
-/// minimum number of milliseconds after which we can consider a packet lost
-/// (to avoid edge case behaviour)
-const MIN_NACK_MILLIS: u64 = 10;
-
-/// maximum number of seconds after which we consider a packet lost
-const MAX_NACK_SECONDS: u64 = 3;
-
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
 #[derive(Debug)]
@@ -152,21 +146,24 @@ pub struct PacketHeaderManager {
     recv_buffer: ReceiveBuffer,
     /// Whether an acknowledgement-eliciting packet has arrived since the last packet we sent.
     ack_pending: bool,
-    /// After how many multiples of RTT do we consider a packet to be lost?
-    ///
-    /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
-    /// we haven't received an ACK for it.
-    nack_rtt_multiple: f32,
+    pub(crate) nack_settings: PacketNackSettings,
 }
 
 impl Default for PacketHeaderManager {
     fn default() -> Self {
-        Self::new(1.5)
+        Self::with_nack_settings(PacketNackSettings::default())
     }
 }
 
 impl PacketHeaderManager {
-    pub(crate) fn new(nack_rtt_multiple: f32) -> Self {
+    pub(crate) fn new(nack_rtt_multiplier: f32) -> Self {
+        Self::with_nack_settings(PacketNackSettings {
+            rtt_multiplier: nack_rtt_multiplier,
+            ..Default::default()
+        })
+    }
+
+    pub(crate) fn with_nack_settings(nack_settings: PacketNackSettings) -> Self {
         Self {
             next_packet_id: PacketId(0),
             stats_manager: PacketStatsManager::default(),
@@ -176,18 +173,14 @@ impl PacketHeaderManager {
             newly_acked_packet_scratch: vec![],
             recv_buffer: ReceiveBuffer::new(),
             ack_pending: false,
-            nack_rtt_multiple,
+            nack_settings,
         }
     }
 
     /// Internal bookkeeping. Updates the list of packets that are NACKed (acknowledged as losts)
     pub(crate) fn update(&mut self, real: Duration, link_stats: &LinkStats) {
         self.stats_manager.update(real);
-        let rtt = link_stats.rtt;
-        let nack_duration = rtt
-            .mul_f32(self.nack_rtt_multiple)
-            .min(Duration::from_secs(MAX_NACK_SECONDS))
-            .max(Duration::from_millis(MIN_NACK_MILLIS));
+        let nack_duration = self.nack_settings.timeout(link_stats);
         // clear sent packets that haven't received any ack for a while
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
             // protection against keep old packets for too long (which would cause bugs on wraparound)

@@ -5,6 +5,7 @@ use crate::channel::send::ChannelSend;
 use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
+use crate::packet::nack::PacketNackSettings;
 use crate::packet::packet::{
     FRAGMENT_SIZE, MIN_FRAGMENT_PACKET_SIZE, PacketId, fragment_size_for_min_mtu,
 };
@@ -264,6 +265,22 @@ impl Transport {
         self.compression = compression;
     }
 
+    /// Sets the policy used to classify unacknowledged packets as lost.
+    pub fn with_packet_nack_settings(mut self, settings: PacketNackSettings) -> Self {
+        self.set_packet_nack_settings(settings);
+        self
+    }
+
+    /// Sets the policy used to classify unacknowledged packets as lost.
+    pub fn set_packet_nack_settings(&mut self, settings: PacketNackSettings) {
+        self.packet_manager.set_nack_settings(settings);
+    }
+
+    /// Returns the policy used to classify unacknowledged packets as lost.
+    pub fn packet_nack_settings(&self) -> PacketNackSettings {
+        self.packet_manager.nack_settings()
+    }
+
     /// Number of packet payload buffers allocated because none was ready in the local pool.
     ///
     /// This is test-only instrumentation for exercising the real Transport -> Link -> IO path.
@@ -521,7 +538,8 @@ impl Transport {
         let priority_config = self.priority_manager.config.clone();
         self.priority_manager = PriorityManager::new(priority_config.clone());
         self.bandwidth_limiter = BandwidthLimiter::new(priority_config);
-        self.packet_manager = Default::default();
+        let packet_nack_settings = self.packet_manager.nack_settings();
+        self.packet_manager = PacketBuilder::with_nack_settings(packet_nack_settings);
         self.compression_scratch = Default::default();
         self.packet_message_acks = Default::default();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
@@ -591,7 +609,7 @@ impl ReliableSettings {
 }
 
 #[cfg(test)]
-mod mtu_tests {
+mod transport_tests {
     use super::*;
     use bevy_ecs::world::World;
     use lightyear_link::LinkMtu;
@@ -620,6 +638,21 @@ mod mtu_tests {
             world.get::<Transport>(entity).unwrap().fragment_size,
             expected_fragment_size
         );
+    }
+
+    #[test]
+    fn packet_nack_settings_are_configurable_and_survive_reset() {
+        let settings = PacketNackSettings {
+            rtt_multiplier: 2.0,
+            jitter_multiplier: 1.5,
+            minimum_timeout: Duration::from_millis(34),
+            maximum_timeout: Duration::from_secs(2),
+        };
+        let mut transport = Transport::default().with_packet_nack_settings(settings);
+
+        assert_eq!(transport.packet_nack_settings(), settings);
+        transport.reset(&ChannelRegistry::default());
+        assert_eq!(transport.packet_nack_settings(), settings);
     }
 }
 
