@@ -18,9 +18,7 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_replication::prelude::{
-    ControlledBy, PreSpawned, PredictionTarget, Replicate, ReplicateLike,
-};
+use lightyear_replication::prelude::{ControlledBy, PreSpawned, PredictionTarget, Replicate};
 use lightyear_sync::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use test_log::test;
 use tracing::info;
@@ -324,9 +322,6 @@ fn test_server_replicated_action_sends_inputs_after_client_adds_bindings() {
         .spawn((
             ActionOf::<BEIContext>::new(server_entity),
             Action::<BEIAction1>::default(),
-            ReplicateLike {
-                root: server_entity,
-            },
         ))
         .id();
 

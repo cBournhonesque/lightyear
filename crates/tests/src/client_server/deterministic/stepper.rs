@@ -393,9 +393,6 @@ pub fn spawn_player_on_server(
     server_app.world_mut().spawn((
         ActionOf::<Player>::new(player_entity),
         Action::<DetMovement>::new(),
-        ReplicateLike {
-            root: player_entity,
-        },
     ));
 
     player_entity
