@@ -473,6 +473,25 @@ impl PredictionRegistry {
 
         let predicted_history = entity_mut.get::<PredictionHistory<C>>();
 
+        // A confirmed VALUE arriving for a component this entity has never
+        // predicted (no PredictionHistory<C>) and does not currently have
+        // (no live C) — e.g. the server inserted a marker like `Dead`
+        // mid-game that the client cannot predict — is otherwise
+        // undeliverable (#1692):
+        // - the receive-time mismatch check below is often skipped because
+        //   insert messages ride a reliable channel and can resolve to a tick
+        //   at or behind `StateRollbackMetadata::last_processed_tick`;
+        // - the unchanged-entity scan (`check_rollback_for_unchanged_component`)
+        //   returns early without a retained predicted sample;
+        // - and `prepare_rollback` uses PredictionHistory<C> as its membership
+        //   marker, so even an unrelated rollback's restore skips C.
+        // Seed the prediction history with what the client actually predicted
+        // — "absent" — so the normal mismatch → rollback → restore pipeline
+        // picks the component up at the next completed mutate tick.
+        let never_predicted_insert = confirmed_component.is_some()
+            && predicted_history.is_none()
+            && entity_mut.get::<C>().is_none();
+
         #[cfg(feature = "metrics")]
         if let Some(predicted_history) = predicted_history.as_ref() {
             self.prediction_map[&ComponentKind::of::<C>()]
@@ -546,6 +565,19 @@ impl PredictionRegistry {
         } else {
             let mut history = ConfirmedHistory::<C>::default();
             history.insert(confirmed_tick, confirmed_state);
+            entity_mut.insert(history);
+        }
+        if never_predicted_insert {
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "seed_prediction_history_for_unpredicted_insert",
+                entity = ?entity,
+                component = ?name,
+                confirmed_tick = confirmed_tick.0,
+                "seeding PredictionHistory with predicted-absence for a confirmed insert of a never-predicted component"
+            );
+            let mut history = PredictionHistory::<C>::default();
+            history.add_state(confirmed_tick, HistoryState::Removed);
             entity_mut.insert(history);
         }
         should_rollback
