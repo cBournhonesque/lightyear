@@ -8,7 +8,6 @@ use bevy_replicon::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::InterpolationPending;
 use lightyear_messages::MessageManager;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
@@ -207,15 +206,7 @@ fn on_replication_disconnect(
             Without<HostClient>,
         ),
     >,
-    replicated: Query<
-        Entity,
-        (
-            With<Replicated>,
-            Without<Replicate>,
-            Without<Persistent>,
-            Allow<InterpolationPending>,
-        ),
-    >,
+    replicated: Query<Entity, (With<Replicated>, Without<Replicate>, Without<Persistent>)>,
     mut checkpoints: ResMut<ReplicationCheckpointMap>,
 ) {
     // The tuple observer runs when either component is removed. Only clean up a connection that

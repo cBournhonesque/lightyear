@@ -54,7 +54,7 @@ pub mod prelude {
     pub use crate::history_buffer::HistoryState;
 
     pub use crate::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};
-    pub use crate::interpolation::{Interpolated, InterpolationPending};
+    pub use crate::interpolation::Interpolated;
 
     pub use crate::prediction::Predicted;
 

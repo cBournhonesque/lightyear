@@ -7,16 +7,9 @@ use bevy_ecs::{
     system::Commands,
 };
 use bevy_replicon::shared::replication::deferred_entity::{DeferredEntity, EntityScratch};
-use core::any::TypeId;
 
 type ApplyDeferredEntityCommand =
     Box<dyn for<'w> FnOnce(&mut DeferredEntity<'w>) + Send + Sync + 'static>;
-
-#[derive(Default)]
-struct DeferredEntityMutations {
-    commands: Vec<ApplyDeferredEntityCommand>,
-    removals: Vec<TypeId>,
-}
 
 /// Batched structural changes for multiple entities.
 ///
@@ -45,7 +38,7 @@ struct DeferredEntityMutations {
 /// ```
 #[derive(Default)]
 pub struct DeferredEntityCommands {
-    entities: EntityHashMap<DeferredEntityMutations>,
+    entities: EntityHashMap<Vec<ApplyDeferredEntityCommand>>,
 }
 
 impl DeferredEntityCommands {
@@ -54,26 +47,19 @@ impl DeferredEntityCommands {
         self.entities
             .entry(entity)
             .or_default()
-            .commands
             .push(Box::new(move |entity| {
                 entity.insert(component);
             }));
     }
 
     /// Queues removal of one component from `entity`.
-    ///
-    /// Repeated removals of the same component from one entity are coalesced because Replicon's
-    /// dynamic removal bundle requires unique component IDs.
     pub fn remove<C: Component>(&mut self, entity: Entity) {
-        let mutations = self.entities.entry(entity).or_default();
-        let component = TypeId::of::<C>();
-        if mutations.removals.contains(&component) {
-            return;
-        }
-        mutations.removals.push(component);
-        mutations.commands.push(Box::new(|entity| {
-            entity.remove::<C>();
-        }));
+        self.entities
+            .entry(entity)
+            .or_default()
+            .push(Box::new(|entity| {
+                entity.remove::<C>();
+            }));
     }
 
     /// Queues a Bevy command that applies all deferred mutations.
@@ -88,7 +74,7 @@ impl DeferredEntityCommands {
                     continue;
                 };
                 let mut deferred = DeferredEntity::new(entity_mut, &mut scratch);
-                for mutation in mutations.commands {
+                for mutation in mutations {
                     mutation(&mut deferred);
                 }
                 deferred.flush();
