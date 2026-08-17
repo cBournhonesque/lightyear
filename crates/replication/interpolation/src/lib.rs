@@ -250,12 +250,6 @@
 //! [`plugin::InterpolationSystems`]. Custom interpolation systems should usually run in
 //! [`plugin::InterpolationSystems::Interpolate`] so they see histories after Lightyear
 //! has updated component presence for the interpolation timeline.
-//!
-//! Newly received [`Interpolated`] entities also receive [`InterpolationPending`] after
-//! replication receive. Bevy treats this as a disabling component until the interpolation
-//! timeline first materializes a live interpolated component. `On<Add, Interpolated>` observers
-//! run before the entity is disabled. Systems that intentionally need to inspect entities during
-//! this interval can opt in with `Allow<InterpolationPending>`.
 #![no_std]
 
 extern crate alloc;
@@ -279,6 +273,7 @@ pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
 pub mod prelude {
+    pub use crate::Interpolated;
     pub use crate::interpolate::interpolation_fraction;
     pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSystems};
     pub use crate::registry::{
@@ -291,10 +286,9 @@ pub mod prelude {
     pub use crate::timeline::{
         InterpolationConfig, InterpolationTimeline, SyncedInterpolationTimeline,
     };
-    pub use crate::{Interpolated, InterpolationPending};
 }
 
-pub use lightyear_core::interpolation::{Interpolated, InterpolationPending};
+pub use lightyear_core::interpolation::Interpolated;
 
 /// Trait for components that can be synchronized for interpolation.
 ///
