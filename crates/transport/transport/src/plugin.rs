@@ -2,6 +2,7 @@ use crate::channel::builder::Transport;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::channel::send::SendFlushOutcome;
 use crate::error::TransportError;
+use crate::packet::PacketId;
 use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
@@ -57,7 +58,7 @@ pub struct PacketReceived {
 #[derive(EntityEvent)]
 pub struct PacketAcked {
     pub entity: Entity,
-    pub packet_id: u32,
+    pub packet_id: PacketId,
     pub rtt_sample: Duration,
 }
 
@@ -66,7 +67,7 @@ pub struct PacketAcked {
 #[derive(EntityEvent)]
 pub struct PacketLost {
     pub entity: Entity,
-    pub packet_id: u32,
+    pub packet_id: PacketId,
 }
 
 pub struct TransportPlugin;
@@ -145,7 +146,7 @@ impl TransportPlugin {
                             .for_each(|(packet_id, rtt_sample)| {
                                 commands.trigger(PacketAcked {
                                     entity,
-                                    packet_id: packet_id.0,
+                                    packet_id: *packet_id,
                                     rtt_sample: *rtt_sample,
                                 });
                             });
@@ -161,7 +162,7 @@ impl TransportPlugin {
                             .for_each(|(packet_id, rtt_sample)| {
                                 commands.trigger(PacketAcked {
                                     entity,
-                                    packet_id: packet_id.0,
+                                    packet_id: *packet_id,
                                     rtt_sample: *rtt_sample,
                                 });
                             });
@@ -314,13 +315,13 @@ impl TransportPlugin {
                     par_commands.command_scope(|mut commands| {
                         commands.trigger(PacketLost {
                             entity,
-                            packet_id: lost_packet.0,
+                            packet_id: lost_packet,
                         });
                     });
                     #[cfg(not(feature = "std"))]
                     commands.trigger(PacketLost {
                         entity,
-                        packet_id: lost_packet.0,
+                        packet_id: lost_packet,
                     });
                     if let Some(mut message_acks) = packet_message_acks.take(&lost_packet) {
                         let result =

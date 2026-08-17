@@ -366,8 +366,8 @@ mod tests {
     use alloc::vec;
 
     #[test]
-    fn message_id_arithmetic_and_order_wrap_at_u32_max() {
-        let last = MessageId(u32::MAX);
+    fn message_id_arithmetic_and_order_wrap_at_u16_max() {
+        let last = MessageId(u16::MAX);
         let first = MessageId(0);
         let mut next = last;
 

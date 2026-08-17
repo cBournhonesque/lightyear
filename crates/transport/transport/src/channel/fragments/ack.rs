@@ -25,8 +25,7 @@ impl FragmentAckReceiver {
         num_fragments: usize,
     ) {
         self.fragment_messages
-            .entry(message_id)
-            .or_insert_with(|| FragmentAckTracker::new(num_fragments));
+            .insert(message_id, FragmentAckTracker::new(num_fragments));
     }
 
     pub(crate) fn discard_message(&mut self, message_id: MessageId) {
@@ -134,6 +133,26 @@ mod tests {
             Some(Duration::from_millis(150))
         ));
         receiver.cleanup(Duration::from_millis(170));
+        assert!(receiver.fragment_messages.is_empty());
+    }
+
+    #[test]
+    fn reused_message_id_starts_with_a_fresh_tracker() {
+        let mut receiver = FragmentAckReceiver::new();
+        let message_id = MessageId(7);
+
+        receiver.add_new_fragment_to_wait_for(message_id, 2);
+        assert!(!receiver.receive_fragment_ack(message_id, FragmentIndex(0), None));
+
+        receiver.add_new_fragment_to_wait_for(message_id, 6);
+        for fragment_index in 0..5 {
+            assert!(!receiver.receive_fragment_ack(
+                message_id,
+                FragmentIndex(fragment_index),
+                None
+            ));
+        }
+        assert!(receiver.receive_fragment_ack(message_id, FragmentIndex(5), None));
         assert!(receiver.fragment_messages.is_empty());
     }
 }
