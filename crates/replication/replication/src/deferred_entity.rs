@@ -2,6 +2,7 @@
 
 use alloc::{boxed::Box, vec::Vec};
 use bevy_ecs::{
+    change_detection::DetectChangesMut,
     component::Component,
     entity::{Entity, EntityHashMap},
     system::Commands,
@@ -16,6 +17,7 @@ type ApplyDeferredEntityCommand =
 struct DeferredEntityMutations {
     commands: Vec<ApplyDeferredEntityCommand>,
     removals: Vec<TypeId>,
+    mark_all_changed: bool,
 }
 
 /// Batched structural changes for multiple entities.
@@ -76,6 +78,15 @@ impl DeferredEntityCommands {
         }));
     }
 
+    /// Marks every existing mutable component on `entity` as changed.
+    ///
+    /// This is useful when removing a disabling component: changed-only systems did not see the
+    /// entity while it was disabled, so they need to revisit its existing components once it is
+    /// enabled. Components buffered for insertion are already marked changed by their insertion.
+    pub fn mark_all_changed(&mut self, entity: Entity) {
+        self.entities.entry(entity).or_default().mark_all_changed = true;
+    }
+
     /// Queues a Bevy command that applies all deferred mutations.
     pub fn apply(self, commands: &mut Commands) {
         if self.entities.is_empty() {
@@ -92,6 +103,21 @@ impl DeferredEntityCommands {
                     mutation(&mut deferred);
                 }
                 deferred.flush();
+
+                if mutations.mark_all_changed {
+                    let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+                        continue;
+                    };
+                    // Copy one ID at a time so no temporary component-ID collection is needed.
+                    // Marking a component as changed cannot alter the entity's archetype.
+                    let component_count = entity_mut.archetype().components().len();
+                    for index in 0..component_count {
+                        let component_id = entity_mut.archetype().components()[index];
+                        if let Ok(mut component) = entity_mut.get_mut_by_id(component_id) {
+                            component.set_changed();
+                        }
+                    }
+                }
             }
         });
     }

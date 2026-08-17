@@ -28,7 +28,8 @@ pub struct Interpolated;
 /// frame, after component-add observer chains and downstream engine response
 /// systems have completed. Client-local [`Interpolated`] insertions do not receive
 /// this component. It is removed when the interpolation timeline reaches the
-/// entity's replicated spawn tick.
+/// entity's replicated spawn tick. Existing mutable components are marked changed
+/// when the entity is enabled so changed-only response systems can catch up.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Reflect, Component)]
 #[reflect(Component)]
 pub struct InterpolationPending {

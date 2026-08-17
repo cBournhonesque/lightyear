@@ -255,6 +255,8 @@
 //! [`InterpolationPending`] at the end of the receive frame. Bevy treats this as a disabling
 //! component until the interpolation timeline reaches the authoritative tick that added the
 //! marker, including for entities without interpolation histories.
+//! When the entity is enabled, its existing mutable components are marked changed so systems that
+//! skipped it while pending can initialize their derived state.
 //! Systems that intentionally need to inspect entities during this interval can opt in with
 //! `Allow<InterpolationPending>`.
 #![no_std]

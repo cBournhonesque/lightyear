@@ -67,6 +67,9 @@ pub(crate) fn update_interpolation_history(
     for (entity, pending) in &pending_entities {
         if current_interpolate_tick >= pending.spawn_tick {
             deferred_apply.remove::<InterpolationPending>(entity);
+            // Systems using Changed<C> skipped this entity while it was disabled. Make them
+            // revisit existing components when the entity becomes visible to ordinary queries.
+            deferred_apply.mark_all_changed(entity);
         }
     }
 
@@ -474,6 +477,9 @@ mod tests {
         was_disabled: bool,
     }
 
+    #[derive(Resource, Default)]
+    struct ChangedObservation(usize);
+
     fn observe_materialized_test_component(
         trigger: On<Add, TestComp>,
         state: Query<(Has<InterpolationPending>, Has<Disabled>)>,
@@ -484,6 +490,13 @@ mod tests {
             observation.was_pending = pending;
             observation.was_disabled = disabled;
         }
+    }
+
+    fn observe_changed_test_component(
+        changed: Query<(), Changed<TestComp>>,
+        mut observation: ResMut<ChangedObservation>,
+    ) {
+        observation.0 += changed.iter().count();
     }
 
     static BUNDLE2_PRIORITY_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -1680,6 +1693,48 @@ mod tests {
                 .contains::<InterpolationPending>()
         );
         assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(4.0)));
+    }
+
+    #[test]
+    fn enabling_pending_entity_retriggers_changed_only_systems() {
+        let mut app = setup_app(Tick(9), 40);
+        app.register_disabling_component::<InterpolationPending>();
+        app.init_resource::<ChangedObservation>();
+        add_interpolation_test_systems(&mut app);
+        app.add_systems(
+            Update,
+            observe_changed_test_component.after(crate::plugin::InterpolationSystems::Prepare),
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                InterpolationPending {
+                    spawn_tick: Tick(10),
+                },
+                TestComp(4.0),
+            ))
+            .id();
+
+        // The changed-only system runs while the entity is disabled and therefore advances its
+        // change-detection cursor without observing the component.
+        app.update();
+        assert_eq!(app.world().resource::<ChangedObservation>().0, 0);
+
+        set_interpolation_tick(&mut app, Tick(10));
+        app.update();
+
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<InterpolationPending>()
+        );
+        assert_eq!(app.world().resource::<ChangedObservation>().0, 1);
+
+        // Catch-up is emitted only for the transition back into ordinary queries.
+        app.update();
+        assert_eq!(app.world().resource::<ChangedObservation>().0, 1);
     }
 
     #[test]
