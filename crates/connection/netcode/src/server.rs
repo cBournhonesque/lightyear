@@ -257,6 +257,7 @@ fn server_addr_matches(local_addr: SocketAddr, token_addr: SocketAddr) -> bool {
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
 /// * `keep_alive_send_rate` - The rate at which keep-alive packets will be sent to clients.
+/// * `additional_expected_addresses` - Additional server addresses accepted during connect-token validation.
 /// * `on_connect` - A callback that will be called when a client is connected to the server.
 /// * `on_disconnect` - A callback that will be called when a client is disconnected from the server.
 ///
@@ -282,6 +283,7 @@ pub struct ServerConfig<Ctx> {
     token_expire_secs: i32,
     client_timeout_secs: i32,
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
+    pub(crate) additional_expected_addresses: Vec<SocketAddr>,
     pub(crate) context: Ctx,
     on_connect: Option<ConnectCallback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
@@ -296,6 +298,7 @@ impl Default for ServerConfig<()> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
+            additional_expected_addresses: Vec::new(),
             context: (),
             on_connect: None,
             on_disconnect: None,
@@ -317,6 +320,7 @@ impl<Ctx> ServerConfig<Ctx> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
+            additional_expected_addresses: Vec::new(),
             context: ctx,
             on_connect: None,
             on_disconnect: None,
@@ -360,6 +364,17 @@ impl<Ctx> ServerConfig<Ctx> {
         handler: Arc<dyn ConnectionRequestHandler>,
     ) -> Self {
         self.connection_request_handler = handler;
+        self
+    }
+
+    /// Set additional server addresses accepted during connect-token validation.
+    ///
+    /// These addresses are accepted in addition to the address passed to [`Server::receive`].
+    pub fn additional_expected_addresses(
+        mut self,
+        addresses: impl IntoIterator<Item = SocketAddr>,
+    ) -> Self {
+        self.additional_expected_addresses = addresses.into_iter().collect();
         self
     }
 
@@ -685,14 +700,19 @@ impl<Ctx> Server<Ctx> {
         let entity = entity_mut.id();
 
         if let Some(server_addr) = server_addr
-            && !token
-                .server_addresses
-                .iter()
-                .any(|(_, token_addr)| server_addr_matches(server_addr, token_addr))
+            && !token.server_addresses.iter().any(|(_, token_addr)| {
+                server_addr_matches(server_addr, token_addr)
+                    || self
+                        .cfg
+                        .additional_expected_addresses
+                        .iter()
+                        .any(|expected_addr| server_addr_matches(*expected_addr, token_addr))
+            })
         {
             info!(
                 token_addresses = ?token.server_addresses,
                 ?server_addr,
+                additional_expected_addresses = ?self.cfg.additional_expected_addresses,
                 "server ignored connection request. server address not in connect token whitelist"
             );
             return Ok(());
@@ -1269,7 +1289,23 @@ mod tests {
         public_server_addresses: &[SocketAddr],
         internal_server_addresses: Option<&[SocketAddr]>,
     ) -> (Server, World, Entity) {
-        let mut server = Server::new(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY).unwrap();
+        process_request_with_additional_addresses(
+            server_addr,
+            &[],
+            public_server_addresses,
+            internal_server_addresses,
+        )
+    }
+
+    fn process_request_with_additional_addresses(
+        server_addr: Option<SocketAddr>,
+        additional_expected_addresses: &[SocketAddr],
+        public_server_addresses: &[SocketAddr],
+        internal_server_addresses: Option<&[SocketAddr]>,
+    ) -> (Server, World, Entity) {
+        let config = ServerConfig::default()
+            .additional_expected_addresses(additional_expected_addresses.iter().copied());
+        let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
         let mut world = World::new();
         let client = world.spawn_empty().id();
         let mut command_queue = CommandQueue::default();
@@ -1306,6 +1342,23 @@ mod tests {
         let server_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
 
         let (server, world, client) = process_request(Some(server_addr), &[server_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+        assert!(server.send_queue.contains_key(&client));
+    }
+
+    #[test]
+    fn connection_request_accepts_additional_expected_address() {
+        let local_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let public_addr = SocketAddr::from(([203, 0, 113, 10], 5000));
+
+        let (server, world, client) = process_request_with_additional_addresses(
+            Some(local_addr),
+            &[public_addr],
+            &[public_addr],
+            None,
+        );
 
         assert!(world.get::<Connecting>(client).is_some());
         assert!(server.conn_cache.find_by_entity(&client).is_some());
