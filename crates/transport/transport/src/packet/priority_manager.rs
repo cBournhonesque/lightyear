@@ -460,7 +460,7 @@ mod tests {
             ..Default::default()
         });
         let mut manager = PriorityManager::default();
-        for (message_id, send_order) in [(MessageId(0), 1), (MessageId(u32::MAX), 0)] {
+        for (message_id, send_order) in [(MessageId(0), 1), (MessageId(u16::MAX), 0)] {
             manager.candidates_mut().push(SendCandidate::new_reliable(
                 kind,
                 channel,
@@ -487,7 +487,7 @@ mod tests {
             .iter()
             .map(|candidate| candidate.message.data.message_id().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(ids, [MessageId(u32::MAX), MessageId(0)]);
+        assert_eq!(ids, [MessageId(u16::MAX), MessageId(0)]);
     }
 
     #[test]

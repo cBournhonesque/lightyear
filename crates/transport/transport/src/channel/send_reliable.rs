@@ -279,7 +279,7 @@ mod tests {
         let mut state = ReliableSendState::new(ReliableSettings::default());
         state
             .pending
-            .insert(MessageId(u32::MAX), pending(b"max", 41));
+            .insert(MessageId(u16::MAX), pending(b"max", 41));
         state.pending.insert(MessageId(0), pending(b"zero", 42));
 
         let mut candidates = Vec::new();
@@ -294,10 +294,10 @@ mod tests {
             })
             .collect::<Vec<_>>();
         order.sort_by_key(|(_, send_order)| *send_order);
-        assert_eq!(order, [(MessageId(u32::MAX), 41), (MessageId(0), 42)]);
+        assert_eq!(order, [(MessageId(u16::MAX), 41), (MessageId(0), 42)]);
 
         assert!(state.receive_ack(&MessageAck {
-            message_id: MessageId(u32::MAX),
+            message_id: MessageId(u16::MAX),
             fragment_id: None,
         }));
         assert!(state.pending.contains_key(&MessageId(0)));

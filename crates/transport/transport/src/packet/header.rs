@@ -46,8 +46,8 @@ impl ToBytes for PacketHeader {
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_u8(self.packet_type as u8)?;
-        buffer.write_u32(self.packet_id.0)?;
-        buffer.write_u32(self.last_ack_packet_id.0)?;
+        buffer.write_u16(self.packet_id.0)?;
+        buffer.write_u16(self.last_ack_packet_id.0)?;
         buffer.write_u32(self.ack_bitfield)?;
         buffer.write_u32(self.tick.0)?;
         Ok(())
@@ -58,8 +58,8 @@ impl ToBytes for PacketHeader {
         Self: Sized,
     {
         let packet_type = buffer.read_u8()?;
-        let packet_id = buffer.read_u32()?;
-        let last_ack_packet_id = buffer.read_u32()?;
+        let packet_id = buffer.read_u16()?;
+        let last_ack_packet_id = buffer.read_u16()?;
         let ack_bitfield = buffer.read_u32()?;
         let tick = buffer.read_u32()?;
         Ok(Self {
@@ -74,7 +74,7 @@ impl ToBytes for PacketHeader {
 
 impl PacketHeader {
     /// Number of bytes written by [`PacketHeader::to_bytes`].
-    pub(crate) const BYTES: usize = 17;
+    pub(crate) const BYTES: usize = 13;
     /// Offset of the packet type byte inside the serialized header.
     pub(crate) const PACKET_TYPE_OFFSET: usize = 0;
 
@@ -92,10 +92,10 @@ impl PacketHeader {
         }
         Ok(Self {
             packet_type: PacketType::try_from(bytes[Self::PACKET_TYPE_OFFSET])?,
-            packet_id: PacketId(u32::from_be_bytes(bytes[1..5].try_into().unwrap())),
-            last_ack_packet_id: PacketId(u32::from_be_bytes(bytes[5..9].try_into().unwrap())),
-            ack_bitfield: u32::from_be_bytes(bytes[9..13].try_into().unwrap()),
-            tick: Tick(u32::from_be_bytes(bytes[13..17].try_into().unwrap())),
+            packet_id: PacketId(u16::from_be_bytes(bytes[1..3].try_into().unwrap())),
+            last_ack_packet_id: PacketId(u16::from_be_bytes(bytes[3..5].try_into().unwrap())),
+            ack_bitfield: u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
+            tick: Tick(u32::from_be_bytes(bytes[9..13].try_into().unwrap())),
         })
     }
 
@@ -185,7 +185,7 @@ impl PacketHeaderManager {
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
             // protection against keep old packets for too long (which would cause bugs on wraparound)
             if real.saturating_sub(*time_sent) > nack_duration
-                || (self.next_packet_id - *packet_id > i32::MAX / 3)
+                || (self.next_packet_id - *packet_id > i16::MAX / 3)
             {
                 trace!(?packet_id, "sent packet got lost");
                 self.lost_packets.push(*packet_id);
@@ -221,7 +221,7 @@ impl PacketHeaderManager {
             self.record_newly_acked_packet(packet, real, time_sent);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
-            let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u32));
+            let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
             if header.get_bitfield_bit(i - 1)
                 && let Some((packet, time_sent)) = self.update_sent_packets_not_acked(&packet_id)
             {
@@ -264,7 +264,7 @@ impl PacketHeaderManager {
         let last_ack_packet_id = self
             .recv_buffer
             .last_recv_packet_id
-            .unwrap_or(PacketId(u32::MAX));
+            .unwrap_or(PacketId(u16::MAX));
         PacketHeader {
             packet_type,
             packet_id: self.next_packet_id,
@@ -344,7 +344,7 @@ impl ReceiveBuffer {
             return;
         }
 
-        let bitfield_size = ACK_BITFIELD_SIZE as i32;
+        let bitfield_size = ACK_BITFIELD_SIZE as i16;
         let diff = self.last_recv_packet_id.unwrap() - id;
         if diff > bitfield_size {
             return;
@@ -422,7 +422,7 @@ mod tests {
         // add a most recent packet, and perform some assertions
         fn add_most_recent_packet(
             mut buffer: ReceiveBuffer,
-            id: u32,
+            id: u16,
             expected_bitfield: u32,
         ) -> ReceiveBuffer {
             buffer.recv_packet(PacketId(id));

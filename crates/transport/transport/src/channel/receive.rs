@@ -320,7 +320,7 @@ mod tests {
 
     struct TestChannel;
 
-    fn message(id: Option<u32>, tick: u32, bytes: &'static [u8]) -> ReceiveMessage {
+    fn message(id: Option<u16>, tick: u32, bytes: &'static [u8]) -> ReceiveMessage {
         ReceiveMessage {
             data: SingleData::new(id.map(MessageId), Bytes::from_static(bytes)).into(),
             remote_sent_tick: Tick(tick),
@@ -371,15 +371,15 @@ mod tests {
         let RecvState::ReliableOrdered { pending, .. } = &mut channel.state else {
             unreachable!()
         };
-        *pending = MessageId(u32::MAX);
+        *pending = MessageId(u16::MAX);
 
         channel.buffer_recv(message(Some(0), 0, b"zero")).unwrap();
         assert_eq!(channel.read_message(), None);
         channel
-            .buffer_recv(message(Some(u32::MAX), 1, b"max"))
+            .buffer_recv(message(Some(u16::MAX), 1, b"max"))
             .unwrap();
 
-        assert_eq!(channel.read_message().unwrap().2, Some(MessageId(u32::MAX)));
+        assert_eq!(channel.read_message().unwrap().2, Some(MessageId(u16::MAX)));
         assert_eq!(channel.read_message().unwrap().2, Some(MessageId(0)));
     }
 
@@ -448,22 +448,22 @@ mod tests {
         let RecvState::ReliableUnordered { pending, .. } = &mut channel.state else {
             unreachable!()
         };
-        *pending = MessageId(u32::MAX);
+        *pending = MessageId(u16::MAX);
 
         channel.buffer_recv(message(Some(0), 0, b"zero")).unwrap();
         channel
-            .buffer_recv(message(Some(u32::MAX), 1, b"max"))
+            .buffer_recv(message(Some(u16::MAX), 1, b"max"))
             .unwrap();
 
         assert_eq!(channel.read_message().unwrap().2, Some(MessageId(0)));
-        assert_eq!(channel.read_message().unwrap().2, Some(MessageId(u32::MAX)));
+        assert_eq!(channel.read_message().unwrap().2, Some(MessageId(u16::MAX)));
         let RecvState::ReliableUnordered { pending, .. } = &channel.state else {
             unreachable!()
         };
         assert_eq!(*pending, MessageId(1));
 
         channel
-            .buffer_recv(message(Some(u32::MAX), 2, b"duplicate max"))
+            .buffer_recv(message(Some(u16::MAX), 2, b"duplicate max"))
             .unwrap();
         channel
             .buffer_recv(message(Some(0), 3, b"duplicate zero"))
@@ -505,8 +505,8 @@ mod tests {
         else {
             unreachable!()
         };
-        *newest_seen = Some(MessageId(u32::MAX));
-        *newest_completed = Some(MessageId(u32::MAX));
+        *newest_seen = Some(MessageId(u16::MAX));
+        *newest_completed = Some(MessageId(u16::MAX));
 
         channel
             .buffer_recv(message(Some(0), 1, b"after wrap"))

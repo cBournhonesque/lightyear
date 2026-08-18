@@ -751,6 +751,55 @@ mod tests {
     }
 
     #[test]
+    fn unreliable_fragment_nack_clears_tracker_before_message_id_reuse() {
+        let mut channel = channel(ChannelMode::UnorderedUnreliableWithAcks, true);
+        assert_eq!(
+            channel.buffer_send(
+                Bytes::from(vec![0; FRAGMENT_SIZE + 1]),
+                1.0,
+                CompressionConfig::DISABLED,
+            ),
+            Some(MessageId(0))
+        );
+
+        // Model the first fragmented message entering the link. The packet ACK is then lost, so
+        // packet-loss classification reports a NACK and discards its completion tracker.
+        let mut candidates = Vec::new();
+        channel.collect_send_candidates(&mut candidates);
+        for candidate in &candidates {
+            channel.commit_send(candidate.key, Duration::default());
+        }
+        channel.finish_send(SendFlushOutcome::Complete);
+        channel.receive_nack(&fragment_ack(0));
+
+        // Skip the other u16 generations and reuse the original ID with a larger message. If the
+        // NACK above did not remove the old two-fragment tracker, the original #1691 code later
+        // indexes past that tracker while processing this generation's acknowledgements.
+        let SendState::Unreliable(state) = &mut channel.state else {
+            panic!("expected an unreliable channel");
+        };
+        state.next_message_id = MessageId(0);
+        assert_eq!(
+            channel.buffer_send(
+                Bytes::from(vec![0; FRAGMENT_SIZE * 5 + 1]),
+                1.0,
+                CompressionConfig::DISABLED,
+            ),
+            Some(MessageId(0))
+        );
+
+        candidates.clear();
+        channel.collect_send_candidates(&mut candidates);
+        assert!(candidates.len() > 2);
+        for fragment_id in 0..candidates.len() {
+            assert_eq!(
+                channel.receive_ack(&fragment_ack(fragment_id as u64)),
+                fragment_id + 1 == candidates.len()
+            );
+        }
+    }
+
+    #[test]
     fn reliable_fragment_ack_reports_completion_once_and_clears_retries() {
         let mut channel = channel(
             ChannelMode::UnorderedReliable(ReliableSettings::default()),

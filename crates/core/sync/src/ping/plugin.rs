@@ -209,7 +209,7 @@ impl Plugin for PingPlugin {
 mod tests {
     use super::*;
     use lightyear_core::id::{PeerId, RemoteId};
-    use lightyear_transport::plugin::PacketAcked;
+    use lightyear_transport::{packet::PacketId, plugin::PacketAcked};
 
     #[test]
     fn traffic_packet_ack_bursts_do_not_update_ping_rtt() {
@@ -224,7 +224,7 @@ mod tests {
         for packet_id in 1..=120 {
             app.world_mut().trigger(PacketAcked {
                 entity,
-                packet_id,
+                packet_id: PacketId(packet_id),
                 rtt_sample: Duration::from_millis(50 + u64::from(packet_id)),
             });
         }
