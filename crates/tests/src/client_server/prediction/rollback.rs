@@ -702,7 +702,7 @@ fn test_future_completed_mutate_tick_is_not_marked_processed() {
 }
 
 #[test]
-fn test_explicit_mismatch_waits_for_completed_mutate_tick() {
+fn test_explicit_mismatch_waits_until_completed_mutate_frontier_reaches_it() {
     let (mut stepper, _) = setup();
     observe_rollback_start(stepper.client_app());
 
@@ -729,10 +729,11 @@ fn test_explicit_mismatch_waits_for_completed_mutate_tick() {
         "Explicit mismatch should wait until a completed mutate tick reaches the mismatch"
     );
 
+    let later_completed_tick = mismatch_tick + 1;
     record_completed_mutate_tick(
         stepper.client_app().world_mut(),
         RepliconTick::new(931),
-        mismatch_tick,
+        later_completed_tick,
     );
     stepper.frame_step(1);
 
@@ -742,8 +743,8 @@ fn test_explicit_mismatch_waits_for_completed_mutate_tick() {
             .world()
             .resource::<ObservedRollbackStart>()
             .0,
-        Some(mismatch_tick),
-        "Explicit mismatch should rollback once that exact tick is the completed mutate tick"
+        Some(later_completed_tick),
+        "Explicit mismatch should rollback from the latest completed tick once its frontier has passed the mismatch"
     );
 }
 

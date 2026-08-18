@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::CompFull;
+use crate::protocol::{CompCorr, CompFull};
 use bevy::prelude::Entity;
 use lightyear::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
@@ -138,6 +138,167 @@ fn test_prediction_history_seeded_from_init_message() {
         }),
         "PredictionHistory should contain only local predicted states: {:?}",
         prediction_history
+    );
+}
+
+/// A Full-mode component inserted by the server after the predicted entity was
+/// spawned should be detected as a mismatch and applied through rollback.
+#[test]
+fn test_server_insert_on_existing_predicted_entity_triggers_rollback() {
+    use bevy::prelude::*;
+    use lightyear_messages::MessageManager;
+    use lightyear_replication::prelude::{PredictionTarget, Replicate};
+
+    #[derive(Resource, Default)]
+    struct RollbackObserved(bool);
+
+    fn observe_rollback(manager: Res<PredictionManager>, mut observed: ResMut<RollbackObserved>) {
+        observed.0 |= manager.is_rollback();
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    stepper.client_app().init_resource::<RollbackObserved>();
+    stepper.client_app().add_systems(
+        PreUpdate,
+        observe_rollback
+            .after(RollbackSystems::Check)
+            .before(RollbackSystems::Prepare),
+    );
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+    let predicted_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to the client");
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_entity)
+            .is_none()
+    );
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompFull(42.0));
+    stepper.frame_step(2);
+
+    let world = stepper.client_app().world();
+    assert!(
+        world.resource::<RollbackObserved>().0,
+        "the receive-time (Some, None) mismatch check should trigger a rollback"
+    );
+    assert_eq!(
+        world
+            .get::<ConfirmedHistory<CompFull>>(predicted_entity)
+            .and_then(ConfirmedHistory::newest_present)
+            .map(|(_, value)| value),
+        Some(&CompFull(42.0)),
+        "the authoritative insert should be buffered in confirmed history"
+    );
+    assert!(
+        world
+            .get::<PredictionHistory<CompFull>>(predicted_entity)
+            .is_some(),
+        "the confirmed insert should seed rollback membership for the component"
+    );
+
+    assert_eq!(
+        world.get::<CompFull>(predicted_entity),
+        Some(&CompFull(42.0)),
+        "the authoritative insert should trigger a rollback that applies the component"
+    );
+}
+
+/// When two previously absent components arrive in the same update, the first mismatch suppresses
+/// the redundant check for the second. Both still need prediction history so the resulting rollback
+/// restores both components.
+#[test]
+fn test_two_server_inserts_are_both_applied_by_one_rollback() {
+    use bevy::prelude::*;
+    use lightyear_messages::MessageManager;
+    use lightyear_replication::prelude::{PredictionTarget, Replicate};
+
+    #[derive(Resource, Default)]
+    struct RollbackObserved(bool);
+
+    fn observe_rollback(manager: Res<PredictionManager>, mut observed: ResMut<RollbackObserved>) {
+        observed.0 |= manager.is_rollback();
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    stepper.client_app().init_resource::<RollbackObserved>();
+    stepper.client_app().add_systems(
+        PreUpdate,
+        observe_rollback
+            .after(RollbackSystems::Check)
+            .before(RollbackSystems::Prepare),
+    );
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+    let predicted_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to the client");
+    let client_entity = stepper.client_app().world().entity(predicted_entity);
+    assert!(!client_entity.contains::<CompFull>());
+    assert!(!client_entity.contains::<CompCorr>());
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert((CompFull(42.0), CompCorr(24.0)));
+    stepper.frame_step(2);
+
+    let world = stepper.client_app().world();
+    assert!(
+        world.resource::<RollbackObserved>().0,
+        "the authoritative inserts should trigger a rollback"
+    );
+    assert!(
+        world
+            .get::<PredictionHistory<CompFull>>(predicted_entity)
+            .is_some(),
+        "the CompFull insert should seed rollback membership"
+    );
+    assert!(
+        world
+            .get::<PredictionHistory<CompCorr>>(predicted_entity)
+            .is_some(),
+        "the CompCorr insert should seed rollback membership even if its mismatch check was suppressed"
+    );
+    assert_eq!(
+        world.get::<CompFull>(predicted_entity),
+        Some(&CompFull(42.0))
+    );
+    assert_eq!(
+        world.get::<CompCorr>(predicted_entity),
+        Some(&CompCorr(24.0))
     );
 }
 

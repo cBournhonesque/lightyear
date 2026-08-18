@@ -473,21 +473,14 @@ impl PredictionRegistry {
 
         let predicted_history = entity_mut.get::<PredictionHistory<C>>();
 
-        // A confirmed VALUE arriving for a component this entity has never
-        // predicted (no PredictionHistory<C>) and does not currently have
-        // (no live C) — e.g. the server inserted a marker like `Dead`
-        // mid-game that the client cannot predict — is otherwise
-        // undeliverable (#1692):
-        // - the receive-time mismatch check below is often skipped because
-        //   insert messages ride a reliable channel and can resolve to a tick
-        //   at or behind `StateRollbackMetadata::last_processed_tick`;
-        // - the unchanged-entity scan (`check_rollback_for_unchanged_component`)
-        //   returns early without a retained predicted sample;
-        // - and `prepare_rollback` uses PredictionHistory<C> as its membership
-        //   marker, so even an unrelated rollback's restore skips C.
-        // Seed the prediction history with what the client actually predicted
-        // — "absent" — so the normal mismatch → rollback → restore pipeline
-        // picks the component up at the next completed mutate tick.
+        // Normally PredictionHistory<C> is added when live C is added. A confirmed
+        // insertion on a predicted entity is instead stored in ConfirmedHistory<C>,
+        // so the Add<C> observer does not run.
+        //
+        // prepare_rollback<C> requires PredictionHistory<C> to include the entity.
+        // Seed it with the state the client predicted ("absent") so rollback can read
+        // the confirmed value and insert C. Do this even if this update does not check
+        // for a mismatch, since another component may already have recorded one.
         let never_predicted_insert = confirmed_component.is_some()
             && predicted_history.is_none()
             && entity_mut.get::<C>().is_none();
@@ -568,16 +561,23 @@ impl PredictionRegistry {
             entity_mut.insert(history);
         }
         if never_predicted_insert {
+            // PredictionHistory must remain ordered on the local timeline. A confirmed update can
+            // be ahead of the client, so seeding at confirmed_tick could put a future entry before
+            // subsequent local predictions. The earlier tick records the known absence without
+            // preventing those predictions from being appended in chronological order.
+            let seed_tick = confirmed_tick.min(current_tick);
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "seed_prediction_history_for_unpredicted_insert",
                 entity = ?entity,
                 component = ?name,
                 confirmed_tick = confirmed_tick.0,
-                "seeding PredictionHistory with predicted-absence for a confirmed insert of a never-predicted component"
+                current_tick = current_tick.0,
+                seed_tick = seed_tick.0,
+                "seeding PredictionHistory with predicted absence for a confirmed insert of a never-predicted component"
             );
             let mut history = PredictionHistory::<C>::default();
-            history.add_state(confirmed_tick, HistoryState::Removed);
+            history.add_state(seed_tick, HistoryState::Removed);
             entity_mut.insert(history);
         }
         should_rollback
@@ -1926,6 +1926,43 @@ mod tests {
 
         assert!(!hashed);
         assert_eq!(hasher.finish(), initial_hash);
+    }
+
+    #[test]
+    fn future_confirmed_insert_seeds_prediction_history_at_current_tick() {
+        let (mut app, fns_id) = setup_prediction_diff_app();
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
+        let future_tick = record_checkpoint(&mut app, 20);
+        let entity = app.world_mut().spawn(Predicted).id();
+
+        app.world_mut().entity_mut(entity).apply_write(
+            diff_snapshot(0, TestDiffComponent(20)),
+            fns_id,
+            future_tick,
+        );
+
+        let mut history = app
+            .world_mut()
+            .get_mut::<PredictionHistory<TestDiffComponent>>(entity)
+            .expect("the confirmed insert should seed prediction history");
+        assert_eq!(
+            history.get_state(Tick(10)),
+            Some(&HistoryState::Removed),
+            "the absence should be recorded at the current tick, not the future confirmed tick"
+        );
+
+        history.add_predicted(Tick(15), Some(TestDiffComponent(15)));
+        assert_eq!(
+            history
+                .buffer()
+                .iter()
+                .map(|(tick, _)| *tick)
+                .collect::<Vec<_>>(),
+            [Tick(10), Tick(15)],
+            "later local predictions should remain chronologically ordered"
+        );
     }
 
     #[test]
