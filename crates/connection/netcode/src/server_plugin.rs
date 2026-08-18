@@ -7,6 +7,7 @@ use bevy_ecs::{
     entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
+use core::net::SocketAddr;
 use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
@@ -21,6 +22,17 @@ use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
+
+/// An error encountered while processing incoming netcode traffic for a server-side client link.
+#[derive(Message, Debug)]
+pub struct NetcodeServerError {
+    /// The server entity that encountered the error.
+    pub server_entity: Entity,
+    /// The client link entity associated with the packet or payload.
+    pub client_entity: Entity,
+    /// The underlying netcode error.
+    pub error: crate::Error,
+}
 
 /// User data extracted from the client's connection token.
 /// Contains up to 256 bytes of custom data embedded by the token issuer.
@@ -58,6 +70,12 @@ pub struct NetcodeConfig {
     /// The default is `true`. Set this to `false` for addressless transports. When enabled, a
     /// [`LocalAddr`] must be present on the server entity.
     pub server_addr_check: bool,
+    /// Additional server addresses accepted during private connect-token validation.
+    ///
+    /// These addresses are accepted in addition to the server entity's [`LocalAddr`]. This is
+    /// useful when the address in a token is a public address or another stable identity that
+    /// differs from the transport's bind address.
+    pub additional_expected_addresses: Vec<SocketAddr>,
     pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
@@ -71,6 +89,7 @@ impl Default for NetcodeConfig {
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
             server_addr_check: true,
+            additional_expected_addresses: Vec::new(),
             connection_request_handler: None,
         }
     }
@@ -93,6 +112,17 @@ impl NetcodeConfig {
 
     pub fn with_client_timeout_secs(mut self, client_timeout_secs: i32) -> Self {
         self.client_timeout_secs = client_timeout_secs;
+        self
+    }
+
+    /// Set the additional server addresses accepted during private connect-token validation.
+    ///
+    /// These are accepted in addition to the server entity's [`LocalAddr`].
+    pub fn with_additional_expected_addresses(
+        mut self,
+        addresses: impl IntoIterator<Item = SocketAddr>,
+    ) -> Self {
+        self.additional_expected_addresses = addresses.into_iter().collect();
         self
     }
 
@@ -119,6 +149,7 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
+        cfg = cfg.additional_expected_addresses(config.additional_expected_addresses);
         let server_addr_check = config.server_addr_check;
         if let Some(handler) = config.connection_request_handler {
             cfg = cfg.connection_request_handler(handler);
@@ -310,10 +341,20 @@ impl NetcodeServerPlugin {
                                     Ok(errors) => {
                                         for error in errors {
                                             error.log();
+                                            c.write_message(NetcodeServerError {
+                                                server_entity,
+                                                client_entity: entity,
+                                                error,
+                                            });
                                         }
                                     }
-                                    Err(e) => {
-                                        error!("Error receiving packet: {:?}", e);
+                                    Err(error) => {
+                                        error!("Error receiving packet: {:?}", error);
+                                        c.write_message(NetcodeServerError {
+                                            server_entity,
+                                            client_entity: entity,
+                                            error,
+                                        });
                                     }
                                 }
                             }
@@ -463,6 +504,8 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSystems::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSystems::Send));
+
+        app.add_message::<NetcodeServerError>();
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);

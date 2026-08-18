@@ -68,7 +68,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub(crate) fn log(self) {
+    pub(crate) fn log(&self) {
         let suppress_error = matches!(&self, Error::Ignored(_));
         if suppress_error {
             debug!("Netcode error: {:?}", self);

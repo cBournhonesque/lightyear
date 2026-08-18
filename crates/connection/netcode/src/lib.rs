@@ -69,7 +69,7 @@ pub use error::{Error, Result};
 #[cfg(feature = "server")]
 pub use server::{Callback, ConnectCallback, Server, ServerConfig};
 #[cfg(feature = "server")]
-pub use server_plugin::{NetcodeServer, TokenUserData};
+pub use server_plugin::{NetcodeServer, NetcodeServerError, TokenUserData};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 /// The client id from a connect token, must be unique for each client.
@@ -105,7 +105,7 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server_plugin::{
-            NetcodeConfig, NetcodeServer, NetcodeServerPlugin, TokenUserData,
+            NetcodeConfig, NetcodeServer, NetcodeServerError, NetcodeServerPlugin, TokenUserData,
         };
     }
 }
