@@ -592,118 +592,123 @@ fn check_rollback(
                             "Confirmed mutate tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
                             server_confirmed_tick, tick
                         );
-                    } else if state_metadata.has_mismatch(server_confirmed_tick) {
-                        debug!(
-                            ?server_confirmed_tick,
-                            "Rollback from completed mutate tick with recorded explicit mismatch"
-                        );
-                        trace!(
-                            target: "lightyear_debug::prediction",
-                            kind = "state_mismatch_consumed",
-                            schedule = "PreUpdate",
-                            sample_point = "PreUpdate",
-                            local_tick = tick.0,
-                            confirmed_tick = server_confirmed_tick.0,
-                            rollback_tick = server_confirmed_tick.0,
-                            "state mismatch consumed at completed mutate tick"
-                        );
-                        state_metadata.set_last_processed_tick(server_confirmed_tick);
-                        state_metadata.clear_mismatch_history();
-                        do_rollback(
-                            server_confirmed_tick,
-                            &prediction_manager,
-                            &mut commands,
-                            Rollback::FromState,
-                        );
                     } else {
-                        // A completed mutate tick certifies every replicated component at that
-                        // tick. This scan is only for entities that were not explicitly confirmed
-                        // at the completed Replicon checkpoint; for those entities, mutate-message
-                        // completeness proves their components are unchanged at
-                        // `server_confirmed_tick`.
-                        //
-                        // Do not use `ConfirmHistory::last_tick()` for this skip. An entity can
-                        // have newer explicit confirmations than the completed checkpoint while
-                        // also having an explicit confirmation at the completed checkpoint. What
-                        // matters here is exact membership: if `ConfirmHistory::contains` resolves the
-                        // completed Replicon tick, receive-time history writes already checked the
-                        // explicit state for that tick.
-                        trace!(
-                            ?tick,
-                            ?server_confirmed_tick,
-                            ?server_confirmed_replicon_tick,
-                            "Checking for state-based rollback at completed mutate tick"
-                        );
+                        if let Some(mismatch_tick) =
+                            state_metadata.pending_mismatch_at_or_before(server_confirmed_tick)
+                        {
+                            debug!(
+                                ?server_confirmed_tick,
+                                ?mismatch_tick,
+                                "Rollback from completed mutate tick with recorded explicit mismatch"
+                            );
+                            trace!(
+                                target: "lightyear_debug::prediction",
+                                kind = "state_mismatch_consumed",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                local_tick = tick.0,
+                                confirmed_tick = server_confirmed_tick.0,
+                                mismatch_tick = mismatch_tick.0,
+                                rollback_tick = server_confirmed_tick.0,
+                                "state mismatch consumed at completed mutate tick"
+                            );
+                            state_metadata.clear_mismatch_history();
+                            do_rollback(
+                                server_confirmed_tick,
+                                &prediction_manager,
+                                &mut commands,
+                                Rollback::FromState,
+                            );
+                        } else {
+                            // A completed mutate tick certifies every replicated component at that
+                            // tick. This scan is only for entities that were not explicitly confirmed
+                            // at the completed Replicon checkpoint; for those entities, mutate-message
+                            // completeness proves their components are unchanged at
+                            // `server_confirmed_tick`.
+                            //
+                            // Do not use `ConfirmHistory::last_tick()` for this skip. An entity can
+                            // have newer explicit confirmations than the completed checkpoint while
+                            // also having an explicit confirmation at the completed checkpoint. What
+                            // matters here is exact membership: if `ConfirmHistory::contains` resolves the
+                            // completed Replicon tick, receive-time history writes already checked the
+                            // explicit state for that tick.
+                            trace!(
+                                ?tick,
+                                ?server_confirmed_tick,
+                                ?server_confirmed_replicon_tick,
+                                "Checking for state-based rollback at completed mutate tick"
+                            );
 
-                        let predicted_entities = adaptive_for_each_mut!(predicted_entities);
-                        predicted_entities.for_each(
-                            |(confirm_history, mut entity_mut)| {
-                            if prediction_manager.is_rollback() {
-                                return
-                            }
-
-                            if confirm_history.contains(server_confirmed_replicon_tick) {
-                                trace!(
-                                    entity = ?entity_mut.id(),
-                                    replicon_tick = ?server_confirmed_replicon_tick,
-                                    "Skipping unchanged rollback check for entity explicitly confirmed at completed mutate tick"
-                                );
-                                return
-                            }
-
-                            // For each predicted component, compare the predicted value at
-                            // `server_confirmed_tick` with the component's authoritative value.
-                            // The checker uses an exact `ConfirmedHistory<C>` sample if one exists;
-                            // otherwise it materializes an unchanged sample from the last confirmed
-                            // value before `server_confirmed_tick`.
-                            for check_rollback in prediction_registry.prediction_map
-                                .iter()
-                                .filter_map(|(kind, p)|
-                                    // only check rollback for components that are replicated (ignore non-networked)
-                                    component_registry.component_metadata_map.contains_key(kind).then_some(p.check_rollback)
-                                )
-                                .take_while(|_| !prediction_manager.is_rollback())
-                            {
-                                // SAFETY: this branch only checks entities whose Replicon
-                                // ConfirmHistory does not contain `server_confirmed_replicon_tick`.
-                                // Since `server_confirmed_tick` is the corresponding completed
-                                // mutate tick, Replicon guarantees this entity's replicated
-                                // components were unchanged there.
-                                let should_rollback = unsafe {
-                                    check_rollback(
-                                        &prediction_registry,
-                                        server_confirmed_tick,
-                                        &mut entity_mut,
-                                    )
-                                };
-                                if should_rollback {
-                                    debug!(
-                                        ?server_confirmed_tick,
-                                        "Rollback because of mismatch on unchanged entity"
-                                    );
-                                    trace!(
-                                        target: "lightyear_debug::prediction",
-                                        kind = "unchanged_entity_mismatch",
-                                        schedule = "PreUpdate",
-                                        sample_point = "PreUpdate",
-                                        entity = ?entity_mut.id(),
-                                        local_tick = tick.0,
-                                        confirmed_tick = server_confirmed_tick.0,
-                                        rollback_tick = server_confirmed_tick.0,
-                                        "rollback mismatch detected on unchanged entity"
-                                    );
-                                    parallel_commands.command_scope(|mut c| {
-                                        do_rollback(
-                                            server_confirmed_tick,
-                                            &prediction_manager,
-                                            &mut c,
-                                            Rollback::FromState,
-                                        );
-                                    });
-                                    return;
+                            let predicted_entities = adaptive_for_each_mut!(predicted_entities);
+                            predicted_entities.for_each(
+                                |(confirm_history, mut entity_mut)| {
+                                if prediction_manager.is_rollback() {
+                                    return
                                 }
-                            }
-                        });
+
+                                if confirm_history.contains(server_confirmed_replicon_tick) {
+                                    trace!(
+                                        entity = ?entity_mut.id(),
+                                        replicon_tick = ?server_confirmed_replicon_tick,
+                                        "Skipping unchanged rollback check for entity explicitly confirmed at completed mutate tick"
+                                    );
+                                    return
+                                }
+
+                                // For each predicted component, compare the predicted value at
+                                // `server_confirmed_tick` with the component's authoritative value.
+                                // The checker uses an exact `ConfirmedHistory<C>` sample if one exists;
+                                // otherwise it materializes an unchanged sample from the last confirmed
+                                // value before `server_confirmed_tick`.
+                                for check_rollback in prediction_registry.prediction_map
+                                    .iter()
+                                    .filter_map(|(kind, p)|
+                                        // only check rollback for components that are replicated (ignore non-networked)
+                                        component_registry.component_metadata_map.contains_key(kind).then_some(p.check_rollback)
+                                    )
+                                    .take_while(|_| !prediction_manager.is_rollback())
+                                {
+                                    // SAFETY: this branch only checks entities whose Replicon
+                                    // ConfirmHistory does not contain `server_confirmed_replicon_tick`.
+                                    // Since `server_confirmed_tick` is the corresponding completed
+                                    // mutate tick, Replicon guarantees this entity's replicated
+                                    // components were unchanged there.
+                                    let should_rollback = unsafe {
+                                        check_rollback(
+                                            &prediction_registry,
+                                            server_confirmed_tick,
+                                            &mut entity_mut,
+                                        )
+                                    };
+                                    if should_rollback {
+                                        debug!(
+                                            ?server_confirmed_tick,
+                                            "Rollback because of mismatch on unchanged entity"
+                                        );
+                                        trace!(
+                                            target: "lightyear_debug::prediction",
+                                            kind = "unchanged_entity_mismatch",
+                                            schedule = "PreUpdate",
+                                            sample_point = "PreUpdate",
+                                            entity = ?entity_mut.id(),
+                                            local_tick = tick.0,
+                                            confirmed_tick = server_confirmed_tick.0,
+                                            rollback_tick = server_confirmed_tick.0,
+                                            "rollback mismatch detected on unchanged entity"
+                                        );
+                                        parallel_commands.command_scope(|mut c| {
+                                            do_rollback(
+                                                server_confirmed_tick,
+                                                &prediction_manager,
+                                                &mut c,
+                                                Rollback::FromState,
+                                            );
+                                        });
+                                        return;
+                                    }
+                                }
+                            });
+                        }
                         // Update the last processed tick only after we were able to process it.
                         state_metadata.set_last_processed_tick(server_confirmed_tick);
                         if prediction_manager.is_rollback() {

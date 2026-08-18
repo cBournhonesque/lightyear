@@ -181,28 +181,24 @@ impl LastConfirmedInput {
 /// Stores metadata related to state-based prediction.
 #[derive(Resource, Clone, Copy, Debug, Default, Reflect)]
 pub struct StateRollbackMetadata {
-    /// The last confirmed tick where we checked unchanged entities.
+    /// Latest completed server mutate tick consumed by the rollback check.
     ///
-    /// The latest confirmed tick itself is stored in
-    /// [`ReplicationCheckpointMap`](lightyear_replication::checkpoint::ReplicationCheckpointMap).
-    /// This field only records which completed tick prediction has already
-    /// scanned for unchanged-entity rollback checks.
+    /// Replicon advances `ServerMutateTicks` during receive; this advances only after
+    /// `check_rollback` handles that frontier. We retain it separately to:
+    /// - avoid rescanning unchanged entities while the completed frontier is unchanged;
+    /// - let receive functions ignore late updates older than an already-checked frontier;
+    /// - provide a safe watermark for pruning diff history.
+    ///
+    /// It can lag behind `ServerMutateTicks` when a completed tick is ahead of the local timeline.
     last_processed_tick: Option<Tick>,
 
-    /// Earliest tick represented by [`Self::mismatch_mask`].
+    /// Earliest receive-time state mismatch not yet covered by a completed rollback check.
     ///
-    /// Once a completed server tick has been processed this is kept equal to
-    /// [`Self::last_processed_tick`]. Before that, the first recorded mismatch
-    /// anchors the mask so early explicit mismatches are not lost.
-    mismatch_history_start: Option<Tick>,
-
-    /// Mismatch bits for the 64 ticks starting at [`Self::mismatch_history_start`].
-    ///
-    /// Bit 0 corresponds to `mismatch_history_start`, bit 1 to the next tick,
-    /// and so on. A set bit means a receive-time confirmed update already
-    /// proved that tick mismatched, so we do not need to run another mismatch
-    /// comparison for that same tick.
-    mismatch_mask: u64,
+    /// A mismatch can be detected before Replicon has completed all mutate messages through that
+    /// tick. We retain the earliest such tick until the completed server frontier reaches it, then
+    /// roll back from that latest globally complete frontier. Later confirmed samples do not need
+    /// separate mismatch entries: they remain in `ConfirmedHistory` and are applied during replay.
+    earliest_pending_mismatch_tick: Option<Tick>,
 
     /// Set to true if we received any replication message this frame.
     /// Used to trigger `RollbackMode::Always`.
@@ -218,46 +214,28 @@ pub struct StateRollbackMetadata {
 }
 
 impl StateRollbackMetadata {
-    fn mismatch_offset(start: Tick, tick: Tick) -> Option<u32> {
-        let delta = tick - start;
-        if (0..u64::BITS as i32).contains(&delta) {
-            Some(delta as u32)
-        } else {
-            None
-        }
-    }
-
-    fn ensure_mismatch_history_start(&mut self, tick: Tick) -> Tick {
-        if let Some(start) = self.mismatch_history_start {
-            return start;
-        }
-        let start = self.last_processed_tick.unwrap_or(tick);
-        self.mismatch_history_start = Some(start);
-        start
-    }
-
     /// Record a receive-time mismatch at `tick`.
     ///
-    /// Returns `false` if `tick` is older than the retained mismatch window or
-    /// too far ahead to fit in the 64-bit mask.
+    /// Only the earliest pending mismatch matters. Once the globally completed server frontier
+    /// reaches it, rollback starts from that completed frontier and replay applies every later
+    /// confirmed sample retained in `ConfirmedHistory`.
+    ///
+    /// Returns `true` because the unbounded representation can retain every mismatch tick. The
+    /// return value is kept for compatibility with the previous bounded representation, which
+    /// returned `false` when a tick fell outside its 64-tick window.
     pub fn record_mismatch(&mut self, tick: Tick) -> bool {
-        let start = self.ensure_mismatch_history_start(tick);
-        let Some(offset) = Self::mismatch_offset(start, tick) else {
-            return false;
-        };
-        self.mismatch_mask |= 1_u64 << offset;
+        match self.earliest_pending_mismatch_tick {
+            None => self.earliest_pending_mismatch_tick = Some(tick),
+            Some(existing) if tick < existing => self.earliest_pending_mismatch_tick = Some(tick),
+            _ => {}
+        }
         true
     }
 
-    /// Return whether a mismatch has already been recorded for exactly `tick`.
-    pub(crate) fn has_mismatch(&self, tick: Tick) -> bool {
-        let Some(start) = self.mismatch_history_start else {
-            return false;
-        };
-        let Some(offset) = Self::mismatch_offset(start, tick) else {
-            return false;
-        };
-        self.mismatch_mask & (1_u64 << offset) != 0
+    /// Return the earliest pending mismatch once `completed_tick` has reached it.
+    pub(crate) fn pending_mismatch_at_or_before(&self, completed_tick: Tick) -> Option<Tick> {
+        self.earliest_pending_mismatch_tick
+            .filter(|mismatch_tick| *mismatch_tick <= completed_tick)
     }
 
     /// Return whether receive-time prediction checks should run for `tick`.
@@ -268,12 +246,10 @@ impl StateRollbackMetadata {
         {
             return false;
         }
-        if let Some(start) = self.mismatch_history_start
-            && Self::mismatch_offset(start, tick).is_none()
-        {
-            return false;
-        }
-        !self.has_mismatch(tick)
+        // A later mismatch cannot make rollback eligible any sooner. Keep checking earlier ticks,
+        // though, because an out-of-order confirmed update can move the pending frontier earlier.
+        self.earliest_pending_mismatch_tick
+            .is_none_or(|pending_tick| tick < pending_tick)
     }
 
     /// Request a one-shot rollback from `tick`, regardless of the
@@ -310,7 +286,7 @@ impl StateRollbackMetadata {
     }
 
     /// Reset the per-frame state tracking.
-    /// Note: the mismatch mask is NOT reset here because receive-time mismatch
+    /// Note: the pending mismatch is NOT reset here because receive-time mismatch
     /// evidence persists until the completed server tick is processed.
     pub(crate) fn reset_frame_state(&mut self) {
         self.received_messages_this_frame = false;
@@ -318,44 +294,26 @@ impl StateRollbackMetadata {
 
     /// Clear all retained mismatch evidence.
     pub fn clear_mismatch_history(&mut self) {
-        self.mismatch_mask = 0;
+        self.earliest_pending_mismatch_tick = None;
     }
 
-    /// Returns the last confirmed tick that was processed for unchanged entities.
+    /// Returns the latest completed server mutate tick consumed by rollback checking.
     ///
-    /// Used to skip the unchanged-entity rollback check when `last_confirmed_tick`
-    /// has not advanced since the last successful check.
+    /// During Replicon's receive systems this still reflects the previous rollback-check frontier;
+    /// it is advanced only after the current completed tick has been handled by `check_rollback`.
+    /// It is used both to avoid rescanning an already-consumed completed tick and to reject stale
+    /// receive-time mismatch checks for ticks older than that frontier.
     pub fn last_processed_tick(&self) -> Option<Tick> {
         self.last_processed_tick
     }
 
-    /// Update the last processed tick after we've handled confirmed mutate tick advancement.
+    /// Record that rollback checking consumed this completed server mutate tick.
     ///
-    /// Call this only after the unchanged-entity rollback check has actually run
-    /// for the tick, not while the confirmed tick is still in the client's future.
+    /// Call this only at the end of the rollback check, after either consuming an explicit mismatch
+    /// or scanning unchanged entities. Do not advance it directly from `ServerMutateTicks`, or while
+    /// the completed tick is still in the client's future: receive functions must continue to see
+    /// the previously processed frontier while the current frame's replication is being applied.
     pub fn set_last_processed_tick(&mut self, tick: Tick) {
-        match self.mismatch_history_start {
-            None => self.mismatch_history_start = Some(tick),
-            Some(start) => {
-                let delta = tick - start;
-                if delta > 0 {
-                    if delta >= u64::BITS as i32 {
-                        self.mismatch_mask = 0;
-                    } else {
-                        self.mismatch_mask >>= delta as u32;
-                    }
-                    self.mismatch_history_start = Some(tick);
-                } else if delta < 0 {
-                    let delta = -delta;
-                    if delta >= u64::BITS as i32 {
-                        self.mismatch_mask = 0;
-                    } else {
-                        self.mismatch_mask <<= delta as u32;
-                    }
-                    self.mismatch_history_start = Some(tick);
-                }
-            }
-        }
         self.last_processed_tick = Some(tick);
     }
 
@@ -410,25 +368,29 @@ mod tests {
     }
 
     #[test]
-    fn mismatch_history_tracks_exact_ticks() {
+    fn pending_mismatch_keeps_earliest_tick() {
         let mut metadata = StateRollbackMetadata::default();
         metadata.set_last_processed_tick(Tick(10));
         metadata.record_mismatch(Tick(12));
 
-        assert!(!metadata.has_mismatch(Tick(11)));
-        assert!(metadata.has_mismatch(Tick(12)));
+        assert_eq!(metadata.pending_mismatch_at_or_before(Tick(11)), None);
+        assert_eq!(
+            metadata.pending_mismatch_at_or_before(Tick(12)),
+            Some(Tick(12))
+        );
         assert!(!metadata.should_check_mismatch_at(Tick(9)));
         assert!(!metadata.should_check_mismatch_at(Tick(12)));
-        assert!(metadata.should_check_mismatch_at(Tick(13)));
+        assert!(!metadata.should_check_mismatch_at(Tick(13)));
+        assert!(metadata.should_check_mismatch_at(Tick(11)));
 
-        metadata.set_last_processed_tick(Tick(11));
-        assert!(metadata.has_mismatch(Tick(12)));
+        metadata.record_mismatch(Tick(14));
+        assert_eq!(metadata.earliest_pending_mismatch_tick, Some(Tick(12)));
 
-        metadata.set_last_processed_tick(Tick(12));
-        assert!(metadata.has_mismatch(Tick(12)));
+        metadata.record_mismatch(Tick(11));
+        assert_eq!(metadata.earliest_pending_mismatch_tick, Some(Tick(11)));
 
         metadata.clear_mismatch_history();
-        assert!(!metadata.has_mismatch(Tick(12)));
+        assert_eq!(metadata.earliest_pending_mismatch_tick, None);
     }
 
     #[test]
@@ -460,34 +422,28 @@ mod tests {
     }
 
     #[test]
-    fn mismatch_history_keeps_multiple_exact_ticks() {
+    fn completed_frontier_can_jump_past_pending_mismatch() {
         let mut metadata = StateRollbackMetadata::default();
-        metadata.set_last_processed_tick(Tick(10));
+        metadata.set_last_processed_tick(Tick(100));
+        metadata.record_mismatch(Tick(105));
 
-        metadata.record_mismatch(Tick(12));
-        metadata.record_mismatch(Tick(14));
-        metadata.record_mismatch(Tick(10));
-
-        assert!(metadata.has_mismatch(Tick(10)));
-        assert!(!metadata.has_mismatch(Tick(11)));
-        assert!(metadata.has_mismatch(Tick(12)));
-        assert!(!metadata.has_mismatch(Tick(13)));
-        assert!(metadata.has_mismatch(Tick(14)));
-
-        metadata.set_last_processed_tick(Tick(13));
-        assert!(!metadata.has_mismatch(Tick(12)));
-        assert!(metadata.has_mismatch(Tick(14)));
+        assert_eq!(metadata.pending_mismatch_at_or_before(Tick(104)), None);
+        assert_eq!(
+            metadata.pending_mismatch_at_or_before(Tick(106)),
+            Some(Tick(105))
+        );
     }
 
     #[test]
-    fn mismatch_history_reanchors_to_first_processed_tick() {
+    fn pending_mismatch_has_no_fixed_tick_window() {
         let mut metadata = StateRollbackMetadata::default();
-
-        metadata.record_mismatch(Tick(12));
         metadata.set_last_processed_tick(Tick(10));
+        metadata.record_mismatch(Tick(100));
 
-        assert_eq!(metadata.mismatch_history_start, Some(Tick(10)));
-        assert!(metadata.has_mismatch(Tick(12)));
+        assert_eq!(
+            metadata.pending_mismatch_at_or_before(Tick(100)),
+            Some(Tick(100))
+        );
     }
 }
 
