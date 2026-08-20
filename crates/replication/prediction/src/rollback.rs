@@ -62,7 +62,7 @@ use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 #[cfg(feature = "p2p")]
 use lightyear_p2p::prelude::{P2PStarted, P2PStopped};
-use lightyear_replication::prelude::ConfirmHistory;
+use lightyear_replication::prelude::{ConfirmHistory, PreSpawned};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
@@ -919,7 +919,17 @@ pub fn reset_input_rollback_tracker(
 /// Before we start preparing for rollback, restore any PredictionDisable predicted entity
 pub(crate) fn remove_prediction_disable(
     mut commands: Commands,
-    query: Query<Entity, (With<Predicted>, With<PredictionDisable>)>,
+    query: Query<
+        Entity,
+        (
+            With<PredictionDisable>,
+            Or<(
+                With<Predicted>,
+                With<DeterministicPredicted>,
+                With<PreSpawned>,
+            )>,
+        ),
+    >,
 ) {
     query.iter().for_each(|e| {
         trace!(

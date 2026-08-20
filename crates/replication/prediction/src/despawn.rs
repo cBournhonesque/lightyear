@@ -4,7 +4,9 @@ use crate::prelude::DeterministicPredicted;
 use bevy_ecs::error::ignore;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
+use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_replication::prelude::PreSpawned;
+use lightyear_sync::prelude::InputTimelineConfig;
 #[allow(unused_imports)]
 use tracing::{debug, error, info};
 // TODO (IMPORTANT): we need to add PredictionDisable in the replication receiver systems!!!
@@ -29,7 +31,13 @@ pub struct PredictionDespawnCommand {
 
 #[derive(Component, PartialEq, Debug, Reflect)]
 #[reflect(Component)]
-pub struct PredictionDisable;
+pub struct PredictionDisable {
+    /// Tick at which the entity was prediction-despawned.
+    ///
+    /// Deterministic prediction retains the entity until this tick falls outside the effective
+    /// rollback window, at which point the entity can be permanently reclaimed.
+    pub tick: Tick,
+}
 
 impl Command for PredictionDespawnCommand {
     type Out = ();
@@ -49,14 +57,45 @@ impl Command for PredictionDespawnCommand {
                 // see https://github.com/cBournhonesque/lightyear/issues/818
                 || entity.get::<PreSpawned>().is_some()
             {
-                // if this is a predicted entity, do not despawn the entity immediately but instead
-                // add a PredictionDisable component to it to mark it as disabled until the confirmed
-                // entity catches up to it
+                // Do not despawn predicted entities immediately. A conventional predicted entity
+                // remains disabled until confirmed replication resolves it; a deterministic-only
+                // entity remains disabled until its despawn tick falls outside the rollback window.
                 debug!(?self.entity, "inserting prediction disable marker");
-                entity.insert(PredictionDisable);
+                let disabled_at = entity.world().resource::<LocalTimeline>().tick();
+                entity.insert(PredictionDisable { tick: disabled_at });
             } else {
                 error!("This command should only be called for predicted entities!");
             }
+        }
+    }
+}
+
+/// Permanently remove deterministic entities once their despawn tick is outside the rollback
+/// window.
+pub(crate) fn finalize_deterministic_despawns(
+    mut commands: Commands,
+    timeline: Res<LocalTimeline>,
+    prediction_manager: Res<PredictionManager>,
+    input_config: Option<Res<InputTimelineConfig>>,
+    query: Query<
+        (Entity, &PredictionDisable),
+        (With<DeterministicPredicted>, Allow<PredictionDisable>),
+    >,
+) {
+    let max_rollback_ticks = input_config.as_deref().map_or(
+        prediction_manager.rollback_policy.max_rollback_ticks,
+        |input_config| {
+            prediction_manager
+                .rollback_policy
+                .effective_max_rollback_ticks(input_config)
+        },
+    );
+    for (entity, disabled) in &query {
+        // Keep the entity while its disable tick can still be reached by an accepted rollback.
+        // Once it is older than the same effective bound enforced by `check_rollback`, no later
+        // reconciliation can restore it.
+        if timeline.tick() - disabled.tick > i32::from(max_rollback_ticks) {
+            commands.entity(entity).despawn();
         }
     }
 }

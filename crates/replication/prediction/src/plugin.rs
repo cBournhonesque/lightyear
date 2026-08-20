@@ -3,7 +3,7 @@ use crate::SyncComponent;
 use crate::correction::{
     repair_frame_interpolation_history, update_frame_interpolation_post_rollback,
 };
-use crate::despawn::PredictionDisable;
+use crate::despawn::{PredictionDisable, finalize_deterministic_despawns};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::{LastConfirmedInput, PredictionManager};
 use crate::predicted_history::{
@@ -252,6 +252,10 @@ impl Plugin for PredictionPlugin {
                 .chain(),
         );
         app.configure_sets(FixedPostUpdate, PredictionSystems::All.run_if(should_run));
+        app.add_systems(
+            FixedPostUpdate,
+            finalize_deterministic_despawns.in_set(PredictionSystems::EntityDespawn),
+        );
 
         // PostUpdate
         app.configure_sets(PostUpdate, PredictionSystems::All.run_if(should_run));

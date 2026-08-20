@@ -59,7 +59,6 @@ impl Plugin for ExampleRendererPlugin {
             app.add_plugins(FrameInterpolationPlugin);
         }
 
-        // Add FrameInterpolate to predicted entities once Position is available.
         app.add_observer(add_frame_interpolation_components);
     }
 }
@@ -73,9 +72,9 @@ impl Plugin for ExampleRendererPlugin {
 // Lightyear's Avian integration copies the interpolated/corrected Position and Rotation
 // to Transform before transform propagation, so visual children follow the smoothed pose.
 fn add_frame_interpolation_components(
-    // We use Position because it's added by avian later, and when it's added
-    // we know that Predicted is already present on the entity
-    trigger: On<Add, Position>,
+    // Observe both components because conventional predicted entities receive Position after
+    // their marker, while P2P bullets receive DeterministicPredicted after Position.
+    trigger: On<Add, (Position, DeterministicPredicted)>,
     q: Query<
         Entity,
         (
@@ -219,7 +218,11 @@ fn draw_predicted_entities(
         (
             // skip drawing bullet outlines, since we add a mesh + material to them
             Without<BulletMarker>,
-            Or<(With<PreSpawned>, With<Predicted>)>,
+            Or<(
+                With<PreSpawned>,
+                With<Predicted>,
+                With<DeterministicPredicted>,
+            )>,
         ),
     >,
     timeline: Res<LocalTimeline>,

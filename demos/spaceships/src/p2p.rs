@@ -13,7 +13,6 @@ use lightyear_examples_common::p2p::{P2PSettings, input_target_for_peer};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use lightyear_frame_interpolation::FrameInterpolate;
 
-use crate::client::player_input_map;
 use crate::protocol::*;
 use crate::shared::color_from_id;
 
@@ -86,7 +85,9 @@ fn spawn_fixed_world(
             ))
             .id();
         if peer_id == settings.local_peer_id {
-            commands.entity(player).insert(player_input_map());
+            // P2P has no authoritative replication stream to assign ownership, so mark the
+            // locally owned player explicitly. The common client observer installs its InputMap.
+            commands.entity(player).insert(Controlled);
         }
     }
 }
