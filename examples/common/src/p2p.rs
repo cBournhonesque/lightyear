@@ -25,6 +25,10 @@ pub struct P2PSettings {
     pub player_count: u8,
 }
 
+/// Present until every configured remote peer has responded and the P2P start barrier is entered.
+#[derive(Resource)]
+struct AwaitingP2PStart;
+
 impl P2PSettings {
     pub fn peer_ids(&self) -> Range<u8> {
         0..self.player_count
@@ -111,7 +115,9 @@ pub(crate) fn spawn_connections(
             Name::new(format!("P2P Link {peer_id} -> {remote_peer_id}")),
         ));
     }
-    app.add_systems(Startup, connect_and_start);
+    app.insert_resource(AwaitingP2PStart);
+    app.add_systems(Startup, connect_links);
+    app.add_systems(Update, start_when_roster_connected);
 }
 
 fn validate_roster(peer_id: u8, player_count: u8) {
@@ -133,9 +139,32 @@ fn peer_addr(base_port: u16, local_peer_id: u8, remote_peer_id: u8) -> SocketAdd
     SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)
 }
 
-fn connect_and_start(mut commands: Commands, links: Query<Entity, With<P2P>>) {
+fn connect_links(mut commands: Commands, links: Query<Entity, With<P2P>>) {
     for entity in &links {
         commands.trigger(Connect { entity });
     }
+}
+
+fn start_when_roster_connected(
+    mut commands: Commands,
+    settings: Res<P2PSettings>,
+    awaiting_start: Option<Res<AwaitingP2PStart>>,
+    links: Query<(Has<Connected>, &PingManager), With<P2P>>,
+) {
+    let expected_remote_count = usize::from(settings.player_count.saturating_sub(1));
+    if awaiting_start.is_none()
+        || links.iter().count() != expected_remote_count
+        || links
+            .iter()
+            .any(|(connected, ping)| !connected || ping.latency_samples_recv() == 0)
+    {
+        return;
+    }
+
+    tracing::info!(
+        player_count = settings.player_count,
+        "P2P roster connected; starting session negotiation"
+    );
+    commands.remove_resource::<AwaitingP2PStart>();
     commands.trigger(P2PStart);
 }

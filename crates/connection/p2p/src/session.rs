@@ -1,15 +1,15 @@
 use alloc::vec::Vec;
-use bevy_app::{App, Plugin, PreUpdate};
+use bevy_app::{App, FixedFirst, Plugin, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
 use core::hash::Hasher;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_connection::network_topology::NetworkTopologySystems;
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_connection::p2p::P2P;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_core::prelude::{LocalTimeline, Tick};
+use lightyear_core::prelude::{LocalTimeline, Tick, TimelineSystems};
 use lightyear_link::prelude::{Unlink, UnlinkReason};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
@@ -258,12 +258,12 @@ impl P2PSession {
         }
     }
 
-    /// Advance the local start negotiation from readiness through the agreed start tick.
+    /// Advance the local start negotiation through agreement on a future start tick.
     ///
     /// Each peer proposes `current tick + start delay`. Once all proposals exist, their maximum
     /// is the common start tick. Every peer must then acknowledge that same value. The transition
-    /// to Started happens one tick early in `PreUpdate`, so [`P2PStarted`] observers can create the
-    /// deterministic world before `FixedFirst` advances to the agreed tick.
+    /// to Started happens separately in `FixedFirst`, immediately before the [`LocalTimeline`]
+    /// advances to the agreed tick.
     fn advance(&mut self, tick: Tick, timeline_synced: bool) -> AdvanceResult {
         if !matches!(self.state, P2PSessionState::Starting { .. }) {
             return AdvanceResult::Waiting;
@@ -315,8 +315,8 @@ impl P2PSession {
             return AdvanceResult::Failed;
         }
 
-        // Receiving the final acknowledgement after the target tick is too late to create the
-        // shared world deterministically before that tick.
+        // PreUpdate observes the tick most recently simulated by FixedMain. Consensus reached at
+        // or after the target tick is too late to create the shared world before that tick.
         if tick >= start_tick {
             tracing::warn!(
                 ?tick,
@@ -325,11 +325,25 @@ impl P2PSession {
             );
             return AdvanceResult::Failed;
         }
-        if tick + 1 < start_tick {
-            return AdvanceResult::Waiting;
+        AdvanceResult::Agreed(start_tick)
+    }
+
+    /// Return the start tick once every remote peer has acknowledged it.
+    fn agreed_start_tick(&self) -> Option<Tick> {
+        let P2PSessionState::Starting {
+            start_tick: Some(start_tick),
+        } = self.state
+        else {
+            return None;
+        };
+        if self
+            .remote_peers
+            .iter()
+            .any(|peer| peer.acknowledged_tick != Some(start_tick))
+        {
+            return None;
         }
-        self.state = P2PSessionState::Started { start_tick };
-        AdvanceResult::Started(start_tick)
+        Some(start_tick)
     }
 
     /// Return each locally available Ready or acknowledgement once.
@@ -463,14 +477,14 @@ impl Plugin for P2PSessionPlugin {
 
         app.add_observer(start_session);
         app.add_observer(stop_session);
+        app.add_systems(PreUpdate, drive_session.after(MessageSystems::Receive));
+        // PreUpdate runs only once per rendered frame, which may contain several catch-up fixed
+        // ticks. FixedFirst observes every boundary, so it cannot skip the transition to the
+        // agreed tick. P2PStarted must run before IncrementLocal: a late input for the first
+        // gameplay tick T rolls back to the shared snapshot at T - 1.
         app.add_systems(
-            PreUpdate,
-            drive_session
-                .after(MessageSystems::Receive)
-                // A successful barrier replaces Candidate with Joined. Refresh the cached
-                // topology in the same PreUpdate so FixedMain sees the new membership at the
-                // agreed start tick.
-                .before(NetworkTopologySystems::Update),
+            FixedFirst,
+            start_session_before_agreed_tick.before(TimelineSystems::IncrementLocal),
         );
     }
 }
@@ -478,7 +492,7 @@ impl Plugin for P2PSessionPlugin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AdvanceResult {
     Waiting,
-    Started(Tick),
+    Agreed(Tick),
     Failed,
 }
 
@@ -655,6 +669,45 @@ fn transition_candidates(commands: &mut Commands, links: &mut P2PLinkQuery, next
     }
 }
 
+/// Complete an acknowledged barrier immediately before its first gameplay tick.
+fn start_session_before_agreed_tick(
+    mut commands: Commands,
+    mut session: ResMut<P2PSession>,
+    timeline: Res<LocalTimeline>,
+    mut metadata: ResMut<NetworkingMetadata>,
+    mut links: P2PLinkQuery,
+) {
+    let Some(start_tick) = session.agreed_start_tick() else {
+        return;
+    };
+    if timeline.tick() + 1 != start_tick {
+        return;
+    }
+
+    let mut candidate_count = 0;
+    let mut joined = SmallVec::<[Entity; 4]>::new();
+    for (entity, state, _, connected, _, _) in &mut links {
+        if *state == P2P::Candidate {
+            candidate_count += 1;
+            if !connected {
+                return;
+            }
+            joined.push(entity);
+        }
+    }
+    if candidate_count != session.remote_peers.len() {
+        return;
+    }
+
+    joined.sort_unstable_by_key(|entity| entity.index_u32());
+    session.state = P2PSessionState::Started { start_tick };
+    transition_candidates(&mut commands, &mut links, P2P::Joined);
+    metadata.mode = NetworkTopology::P2P(joined);
+    tracing::info!(?start_tick, "P2P session started");
+    session.clear_barrier_progress();
+    commands.trigger(P2PStarted { start_tick });
+}
+
 /// Drive the current start attempt once per frame before fixed simulation.
 ///
 /// Incoming messages update per-remote-peer progress. Once every frozen Link is connected and the
@@ -672,7 +725,6 @@ fn drive_session(
         return;
     }
 
-    let timed_out = session.timed_out_at(real_time.elapsed());
     let expected_peer_count = session.remote_peers.len();
     let mut found_peers = SmallVec::<[PeerId; 4]>::new();
     let mut cohort_intact = true;
@@ -719,31 +771,36 @@ fn drive_session(
         tracing::warn!("P2P session start negotiation failed because peer rosters differ");
         return;
     }
-    if timed_out {
-        let timeout = session.start_timeout;
-        session.stop();
-        transition_candidates(&mut commands, &mut links, P2P::Inactive);
-        tracing::warn!(?timeout, "P2P session start negotiation timed out");
-        return;
-    }
     if !all_connected {
+        if session.timed_out_at(real_time.elapsed()) {
+            let timeout = session.start_timeout;
+            session.stop();
+            transition_candidates(&mut commands, &mut links, P2P::Inactive);
+            tracing::warn!(?timeout, "P2P session start negotiation timed out");
+        }
         return;
     }
     match session.advance(timeline.tick(), synced_timeline.is_some()) {
-        AdvanceResult::Started(start_tick) => {
-            tracing::info!(?start_tick, "P2P session started");
-            transition_candidates(&mut commands, &mut links, P2P::Joined);
-            session.clear_barrier_progress();
-            commands.trigger(P2PStarted { start_tick });
-            return;
-        }
         AdvanceResult::Failed => {
             tracing::warn!("P2P session start negotiation failed");
             session.stop();
             transition_candidates(&mut commands, &mut links, P2P::Inactive);
             return;
         }
+        AdvanceResult::Agreed(start_tick) => {
+            tracing::trace!(?start_tick, "P2P session start tick agreed");
+        }
         AdvanceResult::Waiting => {}
+    }
+
+    // Once every remote has acknowledged the common tick, the negotiation is complete. Do not
+    // let its wall-clock timeout expire while FixedFirst waits for that future tick boundary.
+    if session.agreed_start_tick().is_none() && session.timed_out_at(real_time.elapsed()) {
+        let timeout = session.start_timeout;
+        session.stop();
+        transition_candidates(&mut commands, &mut links, P2P::Inactive);
+        tracing::warn!(?timeout, "P2P session start negotiation timed out");
+        return;
     }
 
     let mut outbound = SmallVec::<[P2PSessionMessage; 2]>::new();
@@ -836,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn ready_peers_choose_and_acknowledge_the_latest_tick() {
+    fn ready_peers_agree_on_the_latest_tick() {
         let mut session = P2PSession::default().with_start_delay_ticks(10);
         let local = peer(0);
         let first = peer(1);
@@ -865,6 +922,8 @@ mod tests {
         );
         assert_eq!(session.advance(Tick(7), true), AdvanceResult::Waiting);
         assert_eq!(session.start_tick(), Some(Tick(18)));
+        let mut outbound = SmallVec::new();
+        session.collect_outbound(&mut outbound);
 
         for link in [first, second] {
             session.receive(
@@ -878,14 +937,15 @@ mod tests {
         }
         assert_eq!(
             session.advance(Tick(17), true),
-            AdvanceResult::Started(Tick(18))
+            AdvanceResult::Agreed(Tick(18))
         );
         assert_eq!(
             session.state(),
-            P2PSessionState::Started {
-                start_tick: Tick(18)
+            P2PSessionState::Starting {
+                start_tick: Some(Tick(18))
             }
         );
+        assert_eq!(session.agreed_start_tick(), Some(Tick(18)));
     }
 
     #[test]

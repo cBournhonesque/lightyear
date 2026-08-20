@@ -7,7 +7,7 @@ use bevy_ecs::component::{Component, ComponentId, Mutable};
 use bevy_ecs::event::Event;
 use bevy_ecs::prelude::{On, Resource};
 use bevy_ecs::ptr::Ptr;
-use bevy_ecs::schedule::SystemSet;
+use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy_ecs::system::{Res, ResMut};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
@@ -18,11 +18,13 @@ use lightyear_utils::collections::HashMap;
 #[allow(unused_imports)]
 use tracing::trace;
 
-/// Shared ordering for systems that advance connection-local network timelines.
+/// Shared ordering for systems that advance network timelines.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TimelineSystems {
     /// Drives the internal state of network timelines forward in `PreUpdate`.
     Advance,
+    /// Increments the application-global [`LocalTimeline`] in `FixedFirst`.
+    IncrementLocal,
 }
 
 /// Runtime identifier for a [`NetworkTimeline`] type.
@@ -304,7 +306,10 @@ impl Plugin for TimelinePlugin {
             .set_timestep(self.tick_duration);
         app.add_observer(Self::update_tick_duration);
 
-        app.add_systems(FixedFirst, increment_local_tick);
+        app.add_systems(
+            FixedFirst,
+            increment_local_tick.in_set(TimelineSystems::IncrementLocal),
+        );
     }
 
     fn finish(&self, app: &mut App) {
