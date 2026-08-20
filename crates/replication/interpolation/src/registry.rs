@@ -36,7 +36,6 @@ use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::diff::{
     ComponentDelta, DiffBuffer, Diffable as RepliconDiffable,
 };
-use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
@@ -47,6 +46,7 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
 use lightyear_replication::diff_history::HistoryDiffReceiver;
+use lightyear_replication::prelude::InterpolatedSend;
 use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 use tracing::{error, trace};
@@ -1169,11 +1169,8 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
 
 fn install_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
     let kind = ComponentKind::of::<C>();
-    app.register_marker_with::<Interpolated>(MarkerConfig {
-        priority: 100,
-        need_history: true,
-    });
     app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
+    app.set_marker_fns::<InterpolatedSend, C>(write_history::<C>, remove_history::<C>);
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .interpolated_marker_fns
@@ -1216,11 +1213,8 @@ fn install_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
     app: &mut bevy_app::App,
 ) {
     let kind = ComponentKind::of::<C>();
-    app.register_marker_with::<Interpolated>(MarkerConfig {
-        priority: 100,
-        need_history: true,
-    });
     app.set_marker_fns::<Interpolated, C>(write_history_diff::<C>, remove_history::<C>);
+    app.set_marker_fns::<InterpolatedSend, C>(write_history_diff::<C>, remove_history::<C>);
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .interpolated_marker_fns
@@ -1972,6 +1966,7 @@ mod tests {
         app.add_plugins((
             StatesPlugin,
             RepliconPlugins,
+            crate::plugin::InterpolationMarkerPlugin,
             crate::plugin::InterpolationPlugin,
         ));
         app.insert_resource(ReplicationCheckpointMap::default());
@@ -1995,6 +1990,7 @@ mod tests {
         app.add_plugins((
             StatesPlugin,
             RepliconPlugins,
+            crate::plugin::InterpolationMarkerPlugin,
             crate::plugin::InterpolationPlugin,
         ));
         app.component::<TestDiffComponent>()
@@ -2012,6 +2008,7 @@ mod tests {
         app.add_plugins((
             StatesPlugin,
             RepliconPlugins,
+            crate::plugin::InterpolationMarkerPlugin,
             crate::plugin::InterpolationPlugin,
         ));
 
@@ -2098,6 +2095,7 @@ mod tests {
         app.add_plugins((
             StatesPlugin,
             RepliconPlugins,
+            crate::plugin::InterpolationMarkerPlugin,
             crate::plugin::InterpolationPlugin,
         ));
         app.insert_resource(ReplicationCheckpointMap::default());
@@ -2140,6 +2138,7 @@ mod tests {
         app.add_plugins((
             StatesPlugin,
             RepliconPlugins,
+            crate::plugin::InterpolationMarkerPlugin,
             crate::plugin::InterpolationPlugin,
         ));
         app.insert_resource(ReplicationCheckpointMap::default());

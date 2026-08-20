@@ -1,5 +1,4 @@
-use super::rollback::{RollbackPlugin, RollbackSystems, prepare_rollback};
-use crate::SyncComponent;
+use super::rollback::{CatchUpGated, RollbackPlugin, RollbackSystems, prepare_rollback};
 use crate::correction::{
     repair_frame_interpolation_history, update_frame_interpolation_post_rollback,
 };
@@ -8,21 +7,25 @@ use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::{LastConfirmedInput, PredictionManager};
 use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
-    apply_component_removal_predicted, handle_local_timeline_shift_history_diff_receiver,
+    apply_component_removal_predicted, backfill_confirmed_history_on_predicted,
+    handle_local_timeline_shift_history_diff_receiver,
     handle_local_timeline_shift_prediction_history, prune_history_diff_receiver,
     snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
+use crate::{Predicted, SyncComponent};
 use bevy_app::FixedPreUpdate;
 use bevy_app::prelude::*;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
+use bevy_replicon::prelude::AppMarkerExt;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
+use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::prelude::{ConfirmedHistory, is_in_rollback};
-use lightyear_replication::prelude::ReplicationSystems;
+use lightyear_replication::prelude::{PreSpawned, PredictedSend, ReplicationSystems};
 #[cfg(test)]
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 
@@ -37,6 +40,48 @@ use lightyear_replication::prespawn::PreSpawnedReceiver;
 /// topologies remain authoritative and do not run it.
 #[derive(Default)]
 pub struct PredictionPlugin;
+
+/// Registers Replicon's prediction markers for the shared client/server protocol.
+///
+/// Add this before registering predicted components. Lightyear's high-level
+/// client and server plugin groups add it automatically.
+#[derive(Default)]
+pub struct PredictionMarkerPlugin;
+
+// Higher-priority markers win when more than one applies to an update.
+// Prespawn and catch-up must preserve their specialized reconciliation
+// semantics before the general prediction markers are considered. Prespawn is
+// strongest because a locally predicted absence must not be materialized by a
+// lower-priority initial-write path.
+const PRESPAWNED_PRIORITY: usize = 120;
+const CATCH_UP_GATED_PRIORITY: usize = 110;
+const PREDICTED_SEND_PRIORITY: usize = 100;
+const PREDICTED_PRIORITY: usize = 90;
+
+impl Plugin for PredictionMarkerPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_marker_with::<CatchUpGated>(MarkerConfig {
+            priority: CATCH_UP_GATED_PRIORITY,
+            need_history: true,
+        });
+        // A matched prespawn must preserve its locally predicted live value
+        // even when PredictedSend is included in the same authoritative update.
+        app.register_marker_with::<PreSpawned>(MarkerConfig {
+            priority: PRESPAWNED_PRIORITY,
+            need_history: true,
+        });
+        app.register_marker_with::<PredictedSend>(MarkerConfig {
+            priority: PREDICTED_SEND_PRIORITY,
+            need_history: true,
+        });
+        // Keep the receiver-local marker registered for users that opt an
+        // already replicated entity into prediction manually.
+        app.register_marker_with::<Predicted>(MarkerConfig {
+            priority: PREDICTED_PRIORITY,
+            need_history: true,
+        });
+    }
+}
 
 /// Initialize resources required by the global prediction pipeline.
 ///
@@ -97,8 +142,8 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // This also supports explicit resynchronization after prediction has begun. Do not shift
     // `ConfirmedHistory<C>` here: confirmed samples are resolved
     // through `ReplicationCheckpointMap` and are already in authoritative
-    // server tick space. Shifting them can move an init-message seed into the
-    // future and make rollback prefer stale state over later server updates.
+    // server tick space. Shifting them can move authoritative state into the
+    // future and make rollback prefer it over later server updates.
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
@@ -152,6 +197,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_observer(add_prediction_history::<C>);
+    app.add_observer(backfill_confirmed_history_on_predicted::<C>);
 
     app.add_systems(
         PreUpdate,

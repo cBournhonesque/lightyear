@@ -6,7 +6,7 @@
 
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
 use crate::{Predicted, SyncComponent, manager::PredictionManager};
-use bevy_ecs::component::Mutable;
+use bevy_ecs::component::{ComponentIdFor, Mutable};
 use bevy_ecs::prelude::*;
 use bevy_ecs::resource::IsResource;
 use bevy_reflect::Reflect;
@@ -19,8 +19,9 @@ use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::LocalTimelineShift;
+use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
-use lightyear_replication::prelude::PreSpawned;
+use lightyear_replication::prelude::{ConfirmHistory, PreSpawned};
 use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
@@ -231,24 +232,10 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// `Add<C>` already fires when a resource is inserted, and triggering on every `IsResource`
 /// addition would wake this observer for unrelated resource types.
 ///
-/// If `C` has just been applied via an init message on a
-/// marker that receives confirmed state, seed [`ConfirmedHistory<C>`] at the
-/// server tick that produced the init.
-///
-/// # Why seeding is needed
-///
-/// Replicon reads entity markers on the empty newly-spawned entity BEFORE
-/// init components are applied. As a result, the marker-gated `write_history`
-/// function does NOT fire for init messages — the component value is written
-/// directly to the entity via the default write, and `ConfirmedHistory<C>` gets
-/// no confirmed entry for the init tick. We plug that hole here.
-///
-/// # Once-only semantics
-///
-/// Seeding only happens when confirmed history does not already exist. We must
-/// not overwrite existing local prediction history or existing authoritative
-/// samples. If there is no authoritative seed, no confirmed history is inserted:
-/// receive paths create it when a confirmed sample actually arrives.
+/// [`CatchUpGated`] always needs [`PredictionHistory<C>`], even while `C` is absent because its
+/// replicated value is still gated in [`ConfirmedHistory<C>`]. Prediction history is also the
+/// component's rollback-membership marker, so it must be present for the catch-up rollback to
+/// materialize that confirmed value as the live component.
 pub(crate) fn add_prediction_history<C: Component + Clone>(
     trigger: On<
         Add,
@@ -260,27 +247,26 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
             CatchUpGated,
         ),
     >,
-    query: Query<(
-        Has<C>,
-        Has<Predicted>,
-        Has<PreSpawned>,
-        Has<DeterministicPredicted>,
-        Has<CatchUpGated>,
-        Has<IsResource>,
-    )>,
+    query: Query<
+        (),
+        Or<(
+            With<CatchUpGated>,
+            (
+                With<C>,
+                Or<(
+                    With<Predicted>,
+                    With<PreSpawned>,
+                    With<DeterministicPredicted>,
+                    With<IsResource>,
+                )>,
+            ),
+        )>,
+    >,
     mut commands: Commands,
 ) {
-    let Ok((has_component, predicted, prespawned, deterministic, catchup_gated, is_resource)) =
-        query.get(trigger.entity)
-    else {
-        return;
-    };
-    if !catchup_gated
-        && !(has_component && (predicted || prespawned || deterministic || is_resource))
-    {
+    if query.get(trigger.entity).is_err() {
         return;
     }
-    let should_seed_confirmed_history = has_component && (catchup_gated || predicted || prespawned);
     trace!(
         target: "lightyear_debug::prediction",
         kind = "prediction_history_insert",
@@ -290,57 +276,53 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
     );
     let entity = trigger.entity;
     commands.queue(move |world: &mut World| {
-        let Ok(entity_mut) = world.get_entity_mut(entity) else {
-            return;
-        };
-        let has_prediction_history = entity_mut.contains::<PredictionHistory<C>>();
-        let has_confirmed_history = entity_mut.contains::<ConfirmedHistory<C>>();
-        if has_prediction_history && has_confirmed_history {
-            return;
-        }
-        // Try to capture a confirmed entry from the current C value + the
-        // server tick resolved via ConfirmHistory. This path only fires
-        // when all of `C`, `ConfirmHistory`, and a checkpoint mapping
-        // are present — i.e. when this is an init-message write.
-        let seed: Option<(Tick, C)> = {
-            if should_seed_confirmed_history {
-                let component = entity_mut.get::<C>().cloned();
-                let confirm_last = entity_mut
-                    .get::<lightyear_replication::prelude::ConfirmHistory>()
-                    .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
-                match (component, confirm_last) {
-                    (Some(component), Some(confirm_tick)) => world
-                        .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-                        .get(confirm_tick)
-                        .map(|tick| (tick, component)),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        };
-        // Re-fetch the entity after the world-level resource access above.
         let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
             return;
         };
-        if !has_prediction_history {
-            entity_mut.insert(PredictionHistory::<C>::default());
-        }
-        if has_confirmed_history {
-            return;
-        }
-        if let Some((tick, component)) = seed {
-            let mut history = ConfirmedHistory::<C>::default();
-            trace!(
-                ?entity,
-                ?tick,
-                component = ?DebugName::type_name::<C>(),
-                "seeding ConfirmedHistory with confirmed value from init message"
-            );
-            history.insert_present_explicit(tick, component);
-            entity_mut.insert(history);
-        }
+        entity_mut.insert_if_new(PredictionHistory::<C>::default());
     });
+}
+
+/// Seeds the last replicated value when [`Predicted`] is added manually to an
+/// already-replicated entity on the receiver.
+///
+/// Initial replication through `PredictedSend` also adds the receiver-side [`Predicted`] marker,
+/// but its marker writer adds [`ConfirmedHistory<C>`] in the same replication command. The
+/// [`Without<ConfirmedHistory<C>>`] query filter therefore makes that path a no-op here.
+///
+/// Without this baseline an unchanged authoritative component might never
+/// receive another update, leaving state-based prediction unable to compare it
+/// at later completed server ticks.
+pub(crate) fn backfill_confirmed_history_on_predicted<C: SyncComponent>(
+    trigger: On<Add, Predicted>,
+    query: Query<(&C, &ConfirmHistory), Without<ConfirmedHistory<C>>>,
+    component_id: ComponentIdFor<C>,
+    checkpoints: Option<Res<ReplicationCheckpointMap>>,
+    mut commands: Commands,
+) {
+    // A component added together with Predicted is a new local value, not a
+    // previously replicated authoritative baseline.
+    if trigger.trigger().components.contains(&component_id.get()) {
+        return;
+    }
+    let Ok((component, confirm_history)) = query.get(trigger.entity) else {
+        return;
+    };
+    let Some(tick) = checkpoints
+        .as_deref()
+        .and_then(|checkpoints| checkpoints.get(confirm_history.last_tick()))
+    else {
+        return;
+    };
+    let mut history = ConfirmedHistory::<C>::default();
+    history.insert_present_explicit(tick, component.clone());
+    trace!(
+        entity = ?trigger.entity,
+        ?tick,
+        component = ?DebugName::type_name::<C>(),
+        "backfilled confirmed history for late prediction opt-in"
+    );
+    commands.entity(trigger.entity).insert(history);
 }
 
 pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(

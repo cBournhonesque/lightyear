@@ -7,13 +7,16 @@ use bevy_replicon::prelude::{EntityDiffExt, RepliconPlugins, RepliconTick, RuleF
 use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
-use lightyear::prelude::{InterpolationPlugin, InterpolationRegistrationExt, PredictionBuilderExt};
+use lightyear::prelude::{
+    InterpolationMarkerPlugin, InterpolationPlugin, InterpolationRegistrationExt,
+    PredictionBuilderExt,
+};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{ConfirmedHistory, HistoryState, Interpolated};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::manager::PredictionManager;
-use lightyear_prediction::plugin::PredictionPlugin;
+use lightyear_prediction::plugin::{PredictionMarkerPlugin, PredictionPlugin};
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::prelude::{
     AppComponentExt, InterpolationTarget, PredictionTarget, Replicate,
@@ -177,6 +180,7 @@ fn setup_prediction_receive_app() -> (App, bevy_replicon::shared::replication::r
     app.add_plugins((
         bevy::state::app::StatesPlugin,
         RepliconPlugins,
+        PredictionMarkerPlugin,
         PredictionPlugin,
     ));
     app.insert_resource(lightyear_core::prelude::LocalTimeline::default());
@@ -202,6 +206,7 @@ fn setup_interpolation_receive_app() -> (App, bevy_replicon::shared::replication
     app.add_plugins((
         bevy::state::app::StatesPlugin,
         RepliconPlugins,
+        InterpolationMarkerPlugin,
         InterpolationPlugin,
     ));
     app.insert_resource(ReplicationCheckpointMap::default());

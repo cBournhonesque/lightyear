@@ -275,7 +275,9 @@ pub mod timeline;
 pub mod prelude {
     pub use crate::Interpolated;
     pub use crate::interpolate::interpolation_fraction;
-    pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSystems};
+    pub use crate::plugin::{
+        InterpolationDelay, InterpolationMarkerPlugin, InterpolationPlugin, InterpolationSystems,
+    };
     pub use crate::registry::{
         AppInterpolationExt, InterpolationRegistrationExt, InterpolationRegistry,
     };
