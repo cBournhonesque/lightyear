@@ -29,7 +29,7 @@ pub mod prelude {
     pub use crate::manager::{
         LastConfirmedInput, PredictionManager, RollbackMode, RollbackPolicy, StateRollbackMetadata,
     };
-    pub use crate::plugin::{PredictionPlugin, PredictionSystems};
+    pub use crate::plugin::{PredictionMarkerPlugin, PredictionPlugin, PredictionSystems};
     pub use crate::predicted_history::PredictionHistory;
     pub use crate::registry::{
         LocalRollbackComponentRegistration, PredictedComponentRegistration,

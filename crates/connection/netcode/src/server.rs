@@ -998,7 +998,7 @@ impl<Ctx> Server<Ctx> {
         server_addr: Option<SocketAddr>,
     ) -> Result<Vec<Error>> {
         self.recv_packets(&mut link.recv, entity_mut, server_addr)?;
-        Ok(self.client_errors.drain(..).collect())
+        Ok(core::mem::take(&mut self.client_errors))
     }
 
     /// Sends a packet to a client.

@@ -443,13 +443,6 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
     );
 
     stepper.frame_step(2);
-    stepper
-        .server_app
-        .world_mut()
-        .entity_mut(server_entity)
-        .insert(CompCustomInterp(2.0));
-    stepper.frame_step_server_first(2);
-
     let client_entity = stepper
         .client(0)
         .get::<MessageManager>()
@@ -457,16 +450,34 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
         .entity_mapper
         .get_local(server_entity)
         .unwrap();
-    let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
+    {
+        let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
+        assert!(
+            client_entity_ref.get::<Interpolated>().is_some(),
+            "entity should be interpolated on the client"
+        );
+        assert!(
+            client_entity_ref.get::<InterpolatedSend>().is_none(),
+            "the sender-only interpolation marker must not be materialized on the receiver"
+        );
+        let history = client_entity_ref
+            .get::<ConfirmedHistory<CompCustomInterp>>()
+            .expect("the initial component should be written directly to interpolation history");
+        assert_eq!(
+            history.newest_present().map(|(_, value)| value),
+            Some(&CompCustomInterp(1.0)),
+            "InterpolatedSend should select the history receive function in the initial update"
+        );
+    }
 
-    assert!(
-        client_entity_ref.get::<Interpolated>().is_some(),
-        "entity should be interpolated on the client"
-    );
-    assert!(
-        client_entity_ref.get::<InterpolatedSend>().is_none(),
-        "the sender-only interpolation marker must not be materialized on the receiver"
-    );
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompCustomInterp(2.0));
+    stepper.frame_step_server_first(2);
+
+    let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
     let history = client_entity_ref
         .get::<ConfirmedHistory<CompCustomInterp>>()
         .expect(
@@ -475,6 +486,53 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
     assert!(
         history.start_present().is_some(),
         "custom-interpolated history should contain at least one confirmed update"
+    );
+}
+
+#[test]
+fn test_manual_interpolated_marker_backfills_existing_replicated_component() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            CompCustomInterp(3.0),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to client");
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .entity(client_entity)
+            .contains::<CompCustomInterp>()
+    );
+
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Interpolated);
+
+    let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
+    assert_eq!(
+        client_entity_ref
+            .get::<ConfirmedHistory<CompCustomInterp>>()
+            .and_then(ConfirmedHistory::newest_present)
+            .map(|(_, value)| value),
+        Some(&CompCustomInterp(3.0)),
+        "manual interpolation should seed history from the existing replicated value"
+    );
+    assert!(
+        !client_entity_ref.contains::<CompCustomInterp>(),
+        "the live value should wait for the interpolation timeline after manual opt-in"
     );
 }
 

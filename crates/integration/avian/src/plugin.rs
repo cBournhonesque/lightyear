@@ -887,8 +887,8 @@ mod mode_tests {
     use bevy_state::app::StatesPlugin;
     use bevy_transform::TransformPlugin;
     use lightyear_core::prelude::ConfirmedHistory;
-    use lightyear_interpolation::registry::InterpolationRegistry;
-    use lightyear_prediction::prelude::PredictionRegistry;
+    use lightyear_interpolation::prelude::{InterpolationMarkerPlugin, InterpolationRegistry};
+    use lightyear_prediction::prelude::{PredictionMarkerPlugin, PredictionRegistry};
     use lightyear_replication::LightyearRepliconBackend;
 
     #[test]
@@ -1071,6 +1071,7 @@ mod mode_tests {
         let mut app = App::new();
         app.add_plugins(StatesPlugin);
         app.add_plugins(LightyearRepliconBackend);
+        app.add_plugins((PredictionMarkerPlugin, InterpolationMarkerPlugin));
         app.init_resource::<PredictionRegistry>();
         app.add_plugins(LightyearAvianPlugin {
             replication_mode: AvianReplicationMode::Position {
@@ -1155,6 +1156,7 @@ mod mode_tests {
         let mut app = App::new();
         app.add_plugins(StatesPlugin);
         app.add_plugins(LightyearRepliconBackend);
+        app.add_plugins((PredictionMarkerPlugin, InterpolationMarkerPlugin));
         app.init_resource::<PredictionRegistry>();
         app.add_plugins(LightyearAvianPlugin {
             register_physics_components: false,

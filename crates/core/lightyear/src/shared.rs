@@ -40,6 +40,13 @@ impl Plugin for SharedPlugins {
             app.add_plugins(LightyearRepliconBackend);
         }
 
+        // Receive-marker registration is part of Replicon's protocol and must
+        // be identical on clients and servers before the user's protocol runs.
+        #[cfg(all(feature = "prediction", feature = "replication"))]
+        app.add_plugins(lightyear_prediction::plugin::PredictionMarkerPlugin);
+        #[cfg(all(feature = "interpolation", feature = "replication"))]
+        app.add_plugins(lightyear_interpolation::plugin::InterpolationMarkerPlugin);
+
         // IO
         #[cfg(feature = "crossbeam")]
         app.add_plugins(lightyear_crossbeam::CrossbeamPlugin);

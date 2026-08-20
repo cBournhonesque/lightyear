@@ -1,6 +1,6 @@
 use super::*;
-use crate::protocol::{CompCorr, CompFull};
-use bevy::prelude::Entity;
+use crate::protocol::{CompA, CompCorr, CompFull};
+use bevy::prelude::{Add, Commands, Component, Entity, On, Query, With};
 use lightyear::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_prediction::Predicted;
@@ -34,24 +34,11 @@ fn test_history_added_when_prespawned_added() {
 
 // TODO: test that PredictionHistory is added when a component is added to a PrePredicted or PreSpawned entity
 
-/// When a server spawns an entity with Replicate + PredictionTarget + component C
-/// where C has `add_prediction()`, the client receives `Predicted` and C at the
-/// same time via the init message. We expect that `ConfirmedHistory<C>` on the
-/// client contains the confirmed server value at the server tick S.
-///
-/// This is non-trivial because marker-gated replicon write functions are
-/// checked BEFORE any component is applied on a freshly-spawned client entity.
-/// In `bevy_replicon::client::apply_entity`, `entity_markers.read()` runs on the
-/// empty entity (only `Remote` marker present) — so `Predicted` is NOT visible,
-/// and the `write_history` marker-fn does NOT fire for init messages.
-///
-/// The fix: `add_prediction_history` fires on
-/// `Add<(C, Predicted, PreSpawned, DeterministicPredicted)>` and, when it
-/// creates confirmed history for the first time, reads C and the resolved
-/// server tick from `ConfirmHistory + ReplicationCheckpointMap` and seeds
-/// `ConfirmedHistory<C>` with a confirmed entry before inserting it.
+/// Incoming `PredictedSend` is processed before the other components in the
+/// initial update, so every predicted component is inserted live and into
+/// confirmed history before observers run.
 #[test]
-fn test_prediction_history_seeded_from_init_message() {
+fn test_prediction_history_received_from_initial_marker() {
     use crate::stepper::*;
     use lightyear::prelude::ConfirmHistory;
     use lightyear_connection::network_target::NetworkTarget;
@@ -59,7 +46,33 @@ fn test_prediction_history_seeded_from_init_message() {
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::{PredictionTarget, Replicate};
 
+    #[derive(Component)]
+    struct ObservedCompleteInitialPrediction;
+
+    fn observe_initial_prediction(
+        trigger: On<Add, Predicted>,
+        query: Query<
+            (),
+            (
+                With<CompFull>,
+                With<CompCorr>,
+                With<ConfirmedHistory<CompFull>>,
+                With<ConfirmedHistory<CompCorr>>,
+            ),
+        >,
+        mut commands: Commands,
+    ) {
+        if query.contains(trigger.entity) {
+            commands
+                .entity(trigger.entity)
+                .insert(ObservedCompleteInitialPrediction);
+        }
+    }
+
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    stepper
+        .client_app()
+        .add_observer(observe_initial_prediction);
 
     // Spawn an entity on the server with a predicted component
     let server_entity = stepper
@@ -67,6 +80,7 @@ fn test_prediction_history_seeded_from_init_message() {
         .world_mut()
         .spawn((
             CompFull(42.0),
+            CompCorr(24.0),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
         ))
@@ -92,6 +106,14 @@ fn test_prediction_history_seeded_from_init_message() {
             .is_some(),
         "client entity should have Predicted marker"
     );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(predicted_entity)
+            .contains::<ObservedCompleteInitialPrediction>(),
+        "Predicted observers should see live components and confirmed histories from the same update"
+    );
 
     // The client entity should have the CompFull value from the server
     assert_eq!(
@@ -101,6 +123,14 @@ fn test_prediction_history_seeded_from_init_message() {
             .get::<CompFull>(predicted_entity)
             .expect("client entity should have CompFull from replication"),
         &CompFull(42.0)
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompCorr>(predicted_entity)
+            .expect("client entity should have CompCorr from replication"),
+        &CompCorr(24.0)
     );
 
     // Resolve the server tick that produced the init message and check
@@ -112,6 +142,9 @@ fn test_prediction_history_seeded_from_init_message() {
     let confirmed_history = world
         .get::<ConfirmedHistory<CompFull>>(predicted_entity)
         .expect("client entity should have ConfirmedHistory<CompFull>");
+    let corr_confirmed_history = world
+        .get::<ConfirmedHistory<CompCorr>>(predicted_entity)
+        .expect("client entity should have ConfirmedHistory<CompCorr>");
     let confirm = world
         .get::<ConfirmHistory>(predicted_entity)
         .expect("client entity should have ConfirmHistory");
@@ -132,12 +165,117 @@ fn test_prediction_history_seeded_from_init_message() {
         s_tick,
         confirmed_history
     );
+    assert_eq!(
+        corr_confirmed_history
+            .get_state_at(s_tick)
+            .and_then(HistoryState::value),
+        Some(&CompCorr(24.0)),
+        "all initially replicated predicted components should use marker receive functions"
+    );
     assert!(
         prediction_history.buffer().iter().all(|(_, state)| {
             matches!(state, HistoryState::Updated(_) | HistoryState::Removed)
         }),
         "PredictionHistory should contain only local predicted states: {:?}",
         prediction_history
+    );
+}
+
+#[test]
+fn test_manual_predicted_marker_backfills_existing_replicated_component() {
+    use lightyear::prelude::ConfirmHistory;
+    use lightyear_connection::network_target::NetworkTarget;
+    use lightyear_messages::MessageManager;
+    use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+    use lightyear_replication::prelude::Replicate;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((CompFull(42.0), Replicate::to_clients(NetworkTarget::All)))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to client");
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<ConfirmedHistory<CompFull>>(client_entity)
+            .is_none()
+    );
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Predicted);
+
+    let world = stepper.client_app().world();
+    let confirm_tick = world
+        .get::<ConfirmHistory>(client_entity)
+        .expect("replicated entity should have ConfirmHistory")
+        .last_tick();
+    let server_tick = world
+        .resource::<ReplicationCheckpointMap>()
+        .get(confirm_tick)
+        .expect("confirmation tick should resolve to a server tick");
+    assert!(
+        world
+            .get::<PredictionHistory<CompFull>>(client_entity)
+            .is_some(),
+        "manual prediction should initialize local prediction history"
+    );
+    assert_eq!(
+        world
+            .get::<ConfirmedHistory<CompFull>>(client_entity)
+            .and_then(|history| history.get_state_at(server_tick))
+            .and_then(HistoryState::value),
+        Some(&CompFull(42.0)),
+        "manual prediction should seed confirmed history from the existing replicated value"
+    );
+    assert_eq!(world.get::<CompFull>(client_entity), Some(&CompFull(42.0)));
+}
+
+#[test]
+fn test_manual_predicted_and_component_does_not_seed_confirmed_history() {
+    use lightyear_connection::network_target::NetworkTarget;
+    use lightyear_messages::MessageManager;
+    use lightyear_replication::prelude::Replicate;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((CompA(1.0), Replicate::to_clients(NetworkTarget::All)))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to client");
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert((Predicted, CompFull(99.0)));
+
+    let entity = stepper.client_app().world().entity(client_entity);
+    assert!(entity.contains::<PredictionHistory<CompFull>>());
+    assert!(
+        !entity.contains::<ConfirmedHistory<CompFull>>(),
+        "a component added locally with Predicted is not authoritative"
     );
 }
 

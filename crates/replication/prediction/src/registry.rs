@@ -17,7 +17,6 @@ use bevy_replicon::postcard_utils;
 use bevy_replicon::prelude::{AppMarkerExt, RepliconTick, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::diff::{ComponentDelta, Diffable as RepliconDiffable};
-use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::EntityStorageCtx;
 use bevy_utils::prelude::DebugName;
@@ -31,7 +30,7 @@ use lightyear_frame_interpolation::FrameInterpolationPlugin;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::diffable::Diffable;
-use lightyear_replication::prelude::PreSpawned;
+use lightyear_replication::prelude::{PreSpawned, PredictedSend};
 use lightyear_replication::registry::replication::{
     AppComponentExt, ComponentRegistration, ComponentRegistrator,
 };
@@ -458,6 +457,7 @@ impl PredictionRegistry {
         entity_mut: &mut DeferredEntity,
         check_mismatch: bool,
         current_tick: Tick,
+        materialized_initial: bool,
     ) -> bool {
         let entity = entity_mut.id();
         let name = DebugName::type_name::<C>();
@@ -481,6 +481,7 @@ impl PredictionRegistry {
         // the confirmed value and insert C. Do this even if this update does not check
         // for a mismatch, since another component may already have recorded one.
         let never_predicted_insert = confirmed_component.is_some()
+            && !materialized_initial
             && predicted_history.is_none()
             && entity_mut.get::<C>().is_none();
 
@@ -1015,12 +1016,10 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         // catch-up there is no forced state rollback that would insert a
         // `ConfirmedHistory<C>` value back into the live entity.
         use crate::rollback::CatchUpGated;
-        self.app.register_marker_with::<CatchUpGated>(MarkerConfig {
-            priority: 110,
-            need_history: true,
-        });
-        self.app
-            .set_marker_fns::<CatchUpGated, C>(write_history::<C>, remove_history::<C>);
+        self.app.set_marker_fns::<CatchUpGated, C>(
+            write_initial_live_and_history::<C>,
+            remove_history::<C>,
+        );
         self
     }
 
@@ -1035,19 +1034,15 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             );
             return self;
         }
-        self.app.register_marker_with::<Predicted>(MarkerConfig {
-            priority: 100,
-            need_history: true,
-        });
         self.app
             .set_marker_fns::<Predicted, C>(write_history::<C>, remove_history::<C>);
+        self.app.set_marker_fns::<PredictedSend, C>(
+            write_initial_live_and_history::<C>,
+            remove_history::<C>,
+        );
         // A prespawned entity can receive replicated component data before the
         // server match has inserted `Predicted`. Keep that authoritative data in
         // history so it cannot overwrite the live locally-predicted component.
-        self.app.register_marker_with::<PreSpawned>(MarkerConfig {
-            priority: 100,
-            need_history: true,
-        });
         self.app
             .set_marker_fns::<PreSpawned, C>(write_history::<C>, remove_history::<C>);
         let prediction_history_id = self
@@ -1064,8 +1059,6 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             DebugName::type_name::<C>()
         );
         registry.register::<C>(prediction_history_id, confirmed_history_id);
-        // TODO: how do we avoid the server adding the prediction systems?
-        //   do we need to make sure that the Protocol runs after the client/server plugins are added?
         add_prediction_systems::<C>(self.app);
 
         let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
@@ -1089,16 +1082,12 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             );
             return self;
         }
-        self.app.register_marker_with::<Predicted>(MarkerConfig {
-            priority: 100,
-            need_history: true,
-        });
         self.app
             .set_marker_fns::<Predicted, C>(write_history_diff::<C>, remove_history::<C>);
-        self.app.register_marker_with::<PreSpawned>(MarkerConfig {
-            priority: 100,
-            need_history: true,
-        });
+        self.app.set_marker_fns::<PredictedSend, C>(
+            write_initial_live_and_history_diff::<C>,
+            remove_history::<C>,
+        );
         self.app
             .set_marker_fns::<PreSpawned, C>(write_history_diff::<C>, remove_history::<C>);
         let prediction_history_id = self
@@ -1316,9 +1305,47 @@ fn write_history<C: SyncComponent>(
     entity: &mut DeferredEntity,
     message: &mut Bytes,
 ) -> Result<()> {
+    write_history_inner(ctx, rule_fns, entity, message, false)
+}
+
+/// Writes a first authoritative value to both the live component and confirmed
+/// history.
+///
+/// This is shared by `PredictedSend` and `CatchUpGated`. It lets a fresh entity
+/// materialize normally while keeping an active catch-up or existing predicted
+/// entity history-only. Replicon batches the live component and history
+/// insertions, so role-marker observers see the complete initial state.
+fn write_initial_live_and_history<C: SyncComponent>(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<()> {
+    write_history_inner(ctx, rule_fns, entity, message, true)
+}
+
+fn write_history_inner<C: SyncComponent>(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+    materialize_initial: bool,
+) -> Result<()> {
     let component: C = rule_fns.deserialize(ctx, message)?;
-    let (tick, should_rollback) =
-        add_confirmed_to_history(ctx.message_tick, Some(component), entity, true)?;
+    let materialized_initial = materialize_initial
+        && entity.get::<C>().is_none()
+        && entity.get::<PredictionHistory<C>>().is_none()
+        && entity.get::<ConfirmedHistory<C>>().is_none();
+    if materialized_initial {
+        entity.insert(component.clone());
+    }
+    let (tick, should_rollback) = add_confirmed_to_history_inner(
+        ctx.message_tick,
+        Some(component),
+        entity,
+        !materialized_initial,
+        materialized_initial,
+    )?;
     if should_rollback {
         // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
         unsafe { entity.world_mut() }
@@ -1334,6 +1361,24 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
     entity: &mut DeferredEntity,
     message: &mut Bytes,
 ) -> Result<()> {
+    write_history_diff_inner::<C>(ctx, entity, message, false)
+}
+
+fn write_initial_live_and_history_diff<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<()> {
+    write_history_diff_inner::<C>(ctx, entity, message, true)
+}
+
+fn write_history_diff_inner<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut WriteCtx,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+    materialize_initial: bool,
+) -> Result<()> {
     let Some((tick, diff)) = client_diff_and_tick::<C>(ctx, entity, message)? else {
         return Ok(());
     };
@@ -1343,10 +1388,22 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
             mut component,
         } => {
             C::map_entities(&mut component, ctx);
+            let materialized_initial = materialize_initial
+                && entity.get::<C>().is_none()
+                && entity.get::<PredictionHistory<C>>().is_none()
+                && entity.get::<ConfirmedHistory<C>>().is_none();
+            if materialized_initial {
+                entity.insert(component.clone());
+            }
             let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
             receiver.record_cursor(tick, Some(index));
-            let should_rollback =
-                add_resolved_confirmed_to_history(tick, Some(component), entity, true);
+            let should_rollback = add_resolved_confirmed_to_history_inner(
+                tick,
+                Some(component),
+                entity,
+                !materialized_initial,
+                materialized_initial,
+            );
             if should_rollback {
                 // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
                 unsafe { entity.world_mut() }
@@ -1415,6 +1472,22 @@ fn add_confirmed_to_history<C: SyncComponent>(
     entity: &mut DeferredEntity,
     check_state_rollback: bool,
 ) -> Result<(Tick, bool)> {
+    add_confirmed_to_history_inner(
+        message_tick,
+        confirmed_component,
+        entity,
+        check_state_rollback,
+        false,
+    )
+}
+
+fn add_confirmed_to_history_inner<C: SyncComponent>(
+    message_tick: RepliconTick,
+    confirmed_component: Option<C>,
+    entity: &mut DeferredEntity,
+    check_state_rollback: bool,
+    materialized_initial: bool,
+) -> Result<(Tick, bool)> {
     let checkpoints = {
         let world = unsafe { entity.world_mut() };
         let checkpoints = world
@@ -1433,8 +1506,13 @@ fn add_confirmed_to_history<C: SyncComponent>(
         );
         return Ok((Tick(0), false));
     };
-    let should_rollback =
-        add_resolved_confirmed_to_history(tick, confirmed_component, entity, check_state_rollback);
+    let should_rollback = add_resolved_confirmed_to_history_inner(
+        tick,
+        confirmed_component,
+        entity,
+        check_state_rollback,
+        materialized_initial,
+    );
     Ok((tick, should_rollback))
 }
 
@@ -1443,6 +1521,22 @@ fn add_resolved_confirmed_to_history<C: SyncComponent>(
     confirmed_component: Option<C>,
     entity: &mut DeferredEntity,
     check_state_rollback: bool,
+) -> bool {
+    add_resolved_confirmed_to_history_inner(
+        tick,
+        confirmed_component,
+        entity,
+        check_state_rollback,
+        false,
+    )
+}
+
+fn add_resolved_confirmed_to_history_inner<C: SyncComponent>(
+    tick: Tick,
+    confirmed_component: Option<C>,
+    entity: &mut DeferredEntity,
+    check_state_rollback: bool,
+    materialized_initial: bool,
 ) -> bool {
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     // We extract all needed values and drop the world borrow before using `entity` again.
@@ -1470,6 +1564,7 @@ fn add_resolved_confirmed_to_history<C: SyncComponent>(
         entity,
         check_state_rollback && should_check,
         current_tick,
+        materialized_initial,
     )
 }
 
@@ -1524,6 +1619,7 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
         entity,
         should_check,
         current_tick,
+        false,
     );
     if should_rollback {
         // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
@@ -1536,7 +1632,7 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::PredictionPlugin;
+    use crate::plugin::{PredictionMarkerPlugin, PredictionPlugin};
     use crate::rollback::RollbackSystems;
     use alloc::vec::Vec;
     use bevy_app::PreUpdate;
@@ -1550,7 +1646,10 @@ mod tests {
     use bevy_state::app::StatesPlugin;
     use core::hash::Hasher;
     use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
-    use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
+    use lightyear_interpolation::prelude::{
+        InterpolationMarkerPlugin, InterpolationPlugin, InterpolationRegistrationExt,
+        InterpolationRegistry,
+    };
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::{AppComponentExt, ConfirmHistory};
     use lightyear_sync::prelude::{InputTimelineConfig, LocalTimelineSync};
@@ -1578,6 +1677,9 @@ mod tests {
             RepliconSharedPlugin {
                 auth_method: AuthMethod::None,
             },
+            PredictionMarkerPlugin,
+            InterpolationMarkerPlugin,
+            InterpolationPlugin,
         ));
         app.init_resource::<PredictionRegistry>();
         app.init_resource::<PredictionManager>();
@@ -1598,6 +1700,20 @@ mod tests {
         predicted: &LocalRollbackComponent,
     ) -> bool {
         confirmed.0 / 10 != predicted.0 / 10
+    }
+
+    #[test]
+    fn marker_plugin_does_not_enable_prediction() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+            PredictionMarkerPlugin,
+        ));
+
+        assert!(!app.world().contains_resource::<PredictionRegistry>());
     }
 
     #[test]
@@ -1711,7 +1827,12 @@ mod tests {
 
     fn setup_prediction_diff_app() -> (App, bevy_replicon::shared::replication::registry::FnsId) {
         let mut app = App::new();
-        app.add_plugins((StatesPlugin, RepliconPlugins, PredictionPlugin));
+        app.add_plugins((
+            StatesPlugin,
+            RepliconPlugins,
+            PredictionMarkerPlugin,
+            PredictionPlugin,
+        ));
         app.insert_resource(LocalTimeline::default());
         app.insert_resource(ReplicationCheckpointMap::default());
         app.insert_resource(PredictionManager::default());

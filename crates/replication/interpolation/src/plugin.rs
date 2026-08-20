@@ -9,9 +9,12 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
+use bevy_replicon::prelude::AppMarkerExt;
+use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{Interpolated, Tick};
 use lightyear_core::time::PositiveTickDelta;
+use lightyear_replication::prelude::InterpolatedSend;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -68,6 +71,26 @@ impl ToBytes for InterpolationDelay {
 /// Each remote update will be stored in a buffer, and the component will smoothly interpolate between two consecutive remote updates.
 #[derive(Default)]
 pub struct InterpolationPlugin;
+
+/// Registers Replicon's interpolation markers for the shared client/server protocol.
+///
+/// Add this before registering interpolated components. Lightyear's high-level
+/// client and server plugin groups add it automatically.
+#[derive(Default)]
+pub struct InterpolationMarkerPlugin;
+
+impl Plugin for InterpolationMarkerPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_marker_with::<InterpolatedSend>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        app.register_marker_with::<Interpolated>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+    }
+}
 
 #[deprecated(note = "Use InterpolationSystems instead")]
 pub type InterpolationSet = InterpolationSystems;

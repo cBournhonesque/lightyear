@@ -880,6 +880,7 @@ mod tests {
     use bevy_replicon::prelude::*;
     use bevy_state::app::StatesPlugin;
     use lightyear_interpolation::{
+        plugin::InterpolationMarkerPlugin,
         registry::{AppInterpolationExt, InterpolationRegistry},
         rules::{InterpolationFns, InterpolationSampleContext},
     };
@@ -888,7 +889,21 @@ mod tests {
     use lightyear_replication::prelude::*;
 
     use super::*;
+    use crate::plugin::PredictionMarkerPlugin;
     use crate::registry::{PredictionBuilderExt, PredictionRegistry};
+
+    fn app_with_replication_markers() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+            PredictionMarkerPlugin,
+            InterpolationMarkerPlugin,
+        ));
+        app
+    }
 
     #[derive(Component, Clone, Debug, Default, PartialEq)]
     struct CorrectionA(f32);
@@ -946,13 +961,7 @@ mod tests {
 
     #[test]
     fn correction_registration_adds_frame_interpolation_setup() {
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
 
         app.component::<CorrectionA>().predict().add_correction();
@@ -1004,13 +1013,7 @@ mod tests {
 
     #[test]
     fn visual_correction_marks_component_changed() {
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.insert_resource(Time::<Virtual>::default());
         app.component::<CorrectionA>().predict().add_correction();
@@ -1068,13 +1071,7 @@ mod tests {
         const STALE_REMOVED_PREVIOUS_VALUE: f32 = 300.0;
         const STALE_REMOVED_CURRENT_VALUE: f32 = 400.0;
 
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.init_resource::<InterpolationRegistry>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
@@ -1167,13 +1164,7 @@ mod tests {
                 }
             };
 
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.configure_sets(
             PreUpdate,
             (
@@ -1294,13 +1285,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "No interpolation function was found for correction")]
     fn post_rollback_correction_requires_interpolation_rule() {
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.init_resource::<InterpolationRegistry>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
@@ -1330,13 +1315,7 @@ mod tests {
     // creates each correction error, and restores both live component values.
     #[test]
     fn post_rollback_correction_uses_bundle_interpolation_rule() {
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
         app.world_mut()
@@ -1427,13 +1406,7 @@ mod tests {
     // correction. Its temporary bundle output is restored after sampling.
     #[test]
     fn post_rollback_bundle_uses_member_without_previous_visual() {
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            RepliconSharedPlugin {
-                auth_method: AuthMethod::None,
-            },
-        ));
+        let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
         app.world_mut()
