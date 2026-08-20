@@ -251,12 +251,11 @@ pub(crate) fn player_movement(
     }
 }
 
-/// Clients prespawn bullets for any predicted player whose rebroadcast input is available. The
-/// server replicates those bullets back as predicted entities so the local prespawn can be matched.
+/// Simulate firing for the players owned by this application's network topology.
 ///
-/// When spawning locally, we add the `PreSpawned` component. When a client receives the replication
-/// packet from the server, it matches the hash on its own `PreSpawned` entity and treats that entity
-/// as the authoritative predicted bullet.
+/// Servers fire for authoritative players, conventional clients fire for predicted players, and
+/// P2P peers fire for deterministic players. `PreSpawned` gives every locally simulated bullet the
+/// same stable identity when the authoritative server spawn or remote peer input arrives.
 pub fn shared_player_firing(
     mut q: Query<(
         &Position,
@@ -270,7 +269,6 @@ pub fn shared_player_firing(
         Has<Controlled>,
         Has<Predicted>,
         Has<DeterministicPredicted>,
-        Has<Interpolated>,
         Option<&ControlledBy>,
         &Player,
     )>,
@@ -278,11 +276,9 @@ pub fn shared_player_firing(
     timeline: Res<LocalTimeline>,
     input_timeline: Option<SyncedLocalTimeline>,
     metadata: Res<NetworkingMetadata>,
-    server: Query<(), With<Server>>,
 ) {
-    let client_is_synced = input_timeline.is_some();
-    let is_server = !server.is_empty();
-    if q.is_empty() {
+    let is_server = metadata.mode.is_server();
+    if !is_server && input_timeline.is_none() {
         return;
     }
 
@@ -303,35 +299,35 @@ pub fn shared_player_firing(
         is_local,
         is_predicted,
         is_deterministic,
-        is_interpolated,
         controlled_by,
         player,
     ) in q
         .iter_mut()
         .sort_by_key::<&Player, _>(|player| player.client_id.to_bits())
     {
-        if is_server {
-            if controlled_by.is_none() {
-                continue;
-            }
-        } else if !client_is_synced || !(is_predicted || is_deterministic) || is_interpolated {
-            continue;
-        }
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
         // relying on a frame-edge `just_pressed`, and the weapon cooldown already
         // guarantees we only spawn bullets at the intended rate.
-        if !action.pressed(&PlayerActions::Fire) {
-            continue;
-        }
-        if !is_server
-            && !client_should_fire(
-                input_buffer,
-                &weapon,
-                current_tick,
-                is_deterministic || !is_local,
-                !is_local,
-            )
-        {
+        let should_fire = action.pressed(&PlayerActions::Fire)
+            && match &metadata.mode {
+                NetworkTopology::Server(_) | NetworkTopology::HostClient { .. } => {
+                    controlled_by.is_some()
+                }
+                NetworkTopology::Client(_) if is_predicted || is_deterministic => {
+                    client_should_fire(
+                        input_buffer,
+                        &weapon,
+                        current_tick,
+                        is_deterministic || !is_local,
+                        !is_local,
+                    )
+                }
+                NetworkTopology::P2P(_) if is_deterministic => {
+                    client_should_fire(input_buffer, &weapon, current_tick, true, !is_local)
+                }
+                _ => false,
+            };
+        if !should_fire {
             continue;
         }
 
