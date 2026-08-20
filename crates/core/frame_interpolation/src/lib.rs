@@ -343,6 +343,7 @@ mod unit_tests {
     use bevy_state::app::StatesPlugin;
     use core::time::Duration;
     use lightyear_core::prelude::ConfirmedHistory;
+    use lightyear_interpolation::plugin::InterpolationMarkerPlugin;
     use lightyear_interpolation::registry::AppInterpolationExt;
     use lightyear_interpolation::rules::{
         InterpolationFns, InterpolationFnsExt, InterpolationSampleContext,
@@ -652,7 +653,11 @@ mod unit_tests {
         app.world_mut()
             .resource_mut::<Time<Fixed>>()
             .accumulate_overstep(Duration::from_millis(250));
-        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin::default(),
+            InterpolationMarkerPlugin,
+        ));
         app.component::<FrameA>().replicate();
         app.add_plugins(FrameInterpolationPlugin);
         app.interpolate_with::<FrameA>(

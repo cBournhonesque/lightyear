@@ -398,6 +398,7 @@ pub(crate) fn present_history_bracket<C: Component + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin::InterpolationMarkerPlugin;
     use crate::registry::AppInterpolationExt;
     use crate::registry::{InterpolationRegistry, InterpolationRuleComponentIds};
     use crate::rules::{
@@ -575,7 +576,11 @@ mod tests {
 
     fn setup_app(current_tick: Tick, send_interval_ms: u64) -> App {
         let mut app = App::new();
-        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin::default(),
+            InterpolationMarkerPlugin,
+        ));
         app.world_mut()
             .insert_resource(ReplicationCheckpointMap::default());
         app.world_mut()
@@ -764,7 +769,11 @@ mod tests {
     #[test]
     fn app_linear_interpolate_registers_ease_rule() {
         let mut app = App::new();
-        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin::default(),
+            InterpolationMarkerPlugin,
+        ));
         app.world_mut()
             .insert_resource(ReplicationCheckpointMap::default());
         app.component::<TestComp>().replicate();
@@ -848,7 +857,12 @@ mod tests {
     #[test]
     fn bundle_interpolation_uses_tuple_interpolation_fn() {
         let mut app = App::new();
-        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.add_plugins((
+            TimePlugin,
+            StatesPlugin,
+            RepliconPlugins,
+            InterpolationMarkerPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
         app.insert_resource(TickDuration(core::time::Duration::from_millis(100)));
         app.configure_sets(
@@ -923,7 +937,12 @@ mod tests {
     #[test]
     fn bundle_contextual_interpolation_receives_sample_delta() {
         let mut app = App::new();
-        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.add_plugins((
+            TimePlugin,
+            StatesPlugin,
+            RepliconPlugins,
+            InterpolationMarkerPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
         app.insert_resource(TickDuration(core::time::Duration::from_millis(100)));
         app.configure_sets(
@@ -966,7 +985,12 @@ mod tests {
     #[test]
     fn bundle_interpolation_inserts_tuple_interpolated_components() {
         let mut app = App::new();
-        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.add_plugins((
+            TimePlugin,
+            StatesPlugin,
+            RepliconPlugins,
+            InterpolationMarkerPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
         app.configure_sets(
             Update,
@@ -1008,7 +1032,12 @@ mod tests {
         BUNDLE3_PRIORITY_CALLS.store(0, Ordering::SeqCst);
 
         let mut app = App::new();
-        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.add_plugins((
+            TimePlugin,
+            StatesPlugin,
+            RepliconPlugins,
+            InterpolationMarkerPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
         app.configure_sets(
             Update,
@@ -1065,7 +1094,12 @@ mod tests {
     #[test]
     fn earlier_non_apply_member_rule_suppresses_same_priority_bundle_apply() {
         let mut app = App::new();
-        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.add_plugins((
+            TimePlugin,
+            StatesPlugin,
+            RepliconPlugins,
+            InterpolationMarkerPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
         app.configure_sets(
             Update,
@@ -1119,7 +1153,12 @@ mod tests {
         );
 
         let mut app = App::new();
-        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.add_plugins((
+            TimePlugin,
+            StatesPlugin,
+            RepliconPlugins,
+            InterpolationMarkerPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
         app.configure_sets(
             Update,
