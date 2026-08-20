@@ -5,14 +5,61 @@ use bevy_reflect::Reflect;
 
 use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use bevy_ecs::entity::EntityHash;
+use bevy_ecs::entity::EntityHashSet;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
 
-type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
+/// Prediction checks deferred because an authoritative update was ahead of the local timeline.
+///
+/// Receive-time rollback checks cannot compare an update at or after the current local tick with
+/// prediction history yet. Replicon's `ConfirmHistory` still records that the entity was updated,
+/// however, so the prediction scan's usual `ConfirmHistory` optimization would later skip the
+/// entity entirely. This index remembers those entities by authoritative tick until the
+/// completed server frontier makes them checkable.
+///
+/// [`PredictionRegistry::check_rollback_for_unchanged_component`](crate::registry::PredictionRegistry::check_rollback_for_unchanged_component)
+/// handles each drained entity at that frontier: it uses an explicit confirmed component sample
+/// when one exists, and records the component as unchanged only when no sample exists at the tick.
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct PendingEntityStateChecks {
+    by_tick: BTreeMap<Tick, EntityHashSet>,
+}
+
+impl PendingEntityStateChecks {
+    pub(crate) fn record(&mut self, tick: Tick, entity: Entity) {
+        self.by_tick.entry(tick).or_default().insert(entity);
+    }
+
+    /// Removes and returns all entities whose deferred update is now checkable.
+    pub(crate) fn take_through(&mut self, completed_tick: Tick) -> EntityHashSet {
+        let mut entities = EntityHashSet::default();
+        while self
+            .by_tick
+            .first_key_value()
+            .is_some_and(|(tick, _)| *tick <= completed_tick)
+        {
+            let (_, pending) = self.by_tick.pop_first().unwrap();
+            entities.extend(pending);
+        }
+        entities
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.by_tick.clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains(&self, tick: Tick, entity: Entity) -> bool {
+        self.by_tick
+            .get(&tick)
+            .is_some_and(|entities| entities.contains(&entity))
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, Reflect)]
 pub enum RollbackMode {
@@ -110,6 +157,12 @@ pub struct PredictionManager {
     pub deterministic_despawn: Vec<(Tick, Entity)>,
     #[doc(hidden)]
     pub deterministic_skip_despawn: Vec<(Tick, Entity)>,
+    /// Receive-time state checks deferred until the authoritative tick is locally checkable.
+    ///
+    /// See [`PendingEntityStateChecks`] for why the completed-tick rollback scan needs this index.
+    #[doc(hidden)]
+    #[reflect(ignore)]
+    pub pending_entity_state_checks: PendingEntityStateChecks,
     #[doc(hidden)]
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
@@ -484,6 +537,7 @@ impl Default for PredictionManager {
             input_rollback_floor: None,
             deterministic_skip_despawn: Vec::default(),
             deterministic_despawn: Vec::default(),
+            pending_entity_state_checks: PendingEntityStateChecks::default(),
             rollback: RwLock::new(RollbackState::Default),
         }
     }

@@ -164,7 +164,9 @@ impl Plugin for RollbackPlugin {
         app.add_systems(
             PreUpdate,
             (
-                reset_state_rollback_metadata_on_topology_change.before(RollbackSystems::Check),
+                reset_state_rollback_metadata_on_topology_change
+                    .before(ReplicationSystems::Receive)
+                    .before(RollbackSystems::Check),
                 check_received_replication_messages
                     .after(ClientSystems::ReceivePackets)
                     .before(ClientSystems::Receive),
@@ -379,9 +381,13 @@ fn check_received_replication_messages(
 fn reset_state_rollback_metadata_on_topology_change(
     networking: Res<NetworkingMetadata>,
     mut metadata: ResMut<StateRollbackMetadata>,
+    prediction_manager: Option<ResMut<PredictionManager>>,
 ) {
     if networking.is_changed() {
         metadata.reset_connection_state();
+        if let Some(mut prediction_manager) = prediction_manager {
+            prediction_manager.pending_entity_state_checks.clear();
+        }
     }
 }
 
@@ -593,6 +599,9 @@ fn check_rollback(
                             server_confirmed_tick, tick
                         );
                     } else {
+                        let deferred_check_entities = prediction_manager
+                            .pending_entity_state_checks
+                            .take_through(server_confirmed_tick);
                         if let Some(mismatch_tick) =
                             state_metadata.pending_mismatch_at_or_before(server_confirmed_tick)
                         {
@@ -621,17 +630,18 @@ fn check_rollback(
                             );
                         } else {
                             // A completed mutate tick certifies every replicated component at that
-                            // tick. This scan is only for entities that were not explicitly confirmed
-                            // at the completed Replicon checkpoint; for those entities, mutate-message
-                            // completeness proves their components are unchanged at
-                            // `server_confirmed_tick`.
+                            // tick. This scan normally handles entities that were not explicitly
+                            // confirmed at the completed Replicon checkpoint. It also handles an
+                            // explicitly confirmed entity when its receive-time check was deferred
+                            // because the authoritative tick was ahead of the local timeline.
                             //
                             // Do not use `ConfirmHistory::last_tick()` for this skip. An entity can
                             // have newer explicit confirmations than the completed checkpoint while
                             // also having an explicit confirmation at the completed checkpoint. What
                             // matters here is exact membership: if `ConfirmHistory::contains` resolves the
                             // completed Replicon tick, receive-time history writes already checked the
-                            // explicit state for that tick.
+                            // explicit state for that tick unless `deferred_check_entities` says the
+                            // state was not locally checkable then.
                             trace!(
                                 ?tick,
                                 ?server_confirmed_tick,
@@ -646,7 +656,9 @@ fn check_rollback(
                                     return
                                 }
 
-                                if confirm_history.contains(server_confirmed_replicon_tick) {
+                                if confirm_history.contains(server_confirmed_replicon_tick)
+                                    && !deferred_check_entities.contains(&entity_mut.id())
+                                {
                                     trace!(
                                         entity = ?entity_mut.id(),
                                         replicon_tick = ?server_confirmed_replicon_tick,
@@ -668,11 +680,9 @@ fn check_rollback(
                                     )
                                     .take_while(|_| !prediction_manager.is_rollback())
                                 {
-                                    // SAFETY: this branch only checks entities whose Replicon
-                                    // ConfirmHistory does not contain `server_confirmed_replicon_tick`.
-                                    // Since `server_confirmed_tick` is the corresponding completed
-                                    // mutate tick, Replicon guarantees this entity's replicated
-                                    // components were unchanged there.
+                                    // SAFETY: `server_confirmed_tick` is globally complete. An exact
+                                    // confirmed component sample is authoritative; if it is absent,
+                                    // completion proves that component was unchanged at this tick.
                                     let should_rollback = unsafe {
                                         check_rollback(
                                             &prediction_registry,
