@@ -45,9 +45,9 @@ lightyear_examples_common = { workspace = true, features = [
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [
   "2d",
+  "enhanced-determinism",
   "f32",
   "parry-f32",
-  "parallel",
   "serialize",
 ] }
 serde.workspace = true

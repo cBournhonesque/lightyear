@@ -3,11 +3,10 @@ use crate::client::{Client, Connected, Disconnected};
 use crate::host::HostClient;
 use crate::p2p::P2P;
 use crate::server::{Started, Stopped};
-use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::HashMap;
 use lightyear_core::id::PeerId;
-use lightyear_link::LinkSystems;
 use lightyear_link::prelude::{LinkOf, Server};
 use smallvec::SmallVec;
 
@@ -187,19 +186,8 @@ impl Plugin for NetworkTopologyPlugin {
         app.add_observer(mark_dirty_on_remove);
         app.add_observer(mark_dirty_on_discard);
 
-        app.configure_sets(
-            PreUpdate,
-            NetworkTopologySystems::Update
-                .after(LinkSystems::Receive)
-                .after(ConnectionSystems::Receive),
-        );
-        app.add_systems(
-            PreUpdate,
-            refresh_network_topology
-                .in_set(NetworkTopologySystems::Update)
-                .run_if(network_topology_is_dirty),
-        );
-
+        // Reconcile ordinary lifecycle changes once per frame. The P2P start barrier updates the
+        // topology immediately when it activates a session, before its first fixed gameplay tick.
         app.configure_sets(
             PostUpdate,
             NetworkTopologySystems::Update.before(ConnectionSystems::Send),

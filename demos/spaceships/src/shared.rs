@@ -9,7 +9,7 @@ use crate::protocol::*;
 #[cfg(feature = "gui")]
 use crate::renderer::ExampleRendererPlugin;
 use avian2d::prelude::{forces::ForcesItem, *};
-use leafwing_input_manager::prelude::{ActionState, InputMap};
+use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
@@ -268,7 +268,6 @@ pub fn shared_player_firing(
         &mut Weapon,
         Option<&ConfirmedHistory<Weapon>>,
         Has<Controlled>,
-        Has<InputMap<PlayerActions>>,
         Has<Predicted>,
         Has<DeterministicPredicted>,
         Has<Interpolated>,
@@ -288,6 +287,10 @@ pub fn shared_player_firing(
     }
 
     let current_tick = timeline.tick();
+    // The local Controlled marker puts a different player in a different archetype on each P2P
+    // peer.
+    // Process players by their shared identity so gameplay-side spawn ordering does not inherit
+    // that local archetype order.
     for (
         player_position,
         player_rotation,
@@ -298,13 +301,14 @@ pub fn shared_player_firing(
         mut weapon,
         weapon_history,
         is_local,
-        has_input_map,
         is_predicted,
         is_deterministic,
         is_interpolated,
         controlled_by,
         player,
-    ) in q.iter_mut()
+    ) in q
+        .iter_mut()
+        .sort_by_key::<&Player, _>(|player| player.client_id.to_bits())
     {
         if is_server {
             if controlled_by.is_none() {
@@ -313,7 +317,6 @@ pub fn shared_player_firing(
         } else if !client_is_synced || !(is_predicted || is_deterministic) || is_interpolated {
             continue;
         }
-        let is_local = is_local || has_input_map;
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
         // relying on a frame-edge `just_pressed`, and the weapon cooldown already
         // guarantees we only spawn bullets at the intended rate.
@@ -321,7 +324,13 @@ pub fn shared_player_firing(
             continue;
         }
         if !is_server
-            && !client_should_fire(input_buffer, &weapon, current_tick, !is_local, !is_local)
+            && !client_should_fire(
+                input_buffer,
+                &weapon,
+                current_tick,
+                is_deterministic || !is_local,
+                !is_local,
+            )
         {
             continue;
         }
@@ -360,7 +369,6 @@ pub fn shared_player_firing(
         // archetype-based hash so rollback replay/component timing cannot make
         // the local prespawn disagree with the server spawn.
         let prespawn_hash = bullet_prespawn_hash(player.client_id, current_tick);
-        let prespawned = PreSpawned::new(prespawn_hash);
 
         let bullet_entity = commands
             .spawn((
@@ -374,7 +382,7 @@ pub fn shared_player_firing(
                 BulletMarker::new(player.client_id),
                 PhysicsBundle::bullet(),
                 bullet_mass_properties(),
-                prespawned,
+                PreSpawned::new(prespawn_hash),
             ))
             .id();
         if metadata.mode.is_p2p() {
@@ -430,10 +438,11 @@ fn client_should_fire(
     allow_initial_fire: bool,
     require_remote_input: bool,
 ) -> bool {
-    // Local players keep the first-shot guard: before the first server Weapon confirmation,
-    // a held local Fire input can be older than the synced timeline and create an unmatched
-    // prespawn. Remote predicted players can predict their first shot when the rebroadcast
-    // buffer has the relevant tick, otherwise Weapon prediction would always lag the server.
+    // Conventionally predicted local players keep the first-shot guard: before the first server
+    // Weapon confirmation, a held Fire input can be older than the synced timeline and create an
+    // unmatched prespawn. Deterministic and remote predicted players have no local Weapon
+    // confirmation to wait for, so they can predict their first shot once its buffered input is
+    // available.
     if !allow_initial_fire && weapon.last_fire_tick == Tick(0) {
         return false;
     }
@@ -628,15 +637,21 @@ fn detect_duplicate_bullets(
 // Predicted/prespawned clients can predict TTL expiry. Interpolated observer bullets wait for the
 // authoritative server despawn instead.
 pub(crate) fn lifetime_despawner(
-    q: Query<(Entity, &BulletLifetime, Has<Predicted>, Has<PreSpawned>)>,
+    q: Query<(
+        Entity,
+        &BulletLifetime,
+        Has<Predicted>,
+        Has<PreSpawned>,
+        Has<DeterministicPredicted>,
+    )>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
     server: Query<(), With<Server>>,
 ) {
     let is_server = !server.is_empty();
-    for (e, ttl, is_predicted, is_prespawned) in q.iter() {
+    for (e, ttl, is_predicted, is_prespawned, is_deterministic) in q.iter() {
         if (timeline.tick() - ttl.origin_tick) > ttl.lifetime
-            && (is_server || is_predicted || is_prespawned)
+            && (is_server || is_predicted || is_prespawned || is_deterministic)
         {
             commands.entity(e).prediction_despawn();
         }
