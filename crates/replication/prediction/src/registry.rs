@@ -2107,6 +2107,92 @@ mod tests {
     }
 
     #[test]
+    fn current_tick_confirmation_waits_for_prediction_history() {
+        let (mut app, fns_id) = setup_prediction_diff_app();
+        app.add_plugins(bevy_time::TimePlugin);
+        app.init_resource::<InputTimelineConfig>();
+        let client = app.world_mut().spawn_empty().id();
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
+        let mut sync = LocalTimelineSync::default();
+        sync.set_synced(true);
+        app.insert_resource(sync);
+        app.init_resource::<ObservedRollbackStart>();
+        app.add_systems(
+            PreUpdate,
+            observe_rollback
+                .after(RollbackSystems::Check)
+                .before(RollbackSystems::Prepare),
+        );
+        app.finish();
+        app.cleanup();
+        app.world_mut().remove_resource::<ClientMessages>();
+
+        // Let topology-change cleanup run before recording the deferred check.
+        app.update();
+        let confirmed_tick = Tick(20);
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(20);
+
+        let replicon_tick = record_checkpoint(&mut app, confirmed_tick.0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Predicted,
+                TestDiffComponent(10),
+                PredictionHistory::<TestDiffComponent>::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(entity).apply_write(
+            diff_snapshot(0, TestDiffComponent(20)),
+            fns_id,
+            replicon_tick,
+        );
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(ConfirmHistory::new(replicon_tick));
+        app.world_mut()
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record_last_confirmed_tick(replicon_tick);
+
+        app.update();
+
+        assert_eq!(app.world().resource::<ObservedRollbackStart>().0, None);
+        assert!(
+            app.world()
+                .resource::<PredictionManager>()
+                .pending_entity_state_checks
+                .contains(confirmed_tick, entity),
+            "the check must remain pending until prediction history reaches the confirmed tick"
+        );
+
+        app.world_mut()
+            .get_mut::<PredictionHistory<TestDiffComponent>>(entity)
+            .unwrap()
+            .add_predicted(confirmed_tick, Some(TestDiffComponent(10)));
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(1);
+        app.update();
+
+        assert!(
+            !app.world()
+                .resource::<PredictionManager>()
+                .pending_entity_state_checks
+                .contains(confirmed_tick, entity),
+            "the check should be consumed once the confirmed tick is in the past"
+        );
+        assert_eq!(
+            app.world().resource::<ObservedRollbackStart>().0,
+            Some(confirmed_tick)
+        );
+        assert_eq!(
+            app.world().get::<TestDiffComponent>(entity),
+            Some(&TestDiffComponent(20))
+        );
+    }
+
+    #[test]
     fn future_confirmed_insert_rolls_back_once_its_tick_is_completed_and_checkable() {
         let (mut app, fns_id) = setup_prediction_diff_app();
         app.add_plugins(bevy_time::TimePlugin);

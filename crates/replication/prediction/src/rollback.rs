@@ -593,9 +593,11 @@ fn check_rollback(
                     && !prediction_manager.is_rollback()
                     && server_ticks_advanced
                 {
-                    if server_confirmed_tick > tick {
+                    // The current tick is not checkable until FixedPostUpdate records its
+                    // predicted state, so keep its deferred confirmations queued as well.
+                    if server_confirmed_tick >= tick {
                         debug!(
-                            "Confirmed mutate tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
+                            "Confirmed mutate tick is at or ahead of the client timeline: {:?}. Current tick: {:?}",
                             server_confirmed_tick, tick
                         );
                     } else {
