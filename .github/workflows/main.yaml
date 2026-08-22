@@ -55,9 +55,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          # Nightly 2026-08-22 makes Bevy 0.19's `run_if` calls ambiguous between
-          # IntoScheduleConfigs and ObserverSystemExt while building rustdoc.
-          toolchain: nightly-2026-08-21
           components: llvm-tools-preview
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
