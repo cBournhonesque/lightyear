@@ -94,6 +94,9 @@ impl Ease for CompFull {
 pub struct CompSimple(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompPredictionOnly(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompBundleA(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -107,6 +110,68 @@ fn bundle_lerp(
     (
         CompBundleA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
         CompBundleB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+    )
+}
+
+macro_rules! correction_component {
+    ($name:ident) => {
+        #[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
+        pub struct $name(pub f32);
+
+        impl Ease for $name {
+            fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+                FunctionCurve::new(Interval::UNIT, move |t| Self(f32::lerp(start.0, end.0, t)))
+            }
+        }
+
+        impl LightyearDiffable for $name {
+            fn base_value() -> Self {
+                Self::default()
+            }
+
+            fn diff(&self, other: &Self) -> Self {
+                Self(other.0 - self.0)
+            }
+
+            fn apply_diff(&mut self, delta: &Self) {
+                self.0 += delta.0;
+            }
+        }
+    };
+}
+
+correction_component!(CompCorrectionBundleA);
+correction_component!(CompCorrectionBundleB);
+correction_component!(CompMixedCorrectionBundleA);
+correction_component!(CompMixedCorrectionBundleB);
+
+fn correction_bundle_lerp(
+    start: (CompCorrectionBundleA, CompCorrectionBundleB),
+    end: (CompCorrectionBundleA, CompCorrectionBundleB),
+    context: InterpolationSampleContext,
+) -> (CompCorrectionBundleA, CompCorrectionBundleB) {
+    let sample_delta_secs = context.sample_delta_secs.unwrap_or_default();
+    (
+        CompCorrectionBundleA(
+            100.0 + start.0.0 + (end.0.0 - start.0.0) * context.t + sample_delta_secs,
+        ),
+        CompCorrectionBundleB(
+            200.0 + start.1.0 + (end.1.0 - start.1.0) * context.t + sample_delta_secs,
+        ),
+    )
+}
+
+fn mixed_correction_bundle_lerp(
+    start: (CompMixedCorrectionBundleA, CompMixedCorrectionBundleB),
+    end: (CompMixedCorrectionBundleA, CompMixedCorrectionBundleB),
+    context: InterpolationSampleContext,
+) -> (CompMixedCorrectionBundleA, CompMixedCorrectionBundleB) {
+    let a = start.0.0 + (end.0.0 - start.0.0) * context.t;
+    let b = start.1.0 + (end.1.0 - start.1.0) * context.t;
+    (
+        CompMixedCorrectionBundleA(a + b + context.sample_delta_secs.unwrap_or_default()),
+        // Make it obvious if correction does not restore the temporary bundle output.
+        CompMixedCorrectionBundleB(10_000.0),
     )
 }
 
@@ -230,11 +295,45 @@ impl Plugin for ProtocolPlugin {
             .predict()
             .add_linear_interpolation();
         app.component::<CompSimple>().replicate();
+        app.component::<CompPredictionOnly>().replicate().predict();
         app.component::<CompBundleA>().replicate();
         app.component::<CompBundleB>().replicate();
         app.interpolate_bundle_with::<(CompBundleA, CompBundleB)>(InterpolationFns::interpolate(
             bundle_lerp,
         ));
+        app.component::<CompCorrectionBundleA>()
+            .replicate()
+            .predict()
+            .add_correction();
+        app.component::<CompCorrectionBundleB>()
+            .replicate()
+            .predict()
+            .add_correction();
+        app.interpolate_with::<CompCorrectionBundleA>(InterpolationFns::no_history(|_, _, _| {
+            CompCorrectionBundleA(1_000.0)
+        }));
+        app.interpolate_with::<CompCorrectionBundleB>(InterpolationFns::no_history(|_, _, _| {
+            CompCorrectionBundleB(2_000.0)
+        }));
+        app.interpolate_bundle_with::<(CompCorrectionBundleA, CompCorrectionBundleB)>(
+            InterpolationFns::no_history_with_context(correction_bundle_lerp),
+        );
+        app.component::<CompMixedCorrectionBundleA>()
+            .replicate()
+            .predict()
+            .add_correction();
+        app.component::<CompMixedCorrectionBundleB>()
+            .replicate()
+            .predict();
+        app.interpolate_with::<CompMixedCorrectionBundleA>(InterpolationFns::no_history(
+            |_, _, _| CompMixedCorrectionBundleA(1_000.0),
+        ));
+        app.interpolate_with::<CompMixedCorrectionBundleB>(InterpolationFns::no_history(
+            |_, _, _| CompMixedCorrectionBundleB(2_000.0),
+        ));
+        app.interpolate_bundle_with::<(CompMixedCorrectionBundleA, CompMixedCorrectionBundleB)>(
+            InterpolationFns::no_history_with_context(mixed_correction_bundle_lerp),
+        );
         app.component::<CompCustomInterp>()
             .replicate()
             .add_custom_interpolation();

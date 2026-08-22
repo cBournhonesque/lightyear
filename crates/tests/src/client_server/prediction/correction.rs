@@ -1,341 +1,222 @@
-/*
-use crate::client_server::prediction::{
-    RollbackInfo, trigger_rollback_check, trigger_rollback_system,
+use super::trigger_state_rollback;
+use crate::protocol::{
+    CompCorrectionBundleA, CompCorrectionBundleB, CompMixedCorrectionBundleA,
+    CompMixedCorrectionBundleB, CompPredictionOnly,
 };
-use crate::protocol::CompCorr;
-use crate::stepper::*;
-use approx::assert_relative_eq;
+use crate::stepper::{ClientServerStepper, StepperConfig};
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear_prediction::Predicted;
-use lightyear_prediction::correction::Correction;
-use lightyear_prediction::plugin::PredictionSet;
+use lightyear::frame_interpolation::FrameInterpolationHistory;
+use lightyear_core::prelude::Tick;
+use lightyear_prediction::correction::PreviousVisual;
 use lightyear_prediction::predicted_history::PredictionHistory;
-use lightyear_replication::components::Confirmed;
-use lightyear_replication::prelude::ReplicationSet;
-use lightyear_utils::easings::ease_out_quad;
+use lightyear_prediction::prelude::{Predicted, VisualCorrection};
 use test_log::test;
 
-fn increment_component_system(mut query: Query<&mut CompCorr>) {
-    for mut component in query.iter_mut() {
-        component.0 += 1.0;
+fn replay_prediction_only(mut components: Query<&mut CompPredictionOnly, With<Predicted>>) {
+    for mut component in &mut components {
+        *component = CompPredictionOnly(10.0);
     }
 }
 
-fn setup(
-    tick_duration: Duration,
-    frame_duration: Duration,
-) -> (ClientServerStepper, Entity, Entity, Entity, Entity) {
-    let mut stepper = ClientServerStepper::new(tick_duration, frame_duration);
+fn replay_correction_bundle(
+    mut components: Query<
+        (&mut CompCorrectionBundleA, &mut CompCorrectionBundleB),
+        With<Predicted>,
+    >,
+) {
+    for (mut a, mut b) in &mut components {
+        *a = CompCorrectionBundleA(10.0);
+        *b = CompCorrectionBundleB(20.0);
+    }
+}
 
-    stepper.new_client();
+fn replay_mixed_correction_bundle(
+    mut components: Query<
+        (
+            &mut CompMixedCorrectionBundleA,
+            &mut CompMixedCorrectionBundleB,
+        ),
+        With<Predicted>,
+    >,
+) {
+    for (mut a, mut b) in &mut components {
+        *a = CompMixedCorrectionBundleA(10.0);
+        *b = CompMixedCorrectionBundleB(20.0);
+    }
+}
+
+fn history<C: Component + Clone>(tick: Tick, value: C) -> PredictionHistory<C> {
+    let mut history = PredictionHistory::default();
+    history.add_predicted(tick, Some(value));
+    history
+}
+
+fn set_correction_sampling_time(stepper: &mut ClientServerStepper) {
+    let mut time = Time::<Fixed>::from_duration(Duration::from_secs(1));
+    time.accumulate_overstep(Duration::from_millis(500));
+    stepper.client_app().insert_resource(time);
+}
+
+/// `.predict()` installs frame-history repair in the real rollback schedule even when visual
+/// correction is not enabled for the component.
+#[test]
+fn prediction_registration_repairs_frame_history_after_rollback() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper
         .client_app()
-        .add_systems(FixedUpdate, increment_component_system);
-    stepper.client_app().add_event::<RollbackInfo>();
-    stepper.client_app().add_systems(
-        PreUpdate,
-        trigger_rollback_system
-            .after(ReplicationSet::Receive)
-            .before(PredictionSet::CheckRollback),
-    );
-    stepper.init();
-    let tick = stepper.client_tick(0);
+        .add_systems(FixedUpdate, replay_prediction_only);
 
-    let predicted_a = stepper
-        .client_app()
-        .world_mut()
-        .spawn(Predicted {
-            confirmed_entity: None,
-        })
-        .id();
-    let confirmed_a = stepper
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 1;
+    let entity = stepper
         .client_app()
         .world_mut()
         .spawn((
-            Confirmed {
-                tick,
-                predicted: Some(predicted_a),
-                ..Default::default()
+            Predicted,
+            CompPredictionOnly(100.0),
+            history(rollback_tick, CompPredictionOnly(4.0)),
+            FrameInterpolationHistory::<CompPredictionOnly> {
+                previous_value: Some(CompPredictionOnly(200.0)),
+                current_value: Some(CompPredictionOnly(300.0)),
             },
-            CompCorr(2.0),
         ))
         .id();
+
+    trigger_state_rollback(&mut stepper, rollback_tick);
+    stepper.client_app().world_mut().run_schedule(PreUpdate);
+
+    let frame_history = stepper
+        .client_app()
+        .world()
+        .get::<FrameInterpolationHistory<CompPredictionOnly>>(entity)
+        .unwrap();
+    assert_eq!(frame_history.previous_value, Some(CompPredictionOnly(4.0)));
+    assert_eq!(frame_history.current_value, Some(CompPredictionOnly(10.0)));
+}
+
+/// Post-rollback correction selects the context-aware bundle rule over competing component rules,
+/// uses the fixed-step sample duration, and restores the replayed values after sampling it.
+#[test]
+fn post_rollback_correction_uses_bundle_interpolation_rule() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    set_correction_sampling_time(&mut stepper);
     stepper
         .client_app()
-        .world_mut()
-        .entity_mut(predicted_a)
-        .get_mut::<Predicted>()
-        .unwrap()
-        .confirmed_entity = Some(confirmed_a);
-    let predicted_b = stepper
-        .client_app()
-        .world_mut()
-        .spawn(Predicted {
-            confirmed_entity: None,
-        })
-        .id();
-    let confirmed_b = stepper
+        .add_systems(FixedUpdate, replay_correction_bundle);
+
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 1;
+    let entity = stepper
         .client_app()
         .world_mut()
         .spawn((
-            Confirmed {
-                tick,
-                predicted: Some(predicted_b),
-                ..Default::default()
-            },
-            CompCorr(2.0),
+            Predicted,
+            CompCorrectionBundleA(1.0),
+            CompCorrectionBundleB(2.0),
+            history(rollback_tick, CompCorrectionBundleA(0.0)),
+            history(rollback_tick, CompCorrectionBundleB(0.0)),
+            FrameInterpolationHistory::<CompCorrectionBundleA>::default(),
+            FrameInterpolationHistory::<CompCorrectionBundleB>::default(),
         ))
         .id();
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_b)
-        .get_mut::<Predicted>()
-        .unwrap()
-        .confirmed_entity = Some(confirmed_b);
 
-    stepper.frame_step(1);
-    (stepper, confirmed_a, predicted_a, confirmed_b, predicted_b)
-}
+    trigger_state_rollback(&mut stepper, rollback_tick);
+    stepper.client_app().world_mut().run_schedule(PreUpdate);
 
-/// Test:
-/// - normal correction
-/// - rollback that happens while correction was under way
-#[test]
-fn test_correction() {
-    let frame_duration = Duration::from_millis(10);
-    let tick_duration = Duration::from_millis(10);
-    let (mut stepper, confirmed, predicted, _, _) = setup(frame_duration, tick_duration);
-
-    // we insert the component at a different frame to not trigger an early rollback
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .insert(CompCorr(1.0));
-    stepper.frame_step(1);
-
-    // trigger a rollback (the predicted value doesn't exist in the prediction history)
-    let original_tick = stepper.client_tick(0);
-    let rollback_tick = original_tick - 5;
-    info!(
-        ?rollback_tick,
-        "history {:?}",
-        stepper
-            .client_app()
-            .world()
-            .get::<PredictionHistory<CompCorr>>(predicted)
-    );
-    trigger_rollback_check(&mut stepper, rollback_tick);
-
-    stepper.frame_step(1);
-    // check that a correction is applied
-
-    // interpolate 20% of the way
-    let current_visual = Some(CompCorr(2.0 + ease_out_quad(0.2) * (10.0 - 2.0)));
+    let world = stepper.client_app().world();
+    assert_eq!(world.resource::<Time<Fixed>>().overstep_fraction(), 0.5);
     assert_eq!(
-        stepper
-            .client_app()
-            .world()
-            .get::<Correction<CompCorr>>(predicted)
-            .unwrap(),
-        &Correction::<CompCorr> {
-            original_prediction: CompCorr(2.0),
-            original_tick,
-            final_correction_tick: original_tick + (original_tick - rollback_tick),
-            current_visual,
-            current_correction: Some(CompCorr(10.0)),
-        }
+        world.get::<CompCorrectionBundleA>(entity),
+        Some(&CompCorrectionBundleA(10.0))
     );
-
-    // check that the correction value has been incremented and that the visual value has been updated correctly
-    stepper.frame_step(1);
-    let correction = stepper
-        .client_app()
-        .world()
-        .get::<Correction<CompCorr>>(predicted)
-        .unwrap();
-    let current_visual = Some(CompCorr(2.0 + ease_out_quad(0.4) * (11.0 - 2.0)));
-    assert_relative_eq!(
-        correction.current_visual.as_ref().unwrap().0,
-        current_visual.as_ref().unwrap().0
-    );
-    assert_eq!(correction.current_correction.as_ref().unwrap().0, 11.0);
-
-    // trigger a new rollback while the correction is under way
-    let original_tick = stepper.client_tick(0);
-    let rollback_tick = original_tick - 5;
-    trigger_rollback_check(&mut stepper, rollback_tick);
-    stepper.frame_step(1);
-
-    // check that the correction has been updated
-    let correction = stepper
-        .client_app()
-        .world()
-        .get::<Correction<CompCorr>>(predicted)
-        .unwrap();
-    // the new correction starts from the previous visual value
-    let previous_visual = current_visual.as_ref().unwrap().0;
-    assert_relative_eq!(correction.original_prediction.0, previous_visual);
-    assert_eq!(correction.original_tick, original_tick);
     assert_eq!(
-        correction.final_correction_tick,
-        original_tick + (original_tick - rollback_tick)
+        world.get::<CompCorrectionBundleB>(entity),
+        Some(&CompCorrectionBundleB(20.0))
     );
-    // interpolate 20% of the way
-    let current_visual = Some(CompCorr(
-        previous_visual + ease_out_quad(0.2) * (17.0 - previous_visual),
-    ));
-    assert_relative_eq!(
-        correction.current_visual.as_ref().unwrap().0,
-        current_visual.as_ref().unwrap().0
-    );
-    assert_eq!(correction.current_correction.as_ref().unwrap().0, 17.0);
-    stepper.frame_step(3);
-    let correction = stepper
-        .client_app()
-        .world()
-        .get::<Correction<CompCorr>>(predicted)
-        .unwrap();
-    // interpolate 80% of the way
-    let current_visual = Some(CompCorr(
-        previous_visual + ease_out_quad(0.8) * (20.0 - previous_visual),
-    ));
-    assert_relative_eq!(
-        correction.current_visual.as_ref().unwrap().0,
-        current_visual.as_ref().unwrap().0
-    );
-    assert_eq!(correction.current_correction.as_ref().unwrap().0, 20.0);
-}
-
-/// Test that if:
-/// - entity A gets mispredicted
-/// - entity B is correctly predicted
-/// then:
-/// - a rollback happens, but we only add correction for entity A
-#[test]
-fn test_no_correction_if_no_misprediction() {
-    let frame_duration = Duration::from_millis(10);
-    let tick_duration = Duration::from_millis(10);
-    let (mut stepper, confirmed_a, predicted_a, confirmed_b, predicted_b) =
-        setup(frame_duration, tick_duration);
-
-    // we insert the component at a different frame to not trigger an early rollback
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_a)
-        .insert(CompCorr(1.0));
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_b)
-        .insert(CompCorr(1.0));
-    stepper.frame_step(1);
-
-    // trigger a rollback (the predicted value doesn't exist in the prediction history)
-    let original_tick = stepper.client_tick(0);
-    let rollback_tick = original_tick - 5;
-    // add a history with the correct value for entity b to make sure that it is correctly predicted
-    let mut history = PredictionHistory::<CompCorr>::default();
-    history.add_update(rollback_tick, CompCorr(4.0));
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_b)
-        .insert(history);
-    trigger_rollback_check(&mut stepper, rollback_tick);
-
-    stepper.frame_step(1);
-    // check that a correction is applied
-    // interpolate 20% of the way
-    let current_visual = Some(CompCorr(2.0 + ease_out_quad(0.2) * (10.0 - 2.0)));
     assert_eq!(
-        stepper
-            .client_app()
-            .world()
-            .get::<Correction<CompCorr>>(predicted_a)
-            .unwrap(),
-        &Correction::<CompCorr> {
-            original_prediction: CompCorr(2.0),
-            original_tick,
-            final_correction_tick: original_tick + (original_tick - rollback_tick),
-            current_visual,
-            current_correction: Some(CompCorr(10.0)),
-        }
+        world
+            .get::<VisualCorrection<CompCorrectionBundleA>>(entity)
+            .map(|correction| &correction.error),
+        Some(&CompCorrectionBundleA(-105.0))
     );
-    // check that no correction is applied for entities that are correctly predicted
+    assert_eq!(
+        world
+            .get::<VisualCorrection<CompCorrectionBundleB>>(entity)
+            .map(|correction| &correction.error),
+        Some(&CompCorrectionBundleB(-209.0))
+    );
     assert!(
-        stepper
-            .client_app()
-            .world()
-            .get::<Correction<CompCorr>>(predicted_b)
+        world
+            .get::<PreviousVisual<CompCorrectionBundleA>>(entity)
+            .is_none()
+    );
+    assert!(
+        world
+            .get::<PreviousVisual<CompCorrectionBundleB>>(entity)
             .is_none()
     );
 }
 
-/// Check that correction still works even if Update runs twice in a row (i.e. we don't have a FixedUpdate on the frame of the rollback)
+/// A bundle member registered for prediction but not correction contributes its repaired samples
+/// to another member's correction without receiving correction state of its own.
 #[test]
-fn test_two_consecutive_frame_updates() {
-    let frame_duration = Duration::from_millis(10);
-    // very long tick duration to guarantee that we have 2 consecutive frames without a tick
-    // choose a value where Syncing stops at the end of tick
-    let tick_duration = Duration::from_millis(23);
-    let (mut stepper, confirmed, predicted, _, _) = setup(tick_duration, frame_duration);
-
-    // we insert the component at a different frame to not trigger an early rollback
-    // (here a rollback isn't triggered because we didn't receive any server packets)
+fn post_rollback_bundle_uses_member_without_previous_visual() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    set_correction_sampling_time(&mut stepper);
     stepper
         .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .insert(CompCorr(1.0));
-    stepper.frame_step(1);
+        .add_systems(FixedUpdate, replay_mixed_correction_bundle);
 
-    // trigger a rollback (the predicted value doesn't exist in the prediction history)
-    let original_tick = stepper.client_tick(0);
-    let rollback_tick = original_tick - 5;
-    info!(?original_tick, ?rollback_tick, "trigger rollback");
-    trigger_rollback_check(&mut stepper, rollback_tick);
-    stepper.frame_step(1);
-    assert_eq!(stepper.client_tick(0), original_tick);
-    info!("end rollback and advanced by 1 frame. Normally no FixedUpdate has run");
-    // check that a correction Component is added, however no Correction is applied yet because FixedUpdate didn't run
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 1;
+    let entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            Predicted,
+            CompMixedCorrectionBundleA(1.0),
+            CompMixedCorrectionBundleB(2.0),
+            history(rollback_tick, CompMixedCorrectionBundleA(0.0)),
+            history(rollback_tick, CompMixedCorrectionBundleB(4.0)),
+            FrameInterpolationHistory::<CompMixedCorrectionBundleA>::default(),
+            FrameInterpolationHistory::<CompMixedCorrectionBundleB>::default(),
+        ))
+        .id();
+
+    trigger_state_rollback(&mut stepper, rollback_tick);
+    stepper.client_app().world_mut().run_schedule(PreUpdate);
+
+    let world = stepper.client_app().world();
+    assert_eq!(world.resource::<Time<Fixed>>().overstep_fraction(), 0.5);
     assert_eq!(
-        stepper
-            .client_app()
-            .world()
-            .get::<Correction<CompCorr>>(predicted)
-            .unwrap(),
-        &Correction::<CompCorr> {
-            original_prediction: CompCorr(2.0),
-            original_tick,
-            final_correction_tick: original_tick + (original_tick - rollback_tick),
-            current_visual: None,
-            // the value is 8.0 because multiple frames ran without FixedUpdate running
-            current_correction: Some(CompCorr(8.0)),
-        }
+        world.get::<CompMixedCorrectionBundleA>(entity),
+        Some(&CompMixedCorrectionBundleA(10.0))
     );
-    // check that the component is still visually the original prediction at the end of the frame
     assert_eq!(
-        stepper.client_app().world().get::<CompCorr>(predicted),
-        Some(&CompCorr(2.0))
+        world.get::<CompMixedCorrectionBundleB>(entity),
+        Some(&CompMixedCorrectionBundleB(20.0))
     );
-    // progress enough so that we reach the next tick
-    stepper.frame_step(2);
-    // check that this time we ran FixedUpdate, but that we use the Corrected value as the final value to correct towards
-    // not the original prediction! If that were the case, we would correct towards CompCorr(3.0)
     assert_eq!(
-        stepper
-            .client_app()
-            .world()
-            .get::<Correction<CompCorr>>(predicted)
-            .unwrap()
-            .current_correction,
-        Some(CompCorr(9.0)),
+        world
+            .get::<VisualCorrection<CompMixedCorrectionBundleA>>(entity)
+            .map(|correction| &correction.error),
+        Some(&CompMixedCorrectionBundleA(-17.0))
+    );
+    assert!(
+        world
+            .get::<VisualCorrection<CompMixedCorrectionBundleB>>(entity)
+            .is_none(),
+        "the uncorrected bundle member should not receive a visual correction"
+    );
+    assert!(
+        world
+            .get::<PreviousVisual<CompMixedCorrectionBundleA>>(entity)
+            .is_none()
+    );
+    assert!(
+        world
+            .get::<PreviousVisual<CompMixedCorrectionBundleB>>(entity)
+            .is_none()
     );
 }
-*/
-
-fn a() {}

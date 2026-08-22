@@ -15,6 +15,7 @@ deterministic = []
 p2p = ["dep:lightyear_p2p"]
 server = ["dep:lightyear_messages"]
 metrics = ["dep:metrics", "lightyear_utils/metrics", "std"]
+test_utils = []
 
 [dependencies]
 lightyear_utils.workspace = true

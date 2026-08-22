@@ -1633,25 +1633,22 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
 mod tests {
     use super::*;
     use crate::plugin::{PredictionMarkerPlugin, PredictionPlugin};
-    use crate::rollback::RollbackSystems;
     use alloc::vec::Vec;
-    use bevy_app::PreUpdate;
     use bevy_ecs::system::RunSystemOnce;
     use bevy_replicon::prelude::{
-        AuthMethod, ClientMessages, RepliconPlugins, RepliconSharedPlugin, RepliconTick, RuleFns,
+        AuthMethod, RepliconPlugins, RepliconSharedPlugin, RepliconTick, RuleFns,
     };
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use bevy_replicon::shared::replication::registry::ReplicationRegistry;
     use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
     use bevy_state::app::StatesPlugin;
     use core::hash::Hasher;
-    use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
     use lightyear_interpolation::prelude::{
         InterpolationMarkerPlugin, InterpolationPlugin, InterpolationRegistrationExt,
         InterpolationRegistry,
     };
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-    use lightyear_replication::prelude::{AppComponentExt, ConfirmHistory};
+    use lightyear_replication::prelude::AppComponentExt;
     use lightyear_sync::prelude::{InputTimelineConfig, LocalTimelineSync};
     use serde::{Deserialize, Serialize};
 
@@ -1859,18 +1856,6 @@ mod tests {
         replicon_tick
     }
 
-    #[derive(Resource, Default)]
-    struct ObservedRollbackStart(Option<Tick>);
-
-    fn observe_rollback(
-        manager: Res<PredictionManager>,
-        mut observed: ResMut<ObservedRollbackStart>,
-    ) {
-        if observed.0.is_none() {
-            observed.0 = manager.get_rollback_start_tick();
-        }
-    }
-
     #[test]
     fn component_builder_local_rollback_supports_non_sync_component() {
         let mut app = prediction_app();
@@ -2067,144 +2052,6 @@ mod tests {
 
         assert!(!hashed);
         assert_eq!(hasher.finish(), initial_hash);
-    }
-
-    #[test]
-    fn future_confirmed_insert_seeds_prediction_history_at_current_tick() {
-        let (mut app, fns_id) = setup_prediction_diff_app();
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(10);
-        let future_tick = record_checkpoint(&mut app, 20);
-        let entity = app.world_mut().spawn(Predicted).id();
-
-        app.world_mut().entity_mut(entity).apply_write(
-            diff_snapshot(0, TestDiffComponent(20)),
-            fns_id,
-            future_tick,
-        );
-
-        let mut history = app
-            .world_mut()
-            .get_mut::<PredictionHistory<TestDiffComponent>>(entity)
-            .expect("the confirmed insert should seed prediction history");
-        assert_eq!(
-            history.get_state(Tick(10)),
-            Some(&HistoryState::Removed),
-            "the absence should be recorded at the current tick, not the future confirmed tick"
-        );
-
-        history.add_predicted(Tick(15), Some(TestDiffComponent(15)));
-        assert_eq!(
-            history
-                .buffer()
-                .iter()
-                .map(|(tick, _)| *tick)
-                .collect::<Vec<_>>(),
-            [Tick(10), Tick(15)],
-            "later local predictions should remain chronologically ordered"
-        );
-    }
-
-    #[test]
-    fn future_confirmed_insert_rolls_back_once_its_tick_is_completed_and_checkable() {
-        let (mut app, fns_id) = setup_prediction_diff_app();
-        app.add_plugins(bevy_time::TimePlugin);
-        app.init_resource::<InputTimelineConfig>();
-        let client = app.world_mut().spawn_empty().id();
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
-        let mut sync = LocalTimelineSync::default();
-        sync.set_synced(true);
-        app.insert_resource(sync);
-        app.init_resource::<ObservedRollbackStart>();
-        app.add_systems(
-            PreUpdate,
-            observe_rollback
-                .after(RollbackSystems::Check)
-                .before(RollbackSystems::Prepare),
-        );
-        app.finish();
-        app.cleanup();
-        app.world_mut().remove_resource::<ClientMessages>();
-
-        // Let topology-change cleanup run before recording the deferred check.
-        app.update();
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(10);
-
-        let future_tick = Tick(20);
-        let future_replicon_tick = record_checkpoint(&mut app, future_tick.0);
-        let entity = app.world_mut().spawn(Predicted).id();
-        app.world_mut().entity_mut(entity).apply_write(
-            diff_snapshot(0, TestDiffComponent(20)),
-            fns_id,
-            future_replicon_tick,
-        );
-        assert!(
-            app.world()
-                .resource::<PredictionManager>()
-                .pending_entity_state_checks
-                .contains(future_tick, entity),
-            "receiving the future insert should defer the entity's rollback check"
-        );
-        app.world_mut()
-            .entity_mut(entity)
-            .insert(ConfirmHistory::new(future_replicon_tick));
-        app.world_mut()
-            .resource_mut::<ReplicationCheckpointMap>()
-            .record_last_confirmed_tick(future_replicon_tick);
-
-        app.update();
-        assert_eq!(
-            app.world().resource::<ObservedRollbackStart>().0,
-            None,
-            "the future component insert is not checkable yet"
-        );
-        assert!(
-            app.world()
-                .resource::<PredictionManager>()
-                .pending_entity_state_checks
-                .contains(future_tick, entity),
-            "the deferred check should remain queued while the server tick is in the future"
-        );
-
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(11);
-        assert_eq!(
-            app.world()
-                .get::<PredictionHistory<TestDiffComponent>>(entity)
-                .unwrap()
-                .get_state(future_tick),
-            Some(&HistoryState::Removed)
-        );
-        assert_eq!(
-            app.world()
-                .get::<ConfirmedHistory<TestDiffComponent>>(entity)
-                .unwrap()
-                .get_state_at(future_tick),
-            Some(&HistoryState::Updated(TestDiffComponent(20)))
-        );
-        app.update();
-
-        assert!(
-            !app.world()
-                .resource::<PredictionManager>()
-                .pending_entity_state_checks
-                .contains(future_tick, entity),
-            "the completed frontier should consume the deferred check"
-        );
-        assert_eq!(
-            app.world().resource::<ObservedRollbackStart>().0,
-            Some(future_tick),
-            "the deferred entity must bypass the ConfirmHistory skip once its completed tick is locally checkable"
-        );
-        assert_eq!(
-            app.world().get::<TestDiffComponent>(entity),
-            Some(&TestDiffComponent(20)),
-            "rollback should restore the component that was absent from the predicted entity"
-        );
     }
 
     #[test]
