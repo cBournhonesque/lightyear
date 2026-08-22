@@ -2,7 +2,7 @@ use crate::client_server::prediction::{
     register_rollback_check_helper, trigger_rollback_check,
     trigger_rollback_check_without_completed_tick, trigger_state_rollback,
 };
-use crate::protocol::{CompFull, CompNotNetworked, NativeInput};
+use crate::protocol::{CompFull, CompNotNetworked, CompRepliconDiff, NativeInput};
 use crate::stepper::*;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -739,6 +739,101 @@ fn test_current_tick_confirmation_triggers_rollback() {
         world.get::<CompFull>(predicted_entity),
         Some(&CompFull(42.0)),
         "rollback should apply the current-tick authoritative value"
+    );
+}
+
+/// A component inserted at a server tick ahead of the client seeds absence at the client's
+/// current tick, then rolls back once that authoritative tick becomes locally checkable.
+#[test]
+fn test_future_diff_insert_seeds_history_and_rolls_back_when_checkable() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+    let predicted_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to the client");
+    let current_tick = stepper.client_tick(0);
+    let future_tick = current_tick + 3;
+
+    observe_rollback_start(stepper.client_app());
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .pause();
+
+    // Keep the client at its completed local tick while the server moves into its future. Let the
+    // client receive each checkpoint so Replicon's completed frontier advances normally.
+    while stepper.server_tick() + 1 < future_tick {
+        stepper.advance_time(stepper.frame_duration);
+        stepper.server_app.update();
+        stepper.client_app().update();
+        assert_eq!(stepper.client_tick(0), current_tick);
+    }
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompRepliconDiff(42));
+    stepper.advance_time(stepper.frame_duration);
+    stepper.server_app.update();
+    assert_eq!(stepper.server_tick(), future_tick);
+    stepper.client_app().update();
+
+    let world = stepper.client_app().world();
+    assert_eq!(
+        world
+            .get::<PredictionHistory<CompRepliconDiff>>(predicted_entity)
+            .and_then(|history| history.get_state(current_tick)),
+        Some(&HistoryState::Removed),
+        "the future insert should seed absence at the client's current tick"
+    );
+    assert_eq!(
+        world
+            .get::<ConfirmedHistory<CompRepliconDiff>>(predicted_entity)
+            .and_then(|history| history.get_state_at(future_tick)),
+        Some(&HistoryState::Updated(CompRepliconDiff(42)))
+    );
+    assert_eq!(world.resource::<ObservedRollbackStart>().0, None);
+
+    // Run genuine client fixed ticks until the future confirmation becomes the completed current
+    // tick. The following no-time update checks the deferred mismatch before another fixed tick.
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .unpause();
+    while stepper.client_tick(0) < future_tick {
+        stepper.advance_time(stepper.frame_duration);
+        stepper.client_app().update();
+    }
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .pause();
+    stepper.client_app().update();
+
+    let world = stepper.client_app().world();
+    assert_eq!(
+        world.resource::<ObservedRollbackStart>().0,
+        Some(future_tick)
+    );
+    assert_eq!(
+        world.get::<CompRepliconDiff>(predicted_entity),
+        Some(&CompRepliconDiff(42))
     );
 }
 

@@ -93,21 +93,64 @@ impl Ease for CompFull {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompSimple(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct CompBundleA(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, PartialEq, Reflect)]
 pub struct CompBundleB(pub f32);
+
+impl Ease for CompBundleA {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            CompBundleA(f32::lerp(start.0, end.0, t))
+        })
+    }
+}
+
+impl Ease for CompBundleB {
+    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+        FunctionCurve::new(Interval::UNIT, move |t| {
+            CompBundleB(f32::lerp(start.0, end.0, t))
+        })
+    }
+}
+
+impl LightyearDiffable for CompBundleA {
+    fn base_value() -> Self {
+        Self::default()
+    }
+
+    fn diff(&self, other: &Self) -> Self {
+        Self(other.0 - self.0)
+    }
+
+    fn apply_diff(&mut self, delta: &Self) {
+        self.0 += delta.0;
+    }
+}
+
+impl LightyearDiffable for CompBundleB {
+    fn base_value() -> Self {
+        Self::default()
+    }
+
+    fn diff(&self, other: &Self) -> Self {
+        Self(other.0 - self.0)
+    }
+
+    fn apply_diff(&mut self, delta: &Self) {
+        self.0 += delta.0;
+    }
+}
 
 fn bundle_lerp(
     start: (CompBundleA, CompBundleB),
     end: (CompBundleA, CompBundleB),
     t: f32,
 ) -> (CompBundleA, CompBundleB) {
-    (
-        CompBundleA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
-        CompBundleB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
-    )
+    let a = f32::lerp(start.0.0, end.0.0, t);
+    let b = f32::lerp(start.1.0, end.1.0, t);
+    (CompBundleA(100.0 + a + b), CompBundleB(200.0 + b))
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -230,8 +273,14 @@ impl Plugin for ProtocolPlugin {
             .predict()
             .add_linear_interpolation();
         app.component::<CompSimple>().replicate();
-        app.component::<CompBundleA>().replicate();
-        app.component::<CompBundleB>().replicate();
+        app.component::<CompBundleA>()
+            .replicate()
+            .predict()
+            .add_correction();
+        app.component::<CompBundleB>()
+            .replicate()
+            .predict()
+            .add_correction();
         app.interpolate_bundle_with::<(CompBundleA, CompBundleB)>(InterpolationFns::interpolate(
             bundle_lerp,
         ));

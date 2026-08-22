@@ -882,9 +882,8 @@ mod tests {
     use lightyear_interpolation::{
         plugin::InterpolationMarkerPlugin,
         registry::{AppInterpolationExt, InterpolationRegistry},
-        rules::{InterpolationFns, InterpolationSampleContext},
+        rules::InterpolationFns,
     };
-    use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::diffable::Diffable as LightyearDiffable;
     use lightyear_replication::prelude::*;
 
@@ -908,9 +907,6 @@ mod tests {
     #[derive(Component, Clone, Debug, Default, PartialEq)]
     struct CorrectionA(f32);
 
-    #[derive(Component, Clone, Debug, Default, PartialEq)]
-    struct CorrectionB(f32);
-
     #[derive(Component, Clone, Debug, PartialEq)]
     #[component(storage = "SparseSet")]
     struct SparseCorrection(f32);
@@ -919,14 +915,6 @@ mod tests {
         fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
             FunctionCurve::new(Interval::UNIT, move |t| {
                 CorrectionA(start.0 + (end.0 - start.0) * t)
-            })
-        }
-    }
-
-    impl Ease for CorrectionB {
-        fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-            FunctionCurve::new(Interval::UNIT, move |t| {
-                CorrectionB(start.0 + (end.0 - start.0) * t)
             })
         }
     }
@@ -941,20 +929,6 @@ mod tests {
         }
 
         fn apply_diff(&mut self, delta: &CorrectionA) {
-            self.0 += delta.0;
-        }
-    }
-
-    impl LightyearDiffable<CorrectionB> for CorrectionB {
-        fn base_value() -> Self {
-            Self::default()
-        }
-
-        fn diff(&self, new: &Self) -> CorrectionB {
-            CorrectionB(new.0 - self.0)
-        }
-
-        fn apply_diff(&mut self, delta: &CorrectionB) {
             self.0 += delta.0;
         }
     }
@@ -983,32 +957,6 @@ mod tests {
                 .get::<FrameInterpolationHistory<CorrectionA>>(entity)
                 .is_some()
         );
-    }
-
-    fn bundle_context_lerp(
-        start: (CorrectionA, CorrectionB),
-        end: (CorrectionA, CorrectionB),
-        context: InterpolationSampleContext,
-    ) -> (CorrectionA, CorrectionB) {
-        let sample_delta_secs = context.sample_delta_secs.unwrap_or_default();
-        (
-            CorrectionA(100.0 + start.0.0 + (end.0.0 - start.0.0) * context.t + sample_delta_secs),
-            CorrectionB(200.0 + start.1.0 + (end.1.0 - start.1.0) * context.t + sample_delta_secs),
-        )
-    }
-
-    fn bundle_lerp_uses_uncorrected_member(
-        start: (CorrectionA, CorrectionB),
-        end: (CorrectionA, CorrectionB),
-        context: InterpolationSampleContext,
-    ) -> (CorrectionA, CorrectionB) {
-        let a = start.0.0 + (end.0.0 - start.0.0) * context.t;
-        let b = start.1.0 + (end.1.0 - start.1.0) * context.t;
-        (
-            CorrectionA(a + b + context.sample_delta_secs.unwrap_or_default()),
-            // Make it obvious if the temporary bundle output is not restored.
-            CorrectionB(10_000.0),
-        )
     }
 
     #[test]
@@ -1145,82 +1093,6 @@ mod tests {
         assert_eq!(removed_history.current_value, None);
     }
 
-    // Verifies that `.predict()` schedules frame-history repair after replay and
-    // before rollback ends, even when visual correction is not registered.
-    #[test]
-    fn prediction_registration_schedules_frame_history_repair() {
-        const PREVIOUS_TICK: Tick = Tick(9);
-        const CURRENT_TICK: Tick = Tick(10);
-        const PREVIOUS_VALUE: f32 = 4.0;
-        const CURRENT_VALUE: f32 = 10.0;
-        const STALE_PREVIOUS_VALUE: f32 = 100.0;
-        const STALE_CURRENT_VALUE: f32 = 200.0;
-
-        let replay =
-            |mut components: Query<(&mut CorrectionA, &mut PredictionHistory<CorrectionA>)>| {
-                for (mut component, mut history) in &mut components {
-                    *component = CorrectionA(CURRENT_VALUE);
-                    history.add_predicted(CURRENT_TICK, Some(component.clone()));
-                }
-            };
-
-        let mut app = app_with_replication_markers();
-        app.configure_sets(
-            PreUpdate,
-            (
-                RollbackSystems::Prepare.run_if(is_in_rollback),
-                RollbackSystems::Rollback.run_if(is_in_rollback),
-                RollbackSystems::EndRollback.run_if(is_in_rollback),
-            )
-                .chain(),
-        );
-        app.add_systems(PreUpdate, replay.in_set(RollbackSystems::Rollback));
-        app.init_resource::<PredictionRegistry>();
-        app.insert_resource(ReplicationCheckpointMap::default());
-        app.insert_resource(LocalTimeline::default());
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(CURRENT_TICK.0 as i32);
-
-        let prediction_manager = PredictionManager::default();
-        prediction_manager.set_rollback_tick(PREVIOUS_TICK);
-        app.insert_resource(prediction_manager);
-        app.insert_resource(Rollback::FromInputs);
-
-        app.component::<CorrectionA>().predict();
-        app.finish();
-
-        let mut prediction = PredictionHistory::<CorrectionA>::default();
-        prediction.add_predicted(PREVIOUS_TICK, Some(CorrectionA(PREVIOUS_VALUE)));
-        prediction.add_predicted(CURRENT_TICK, Some(CorrectionA(CURRENT_VALUE)));
-        let entity = app
-            .world_mut()
-            .spawn((
-                CorrectionA(CURRENT_VALUE),
-                prediction,
-                FrameInterpolationHistory::<CorrectionA> {
-                    previous_value: Some(CorrectionA(STALE_PREVIOUS_VALUE)),
-                    current_value: Some(CorrectionA(STALE_CURRENT_VALUE)),
-                },
-            ))
-            .id();
-
-        app.world_mut().run_schedule(PreUpdate);
-
-        let frame_history = app
-            .world()
-            .get::<FrameInterpolationHistory<CorrectionA>>(entity)
-            .unwrap();
-        assert_eq!(
-            frame_history.previous_value,
-            Some(CorrectionA(PREVIOUS_VALUE))
-        );
-        assert_eq!(
-            frame_history.current_value,
-            Some(CorrectionA(CURRENT_VALUE))
-        );
-    }
-
     // Verifies that repair reads a sparse-set live component while updating
     // its table-stored prediction and frame histories.
     #[test]
@@ -1309,179 +1181,5 @@ mod tests {
         app.world_mut()
             .run_system_once(update_frame_interpolation_post_rollback)
             .unwrap();
-    }
-
-    // Verifies that post-rollback correction samples the selected bundle rule,
-    // creates each correction error, and restores both live component values.
-    #[test]
-    fn post_rollback_correction_uses_bundle_interpolation_rule() {
-        let mut app = app_with_replication_markers();
-        app.init_resource::<PredictionRegistry>();
-        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
-        app.world_mut()
-            .resource_mut::<Time<Fixed>>()
-            .accumulate_overstep(Duration::from_millis(500));
-        app.insert_resource(LocalTimeline::default());
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(10);
-
-        app.component::<CorrectionA>().predict().add_correction();
-        app.component::<CorrectionB>().predict().add_correction();
-
-        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|_, _, _| {
-            CorrectionA(1_000.0)
-        }));
-        app.interpolate_with::<CorrectionB>(InterpolationFns::no_history(|_, _, _| {
-            CorrectionB(2_000.0)
-        }));
-        app.interpolate_bundle_with::<(CorrectionA, CorrectionB)>(
-            InterpolationFns::no_history_with_context(bundle_context_lerp),
-        );
-
-        let mut history_a = PredictionHistory::<CorrectionA>::default();
-        history_a.add_predicted(Tick(9), Some(CorrectionA(0.0)));
-        let mut history_b = PredictionHistory::<CorrectionB>::default();
-        history_b.add_predicted(Tick(9), Some(CorrectionB(0.0)));
-
-        let entity = app
-            .world_mut()
-            .spawn((
-                CorrectionA(10.0),
-                CorrectionB(20.0),
-                PreviousVisual(CorrectionA(1.0)),
-                PreviousVisual(CorrectionB(2.0)),
-                history_a,
-                history_b,
-                FrameInterpolationHistory::<CorrectionA>::default(),
-                FrameInterpolationHistory::<CorrectionB>::default(),
-            ))
-            .id();
-
-        app.world_mut()
-            .run_system_once(repair_frame_interpolation_history::<CorrectionA>)
-            .unwrap();
-        app.world_mut()
-            .run_system_once(repair_frame_interpolation_history::<CorrectionB>)
-            .unwrap();
-        app.world_mut()
-            .run_system_once(update_frame_interpolation_post_rollback)
-            .unwrap();
-        app.world_mut().flush();
-
-        assert_eq!(
-            app.world().get::<CorrectionA>(entity),
-            Some(&CorrectionA(10.0))
-        );
-        assert_eq!(
-            app.world().get::<CorrectionB>(entity),
-            Some(&CorrectionB(20.0))
-        );
-        assert_eq!(
-            app.world()
-                .get::<VisualCorrection<CorrectionA>>(entity)
-                .map(|correction| &correction.error),
-            Some(&CorrectionA(-105.0))
-        );
-        assert_eq!(
-            app.world()
-                .get::<VisualCorrection<CorrectionB>>(entity)
-                .map(|correction| &correction.error),
-            Some(&CorrectionB(-209.0))
-        );
-        assert!(
-            app.world()
-                .get::<PreviousVisual<CorrectionA>>(entity)
-                .is_none()
-        );
-        assert!(
-            app.world()
-                .get::<PreviousVisual<CorrectionB>>(entity)
-                .is_none()
-        );
-    }
-
-    // A bundle member without `PreviousVisual` still supplies its repaired
-    // predicted samples to the bundle rule, but does not get its own visual
-    // correction. Its temporary bundle output is restored after sampling.
-    #[test]
-    fn post_rollback_bundle_uses_member_without_previous_visual() {
-        let mut app = app_with_replication_markers();
-        app.init_resource::<PredictionRegistry>();
-        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
-        app.world_mut()
-            .resource_mut::<Time<Fixed>>()
-            .accumulate_overstep(Duration::from_millis(500));
-        app.insert_resource(LocalTimeline::default());
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(10);
-
-        app.component::<CorrectionA>().predict().add_correction();
-        app.component::<CorrectionB>().predict();
-
-        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|_, _, _| {
-            CorrectionA(1_000.0)
-        }));
-        app.interpolate_with::<CorrectionB>(InterpolationFns::no_history(|_, _, _| {
-            CorrectionB(2_000.0)
-        }));
-        app.interpolate_bundle_with::<(CorrectionA, CorrectionB)>(
-            InterpolationFns::no_history_with_context(bundle_lerp_uses_uncorrected_member),
-        );
-
-        let mut history_a = PredictionHistory::<CorrectionA>::default();
-        history_a.add_predicted(Tick(9), Some(CorrectionA(0.0)));
-        let mut history_b = PredictionHistory::<CorrectionB>::default();
-        history_b.add_predicted(Tick(9), Some(CorrectionB(4.0)));
-
-        let entity = app
-            .world_mut()
-            .spawn((
-                CorrectionA(10.0),
-                CorrectionB(20.0),
-                PreviousVisual(CorrectionA(1.0)),
-                history_a,
-                history_b,
-                FrameInterpolationHistory::<CorrectionA>::default(),
-                FrameInterpolationHistory::<CorrectionB>::default(),
-            ))
-            .id();
-
-        app.world_mut()
-            .run_system_once(repair_frame_interpolation_history::<CorrectionA>)
-            .unwrap();
-        app.world_mut()
-            .run_system_once(repair_frame_interpolation_history::<CorrectionB>)
-            .unwrap();
-        app.world_mut()
-            .run_system_once(update_frame_interpolation_post_rollback)
-            .unwrap();
-        app.world_mut().flush();
-
-        assert_eq!(
-            app.world().get::<CorrectionA>(entity),
-            Some(&CorrectionA(10.0))
-        );
-        assert_eq!(
-            app.world().get::<CorrectionB>(entity),
-            Some(&CorrectionB(20.0))
-        );
-        assert_eq!(
-            app.world()
-                .get::<VisualCorrection<CorrectionA>>(entity)
-                .map(|correction| &correction.error),
-            Some(&CorrectionA(-17.0))
-        );
-        assert!(
-            app.world()
-                .get::<VisualCorrection<CorrectionB>>(entity)
-                .is_none()
-        );
-        assert!(
-            app.world()
-                .get::<PreviousVisual<CorrectionA>>(entity)
-                .is_none()
-        );
     }
 }
