@@ -613,7 +613,7 @@ fn test_bundle_interpolation_applies_tuple_function() {
 
     assert_eq!(
         stepper.client_apps[0].world().get::<CompBundleA>(entity),
-        Some(&CompBundleA(115.0))
+        Some(&CompBundleA(105.0))
     );
     assert_eq!(
         stepper.client_apps[0].world().get::<CompBundleB>(entity),

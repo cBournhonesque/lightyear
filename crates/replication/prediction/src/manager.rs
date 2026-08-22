@@ -53,8 +53,9 @@ impl PendingEntityStateChecks {
         self.by_tick.clear();
     }
 
-    #[cfg(test)]
-    pub(crate) fn contains(&self, tick: Tick, entity: Entity) -> bool {
+    /// Returns whether an entity has a deferred state check at `tick`.
+    #[cfg(any(test, feature = "test_utils"))]
+    pub fn contains(&self, tick: Tick, entity: Entity) -> bool {
         self.by_tick
             .get(&tick)
             .is_some_and(|entities| entities.contains(&entity))

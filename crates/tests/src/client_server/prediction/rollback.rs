@@ -807,6 +807,44 @@ fn test_future_diff_insert_seeds_history_and_rolls_back_when_checkable() {
         Some(&HistoryState::Updated(CompRepliconDiff(42)))
     );
     assert_eq!(world.resource::<ObservedRollbackStart>().0, None);
+    assert!(
+        world
+            .resource::<PredictionManager>()
+            .pending_entity_state_checks
+            .contains(future_tick, predicted_entity),
+        "receiving the future insert should queue its rollback check"
+    );
+
+    // Exercise the old ordering regression directly, then remove the probe so the remainder of
+    // the test observes the real absent-component history produced by the client schedule.
+    let later_prediction_tick = current_tick + 1;
+    let mut history = stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<PredictionHistory<CompRepliconDiff>>(predicted_entity)
+        .unwrap();
+    history.add_predicted(
+        later_prediction_tick,
+        Some(CompRepliconDiff(later_prediction_tick.0)),
+    );
+    assert_eq!(
+        history
+            .buffer()
+            .iter()
+            .map(|(tick, _)| *tick)
+            .collect::<Vec<_>>(),
+        [current_tick, later_prediction_tick],
+        "later local predictions should remain chronologically ordered"
+    );
+    history.clear_after_tick(current_tick);
+    assert_eq!(
+        history
+            .buffer()
+            .iter()
+            .map(|(tick, _)| *tick)
+            .collect::<Vec<_>>(),
+        [current_tick]
+    );
 
     // Run genuine client fixed ticks until the future confirmation becomes the completed current
     // tick. The following no-time update checks the deferred mismatch before another fixed tick.
@@ -819,6 +857,25 @@ fn test_future_diff_insert_seeds_history_and_rolls_back_when_checkable() {
         stepper.advance_time(stepper.frame_duration);
         stepper.client_app().update();
     }
+
+    let world = stepper.client_app().world();
+    assert_eq!(world.resource::<ObservedRollbackStart>().0, None);
+    assert!(
+        world
+            .resource::<PredictionManager>()
+            .pending_entity_state_checks
+            .contains(future_tick, predicted_entity),
+        "the rollback check should remain queued until a frame starts with the tick checkable"
+    );
+    let history = world
+        .get::<PredictionHistory<CompRepliconDiff>>(predicted_entity)
+        .expect("the predicted component should retain its absence history");
+    assert_eq!(
+        history.get_state(future_tick),
+        Some(&HistoryState::Removed),
+        "real client fixed ticks should record absence through the authoritative tick"
+    );
+
     stepper
         .client_app()
         .world_mut()
@@ -830,6 +887,13 @@ fn test_future_diff_insert_seeds_history_and_rolls_back_when_checkable() {
     assert_eq!(
         world.resource::<ObservedRollbackStart>().0,
         Some(future_tick)
+    );
+    assert!(
+        !world
+            .resource::<PredictionManager>()
+            .pending_entity_state_checks
+            .contains(future_tick, predicted_entity),
+        "the checkable deferred rollback should be consumed"
     );
     assert_eq!(
         world.get::<CompRepliconDiff>(predicted_entity),
