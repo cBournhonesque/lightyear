@@ -637,6 +637,111 @@ fn test_future_completed_mutate_tick_is_not_marked_processed() {
     );
 }
 
+/// An update for the client's current tick is locally checkable because that fixed tick has
+/// already completed and `FixedPostUpdate` has recorded its prediction history.
+#[test]
+fn test_current_tick_confirmation_triggers_rollback() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            CompFull(1.0),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    // Replicate the predicted entity and run real fixed ticks on the client so its history is
+    // populated through the normal FixedPostUpdate system.
+    stepper.frame_step(2);
+    let predicted_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity was not replicated to the client");
+    let current_tick = stepper.client_tick(0);
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<PredictionHistory<CompFull>>(predicted_entity)
+            .and_then(|history| history.get_state(current_tick))
+            .is_some(),
+        "the current tick should have prediction history after its fixed schedule completed"
+    );
+    assert!(
+        stepper.server_tick() < current_tick,
+        "the synced client should be predicting ahead of the server"
+    );
+
+    observe_rollback_start(stepper.client_app());
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .pause();
+
+    // Keep the client parked at its genuinely completed tick while the server catches up. On the
+    // final server fixed tick, mutate the authoritative value and send it with exactly the client's
+    // current tick. The client receives it in PreUpdate before running any further fixed ticks.
+    while stepper.server_tick() + 1 < current_tick {
+        stepper.advance_time(stepper.frame_duration);
+        stepper.server_app.update();
+        // Receive each completed Replicon checkpoint while the paused client remains at T.
+        stepper.client_app().update();
+        assert_eq!(stepper.client_tick(0), current_tick);
+    }
+    assert_eq!(stepper.server_tick() + 1, current_tick);
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompFull(42.0));
+    stepper.advance_time(stepper.frame_duration);
+    stepper.server_app.update();
+    assert_eq!(stepper.server_tick(), current_tick);
+
+    // Virtual time is paused, so this direct update receives the confirmation and performs the
+    // rollback in PreUpdate without running another client fixed tick or changing current_tick.
+    stepper.client_app().update();
+    assert_eq!(stepper.client_tick(0), current_tick);
+    let world = stepper.client_app().world();
+    assert_eq!(
+        world
+            .resource::<ReplicationCheckpointMap>()
+            .last_confirmed_tick(),
+        Some(current_tick),
+        "the server-complete frontier should reach the confirmation tick during Receive"
+    );
+    assert_eq!(
+        world
+            .get::<ConfirmedHistory<CompFull>>(predicted_entity)
+            .and_then(ConfirmedHistory::newest_present),
+        Some((current_tick, &CompFull(42.0))),
+        "the authoritative update should be received at the client's current tick"
+    );
+    assert!(
+        world
+            .get::<PredictionHistory<CompFull>>(predicted_entity)
+            .and_then(|history| history.get_state(current_tick))
+            .is_some(),
+        "prediction history should already resolve the current tick when the update arrives"
+    );
+    assert_eq!(
+        world.resource::<ObservedRollbackStart>().0,
+        Some(current_tick),
+        "a mismatch at the current completed tick should trigger rollback in the receiving update"
+    );
+    assert_eq!(
+        world.get::<CompFull>(predicted_entity),
+        Some(&CompFull(42.0)),
+        "rollback should apply the current-tick authoritative value"
+    );
+}
+
 #[test]
 fn test_explicit_mismatch_waits_until_completed_mutate_frontier_reaches_it() {
     let (mut stepper, _) = setup();

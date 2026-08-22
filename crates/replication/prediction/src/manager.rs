@@ -15,7 +15,7 @@ use parking_lot::RwLock;
 
 /// Prediction checks deferred because an authoritative update was ahead of the local timeline.
 ///
-/// Receive-time rollback checks cannot compare an update at or after the current local tick with
+/// Receive-time rollback checks cannot compare an update after the current local tick with
 /// prediction history yet. Replicon's `ConfirmHistory` still records that the entity was updated,
 /// however, so the prediction scan's usual `ConfirmHistory` optimization would later skip the
 /// entity entirely. This index remembers those entities by authoritative tick until the

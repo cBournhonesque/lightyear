@@ -504,7 +504,7 @@ impl PredictionRegistry {
         let history_was_pruned_past_confirmed =
             oldest_retained_tick.is_some_and(|oldest_tick| oldest_tick > confirmed_tick);
         let should_rollback = if check_mismatch
-            && confirmed_tick < current_tick
+            && confirmed_tick <= current_tick
             && !history_was_pruned_past_confirmed
         {
             let history_value = predicted_history
@@ -525,7 +525,7 @@ impl PredictionRegistry {
                 "skipping rollback check for confirmed tick older than retained prediction history"
             );
         }
-        if check_mismatch && confirmed_tick >= current_tick {
+        if check_mismatch && confirmed_tick > current_tick {
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "confirmed_history_future_skip_mismatch",
