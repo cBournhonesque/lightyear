@@ -11,19 +11,22 @@ pub use bundle::InterpolationBundle;
 
 pub(crate) use bundle::TupleInterpolationBundle;
 
-use self::frame_interpolate::{FrameHistoryComponent, FrameInterpolationFns};
+use self::frame_interpolate::{
+    CachedFrameInterpolationApply, CachedFrameInterpolationHistoryComponent,
+    ErasedApplyFrameInterpolationFn, ErasedRestoreFrameHistoryFn, ErasedUpdateFrameHistoryFn,
+};
 use crate::registry::InterpolationRegistry;
 use alloc::{boxed::Box, vec::Vec};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components, StorageType};
 use bevy_ecs::prelude::{Commands, Entity};
-use bevy_ecs::query::QueryFilter;
+use bevy_ecs::query::{ArchetypeFilter, FilteredAccess};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
-use core::any::{Any, TypeId};
+use core::any::Any;
 use core::fmt;
 use core::marker::PhantomData;
 use core::time::Duration;
@@ -152,9 +155,11 @@ impl<C> InterpolationFn<C> {
 /// Configuration for an interpolation rule.
 ///
 /// Rules are evaluated per interpolated archetype and component type. If
-/// multiple rules match the same archetype, the rule with the highest priority
-/// is selected. If the selected rule omits history or apply work, Lightyear
-/// skips that work instead of falling back to a lower-priority rule.
+/// multiple rules match the same archetype, priority is resolved independently
+/// for history and apply behavior. Histories can represent temporarily absent
+/// members, while apply requires every live member. A bundle may therefore
+/// maintain `(A, B)` histories while a standalone rule applies `A` until `B`
+/// becomes live again.
 ///
 /// # Examples
 ///
@@ -259,7 +264,6 @@ enum InterpolationPipeline {
     Full,
     HistoryOnly,
     NoHistory,
-    FrameHistoryOnly,
     Disabled,
 }
 
@@ -409,17 +413,6 @@ impl<C> InterpolationFns<C> {
         }
     }
 
-    // Internal synthetic rule used for bundle `no_history` members. A tuple
-    // rule owns the interpolation function, but frame interpolation still needs
-    // per-component `FrameInterpolationHistory<C>` entries for each member.
-    pub(crate) fn frame_history_only() -> Self {
-        Self {
-            interpolation: None,
-            pipeline: InterpolationPipeline::FrameHistoryOnly,
-            _marker: PhantomData,
-        }
-    }
-
     pub(crate) fn owns_interpolation_history(&self) -> bool {
         matches!(
             self.pipeline,
@@ -437,7 +430,6 @@ impl<C> InterpolationFns<C> {
             InterpolationPipeline::Full
                 | InterpolationPipeline::HistoryOnly
                 | InterpolationPipeline::NoHistory
-                | InterpolationPipeline::FrameHistoryOnly
         )
     }
 
@@ -452,7 +444,7 @@ impl<C> InterpolationFns<C> {
     }
 }
 
-/// Fluent helpers for adding interpolation functions to [`InterpolationFns`].
+/// Helpers for adding interpolation functions to [`InterpolationFns`].
 ///
 /// These are most useful with [`InterpolationFns::history_only`], where
 /// Lightyear should own history/presence but a custom system owns delayed
@@ -522,35 +514,26 @@ where
 #[doc(hidden)]
 pub struct InterpolationRuleId(pub(crate) usize);
 
-impl InterpolationRuleId {
-    pub(crate) fn index(self) -> usize {
-        self.0
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct UpdateHistoryContext {
     pub(crate) server_complete_tick: Option<Tick>,
     pub(crate) current_interpolate_tick: Tick,
-    pub(crate) interpolation_overstep: f32,
-    pub(crate) tick_duration: Option<Duration>,
 }
 
-/// Type-erased interpolation function stored by the interpolation registry.
-///
-/// Typed functions are erased internally so rules for different components and
-/// bundles can share the same cache.
-pub(crate) struct ErasedInterpolationFn {
+/// The actual typed interpolation callback stored without its component or
+/// bundle type. It only computes an output from sampled values; it does not
+/// access the ECS world or histories.
+pub(crate) struct ErasedInterpolation {
     inner: Box<dyn Any + Send + Sync + 'static>,
 }
 
-impl fmt::Debug for ErasedInterpolationFn {
+impl fmt::Debug for ErasedInterpolation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("ErasedInterpolationFn(..)")
+        f.write_str("ErasedInterpolation(..)")
     }
 }
 
-impl ErasedInterpolationFn {
+impl ErasedInterpolation {
     fn from_typed<S: 'static>(interpolation: InterpolationFn<S>) -> Self {
         Self {
             inner: Box::new(interpolation),
@@ -574,19 +557,15 @@ pub(crate) type MatchesArchetypeFn = fn(&Components, &Archetype) -> bool;
 pub(crate) type ErasedUpdateHistoryFn = fn(
     UnsafeWorldCell,
     &Archetype,
-    &InterpolationRegistry,
     &CachedInterpolationComponent,
     &UpdateHistoryContext,
     Option<&mut bevy_replicon::shared::replication::storage::ReplicationStorage>,
     &mut DeferredEntityCommands,
 );
 
-/// Type-erased function that backfills `ConfirmedHistory<C>` for one entity.
-///
-/// This is used when `Interpolated` is added after the replicated component
-/// already exists on the entity. The function is stored with the interpolation
-/// rule that owns `ConfirmedHistory<C>`.
-pub(crate) type ErasedBackfillConfirmedHistoryFn = fn(Entity, &mut Commands);
+/// Type-erased function that initializes `ConfirmedHistory<C>` from an
+/// entity's current replicated value.
+pub(crate) type ErasedInsertConfirmedHistoryFn = fn(Entity, &mut Commands);
 
 /// Context passed to type-erased interpolation apply functions.
 #[derive(Debug, Clone, Copy)]
@@ -597,11 +576,11 @@ pub struct ApplyInterpolationContext {
     pub(crate) tick_duration: Option<Duration>,
 }
 
-/// Type-erased function that applies one selected interpolation rule to one archetype.
+/// Type-erased archetype executor for one selected interpolation rule.
 ///
-/// Component and bundle rules use the same function shape. The cached
-/// archetype stores these after priority and overlap resolution, so the apply
-/// phase only needs to call each function in order.
+/// It fetches history values for every entity, invokes the rule's
+/// [`ErasedInterpolation`], and writes the interpolated live component values.
+/// Component and bundle rules use the same executor shape.
 pub(crate) type ErasedApplyInterpolationFn = fn(
     UnsafeWorldCell,
     &Archetype,
@@ -612,55 +591,33 @@ pub(crate) type ErasedApplyInterpolationFn = fn(
 
 /// Cached typed component metadata needed by the type-erased history updater.
 ///
-/// One value is stored per selected history-owning rule on each cached
-/// interpolated archetype. It lets the update system decide whether the
-/// corresponding live component is currently present on that archetype.
+/// One value is stored per history operation owned by a resolved rule. It lets
+/// the update system initialize a missing history from the current replicated
+/// value or update an existing history. The component IDs and type-erased
+/// callbacks are copied out of the rule when this cache is built, so history
+/// updates do not need the rule or its ID afterward.
 #[derive(Debug, Clone)]
 pub(crate) struct CachedInterpolationComponent {
-    /// Component kind whose history is updated.
-    pub(crate) kind: ComponentKind,
     /// Component ID for `ConfirmedHistory<C>`.
     pub(crate) history_component_id: ComponentId,
-    /// Storage backing `ConfirmedHistory<C>` on the cached archetype.
-    pub(crate) history_storage: StorageType,
+    /// Storage backing `ConfirmedHistory<C>` when it is present.
+    pub(crate) history_storage: Option<StorageType>,
+    /// Whether the history column is present on the cached archetype.
+    pub(crate) history_component_present: bool,
     /// Whether the live component `C` is present on the cached archetype.
     pub(crate) live_component_present: bool,
-    /// ID of the selected rule whose interpolation function samples this history.
-    pub(crate) rule_id: InterpolationRuleId,
     /// Type-erased history update function for `C`.
     pub(crate) update_history: ErasedUpdateHistoryFn,
-}
-
-impl CachedInterpolationComponent {
-    pub(crate) fn kind(&self) -> ComponentKind {
-        self.kind
-    }
-
-    pub(crate) fn history_component_id(&self) -> ComponentId {
-        self.history_component_id
-    }
-
-    pub(crate) fn history_storage(&self) -> StorageType {
-        self.history_storage
-    }
-
-    pub(crate) fn live_component_present(&self) -> bool {
-        self.live_component_present
-    }
-
-    pub(crate) fn rule_id(&self) -> InterpolationRuleId {
-        self.rule_id
-    }
-
-    pub(crate) fn update_history(&self) -> ErasedUpdateHistoryFn {
-        self.update_history
-    }
+    /// Type-erased history initializer for `C`.
+    pub(crate) insert_history: ErasedInsertConfirmedHistoryFn,
 }
 
 /// Cached type-erased apply metadata for one selected interpolation rule.
 ///
-/// Values are stored on [`crate::archetypes::CachedInterpolatedArchetype`]
-/// after rule priority and bundle/component overlap have been resolved.
+/// Values are stored on [`crate::archetypes::CachedInterpolationPolicy`]
+/// after rule priority and bundle/component overlap have been resolved. Apply
+/// keeps the rule ID because the rule's typed interpolation function remains
+/// stored in [`InterpolationRegistry`] and is retrieved when the callback runs.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CachedInterpolationApply {
     /// ID of the selected rule whose interpolation function should run.
@@ -669,137 +626,151 @@ pub(crate) struct CachedInterpolationApply {
     pub(crate) apply_interpolation: ErasedApplyInterpolationFn,
 }
 
-impl CachedInterpolationApply {
-    pub(crate) fn rule_id(&self) -> InterpolationRuleId {
-        self.rule_id
-    }
-
-    pub(crate) fn apply_interpolation(&self) -> ErasedApplyInterpolationFn {
-        self.apply_interpolation
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct ErasedInterpolationFns {
-    pub(crate) interpolation: Option<ErasedInterpolationFn>,
-    pub(crate) update_history: Option<ErasedUpdateHistoryFn>,
-    pub(crate) backfill_confirmed_history: Option<ErasedBackfillConfirmedHistoryFn>,
-    pub(crate) apply_interpolation: Option<ErasedApplyInterpolationFn>,
-    pub(crate) history_component_id: Option<ComponentId>,
-    pub(crate) live_component_id: Option<ComponentId>,
-    pub(crate) write_component_ids: Vec<ComponentId>,
-    pub(crate) frame: Option<FrameInterpolationFns>,
-}
-
-impl ErasedInterpolationFns {
-    pub(crate) fn from_typed<S: 'static>(
-        fns: InterpolationFns<S>,
-        update_history: Option<ErasedUpdateHistoryFn>,
-        backfill_confirmed_history: Option<ErasedBackfillConfirmedHistoryFn>,
-        apply_interpolation: Option<ErasedApplyInterpolationFn>,
-        history_component_id: Option<ComponentId>,
-        live_component_id: Option<ComponentId>,
-        write_component_ids: Vec<ComponentId>,
-        frame: Option<FrameInterpolationFns>,
-    ) -> Self {
-        Self {
-            interpolation: fns
-                .interpolation
-                .map(ErasedInterpolationFn::from_typed::<S>),
-            update_history,
-            backfill_confirmed_history,
-            apply_interpolation,
-            history_component_id,
-            live_component_id,
-            write_component_ids,
-            frame,
-        }
-    }
-}
-
-/// Key used to select between interpolation rules.
-///
-/// A rule kind is the type registered by the user: for a single component this
-/// is `C`, and for bundle interpolation this is the tuple type `(A, B, ...)`.
-/// It is intentionally separate from [`ComponentKind`], which is reserved for
-/// actual ECS component members that a rule reads, writes, or claims during
-/// overlap resolution.
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
-pub struct RuleKind(TypeId);
-
-impl RuleKind {
-    #[doc(hidden)]
-    pub fn of<T: 'static>() -> Self {
-        Self(TypeId::of::<T>())
-    }
-}
-
 /// One interpolation rule registered by [`crate::registry::AppInterpolationExt`].
 ///
-/// A rule has a [`RuleKind`] used for cache lookup, a list of real component
-/// `members` it owns or writes, erased functions describing which work
-/// Lightyear owns, and an archetype filter. Rules are sorted by priority per
-/// kind, so
-/// [`InterpolationRegistry::select_rule_for_archetype`] can return the first
-/// matching rule.
+/// A rule has a list of real component `members` it owns or writes, erased
+/// functions describing which work Lightyear owns, and an archetype filter.
+/// Matching rules are sorted by priority before the registry resolves overlap
+/// between component and bundle candidates.
 #[derive(Debug)]
 pub struct InterpolationRule {
-    /// Rule key used when selecting a rule for a component or bundle target.
-    pub(crate) kind: RuleKind,
-    /// Components owned by this rule. Bundle rules have more than one member.
-    pub(crate) members: Vec<ComponentKind>,
+    /// Components owned by this rule, including their history behavior.
+    /// Bundle rules have more than one member.
+    pub(crate) members: Vec<InterpolationRuleComponent>,
     /// Higher-priority rules are selected before lower-priority rules.
     pub(crate) priority: usize,
-    /// Type-erased interpolation/history/apply functions for this rule.
-    pub(crate) fns: ErasedInterpolationFns,
+    /// Type-erased interpolation function for this rule's component or bundle.
+    pub(crate) interpolation: Option<ErasedInterpolation>,
+    /// Type-erased delayed-interpolation apply callback.
+    pub(crate) apply_interpolation: Option<ErasedApplyInterpolationFn>,
+    /// Type-erased frame-interpolation apply callback.
+    pub(crate) apply_frame_interpolation: Option<ErasedApplyFrameInterpolationFn>,
     /// Archetype-level filter predicate compiled from the rule filter type.
     pub(crate) matches_archetype: MatchesArchetypeFn,
+    /// Components whose presence is inspected by the archetype filter.
+    pub(crate) filter_component_ids: Vec<ComponentId>,
 }
 
 impl InterpolationRule {
-    pub(crate) fn owns_history(&self) -> bool {
-        self.fns.update_history.is_some() && self.fns.history_component_id.is_some()
-    }
+    pub(crate) fn new<S, F>(
+        components: &Components,
+        fns: InterpolationFns<S>,
+        members: Vec<InterpolationRuleComponent>,
+        priority: usize,
+        apply_interpolation: Option<ErasedApplyInterpolationFn>,
+        apply_frame_interpolation: Option<ErasedApplyFrameInterpolationFn>,
+    ) -> Self
+    where
+        S: 'static,
+        F: ArchetypeFilter + 'static,
+    {
+        let filter_state = F::get_state(components)
+            .expect("interpolation rule filters should be initialized before registration");
+        let mut filter_access = FilteredAccess::default();
+        F::update_component_access(&filter_state, &mut filter_access);
+        let mut filter_component_ids = Vec::new();
+        for component_id in filter_access
+            .with_filters()
+            .chain(filter_access.without_filters())
+        {
+            if !filter_component_ids.contains(&component_id) {
+                filter_component_ids.push(component_id);
+            }
+        }
 
-    pub(crate) fn applies_component(&self) -> bool {
-        self.fns.apply_interpolation.is_some()
-    }
-
-    pub(crate) fn owns_frame_history(&self) -> bool {
-        self.fns
-            .frame
-            .as_ref()
-            .is_some_and(FrameInterpolationFns::owns_history)
-    }
-
-    pub(crate) fn applies_frame_component(&self) -> bool {
-        self.fns
-            .frame
-            .as_ref()
-            .is_some_and(FrameInterpolationFns::applies_component)
-    }
-
-    pub(crate) fn frame_history_component(&self) -> Option<FrameHistoryComponent> {
-        self.fns
-            .frame
-            .as_ref()
-            .and_then(|frame| frame.history_component(*self.members.first()?))
+        Self {
+            members,
+            priority,
+            interpolation: fns.interpolation.map(ErasedInterpolation::from_typed::<S>),
+            apply_interpolation,
+            apply_frame_interpolation,
+            matches_archetype: matches_filter::<F>,
+            filter_component_ids,
+        }
     }
 
     #[doc(hidden)]
-    pub fn members(&self) -> &[ComponentKind] {
-        &self.members
+    pub fn members(&self) -> impl Iterator<Item = ComponentKind> + '_ {
+        self.members.iter().map(|member| member.kind)
     }
 
+    /// Builds cached frame-apply metadata for this rule.
     #[doc(hidden)]
-    pub fn priority(&self) -> usize {
-        self.priority
+    pub fn cached_frame_apply(
+        &self,
+        rule_id: InterpolationRuleId,
+    ) -> Option<CachedFrameInterpolationApply> {
+        Some(CachedFrameInterpolationApply {
+            rule_id,
+            apply_frame_interpolation: self.apply_frame_interpolation?,
+        })
     }
+
+    /// Returns the frame-history operations owned by this rule that are
+    /// relevant to `archetype`.
+    #[doc(hidden)]
+    pub fn cached_frame_history_components<'a>(
+        &'a self,
+        archetype: &'a Archetype,
+    ) -> impl Iterator<Item = CachedFrameInterpolationHistoryComponent> + 'a {
+        self.members.iter().filter_map(move |member| {
+            let frame = member.frame?;
+            let history_component_id = member.frame_history_component_id;
+            let live_component_id = member.live_component_id;
+            let history_component_present = archetype.contains(history_component_id);
+            let live_component_present = archetype.contains(live_component_id);
+            if !history_component_present && !live_component_present {
+                return None;
+            }
+            Some(CachedFrameInterpolationHistoryComponent {
+                kind: member.kind,
+                history_component_id,
+                history_storage: history_component_present
+                    .then(|| archetype.get_storage_type(history_component_id))
+                    .flatten(),
+                history_component_present,
+                live_component_id,
+                live_component_present,
+                update_frame_history: frame.update_history,
+                restore_frame_history: frame.restore_history,
+            })
+        })
+    }
+}
+
+/// One component owned by an interpolation rule.
+///
+/// The history callbacks live on the member instead of in a separate global
+/// provider catalog. Each selected rule therefore carries the history behavior
+/// needed to initialize and maintain its members as well as its apply behavior.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InterpolationRuleComponent {
+    /// Type identity used to prevent rules from claiming the same member.
+    pub(crate) kind: ComponentKind,
+    /// Bevy component IDs whose presence can make this member available.
+    pub(crate) live_component_id: ComponentId,
+    pub(crate) confirmed_history_component_id: ComponentId,
+    pub(crate) frame_history_component_id: ComponentId,
+    /// History behavior owned by this rule, independently of the IDs above.
+    pub(crate) confirmed: Option<ConfirmedHistoryFns>,
+    pub(crate) frame: Option<FrameHistoryFns>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConfirmedHistoryFns {
+    pub(crate) update_history: ErasedUpdateHistoryFn,
+    pub(crate) insert_history: ErasedInsertConfirmedHistoryFn,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FrameHistoryFns {
+    pub(crate) update_history: ErasedUpdateFrameHistoryFn,
+    pub(crate) restore_history: ErasedRestoreFrameHistoryFn,
 }
 
 pub(crate) fn matches_filter<F>(components: &Components, archetype: &Archetype) -> bool
 where
-    F: QueryFilter + 'static,
+    F: ArchetypeFilter + 'static,
 {
     F::get_state(components)
         .is_some_and(|state| F::matches_component_set(&state, &|id| archetype.contains(id)))

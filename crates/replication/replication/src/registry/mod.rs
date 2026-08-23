@@ -3,7 +3,6 @@ pub mod deterministic;
 
 pub mod replication;
 
-use crate::registry::replication::ReplicationMetadata;
 use bevy_ecs::component::ComponentId;
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::HashMap;
@@ -170,7 +169,6 @@ pub struct ComponentRegistry {
 #[derive(Debug, Clone)]
 pub struct ComponentMetadata {
     pub component_id: ComponentId,
-    pub replication: Option<ReplicationMetadata>,
     #[cfg(feature = "deterministic")]
     pub deterministic: Option<deterministic::DeterministicFns>,
 }
@@ -204,7 +202,6 @@ impl ComponentRegistry {
             .entry(component_kind)
             .or_insert(ComponentMetadata {
                 component_id,
-                replication: Some(ReplicationMetadata::default()),
                 #[cfg(feature = "deterministic")]
                 deterministic: None,
             });

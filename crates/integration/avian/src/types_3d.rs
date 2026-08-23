@@ -148,9 +148,9 @@ pub mod transform {
     /// unavailable, it falls back to linear translation/scale interpolation and
     /// spherical rotation interpolation.
     ///
-    /// Bundle interpolation requires all three component histories to have the
-    /// same bracketing ticks. The returned velocity components are linearly
-    /// interpolated over the same fraction.
+    /// Bundle interpolation samples all three histories at shared ticks;
+    /// unchanged components carry their latest values forward. The returned
+    /// velocity components are linearly interpolated over the same fraction.
     ///
     /// Register it as a higher-priority bundle rule when Transform-mode
     /// smoothing should use velocity-aware Hermite interpolation:

@@ -146,19 +146,69 @@
 //!
 //! A rule is registered for a rule kind: either a single component `C` or a
 //! tuple bundle such as `(Position, Rotation)`. Rules can also include an
-//! archetypal [`QueryFilter`](bevy_ecs::query::QueryFilter), such as
+//! [`ArchetypeFilter`](bevy_ecs::query::ArchetypeFilter), such as
 //! `With<MyMarker>` or `Without<MyMarker>`.
 //!
-//! For each interpolated archetype, Lightyear selects the first matching rule
-//! for each kind. Rules are ordered by:
+//! For each interpolated archetype, Lightyear considers every matching rule in
+//! this order:
 //!
 //! 1. higher priority first,
 //! 2. then earlier registration order for equal priority.
+//!
+//! Rule resolution assigns history maintenance and interpolation application
+//! separately. Within each assignment, a selected rule atomically claims all
+//! of its component members. A lower-priority component or bundle rule is
+//! skipped if any of those members were already claimed for the same kind of
+//! work.
 //!
 //! The default priority is the number of components in the interpolation target.
 //! A default `(Position, Rotation)` bundle therefore takes priority over default
 //! single-component `Position` and `Rotation` rules when all match the same
 //! archetype.
+//!
+//! ## History ownership and apply ownership
+//!
+//! A registered rule describes both how its members' histories are maintained
+//! and how those members are interpolated. Resolution can assign those two
+//! responsibilities to different matching rules, however. This is necessary
+//! because delayed component insertion and removal intentionally allow a
+//! history component to exist while its corresponding live component does not.
+//!
+//! Resolution uses two independent kinds of ownership:
+//!
+//! | Ownership | A rule is eligible when... |
+//! | --- | --- |
+//! | History | Every member has either its live component or the relevant history component. |
+//! | Apply | Every member has its live component. |
+//!
+//! Rules are considered in the priority and registration order described
+//! above. History and apply each have their own set of claimed members, so one
+//! rule can own history, apply, or both. Claiming a member for history does not
+//! prevent another rule from claiming it for apply, and vice versa.
+//! "History ownership" includes the decision not to keep history: when a
+//! [`rules::InterpolationFns::no_history`] rule wins that lane, it has no history
+//! callbacks to run and prevents a lower-priority rule from creating history
+//! for the same members.
+//!
+//! For example, suppose a higher-priority bundle rule targets `(A, B)` and a
+//! lower-priority component rule targets `A`:
+//!
+//! - During a delayed insertion, an entity can have live `A` plus histories for
+//!   both `A` and `B`, while live `B` is waiting for its insertion tick. The
+//!   bundle owns history maintenance, while the component rule applies `A`.
+//!   When history maintenance inserts `B`, the bundle becomes eligible to apply
+//!   both components.
+//! - During a delayed removal, the bundle owns both responsibilities while `A`
+//!   and `B` are live. Once history maintenance reaches the removal tick and
+//!   removes `B`, the bundle continues to own both histories, while the
+//!   component rule takes over applying the remaining live `A`.
+//!
+//! Missing history is different from a missing live component. If both `A` and
+//! `B` are live but one history for a history-based bundle has not been created
+//! yet, the bundle is still the apply winner. It creates and fills the missing
+//! history, and apply waits until all required samples are queryable; a
+//! lower-priority `A` rule does not temporarily take over merely because the
+//! bundle cannot sample yet.
 //!
 //! ```rust,ignore
 //! # use bevy_app::App;

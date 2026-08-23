@@ -9,30 +9,29 @@ use super::{
     InterpolationSampleContext,
 };
 use crate::SyncComponent;
-use crate::interpolate::present_history_bracket;
+use crate::interpolate::history_bracket;
 use crate::registry::{
-    InterpolationRegistry, add_interpolation_bundle_rule, add_interpolation_rule, mark_interpolated,
+    InterpolationRegistry, add_interpolation_bundle_rule, interpolation_rule_member,
 };
+use crate::rules::InterpolationRuleComponent;
 use crate::rules::frame_interpolate::FrameInterpolationContext;
 use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::archetype::Archetype;
-use bevy_ecs::component::ComponentId;
-use bevy_ecs::query::QueryFilter;
+use bevy_ecs::query::ArchetypeFilter;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::ecs_utils::{table_for_archetype, write_component_with_change_detection};
-use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory};
-use lightyear_replication::deferred_entity::DeferredEntityCommands;
-use lightyear_replication::registry::ComponentKind;
+use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory, Tick};
 use tracing::trace;
 
 /// Tuple of components that can be interpolated by one rule.
 ///
 /// Tuple interpolation stores each component in its own history, samples every
-/// history at the same interpolation tick, and only runs the tuple
-/// interpolation function when all member histories have the same bracketing
-/// start and end ticks.
+/// history at shared ticks around the interpolation tick. Members without an
+/// update at a shared tick carry their latest present value forward, so tuple
+/// interpolation does not require identical per-component history entries.
 ///
 /// Lightyear implements this trait for tuples of 2 to 8 distinct
 /// [`SyncComponent`] types.
@@ -79,20 +78,57 @@ pub trait InterpolationBundle: private::Sealed + 'static {
     fn add_rule<F>(app: &mut App, fns: InterpolationFns<Self>, config: InterpolationRuleConfig)
     where
         Self: Sized,
-        F: QueryFilter + 'static;
+        F: ArchetypeFilter + 'static;
 }
 
 mod private {
     pub trait Sealed {}
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PresentHistoryBracket {
+    start_tick: Tick,
+    end_tick: Option<Tick>,
+}
+
+impl PresentHistoryBracket {
+    fn intersection(self, other: Self) -> Self {
+        Self {
+            start_tick: self.start_tick.max(other.start_tick),
+            end_tick: match (self.end_tick, other.end_tick) {
+                (Some(first), Some(second)) => Some(first.min(second)),
+                (Some(tick), None) | (None, Some(tick)) => Some(tick),
+                (None, None) => None,
+            },
+        }
+    }
+}
+
+fn present_history_bracket<C>(
+    history: &ConfirmedHistory<C>,
+    interpolation_tick: Tick,
+) -> Option<PresentHistoryBracket> {
+    let bracket = history_bracket(history, interpolation_tick)?;
+    bracket.start_state.value()?;
+    Some(PresentHistoryBracket {
+        start_tick: bracket.start_tick,
+        end_tick: bracket.end.map(|(tick, _)| tick),
+    })
+}
+
+/// Returns a present bundle endpoint value at `tick`.
+///
+/// If `tick` is a removal boundary, the preceding value is returned so the
+/// bundle remains continuous until the presence pass removes the component.
+fn present_history_value_at<C>(history: &ConfirmedHistory<C>, tick: Tick) -> Option<&C> {
+    match history.get_state_at(tick) {
+        Some(HistoryState::Updated(value)) => Some(value),
+        Some(HistoryState::Removed) => history.get_state_before(tick)?.value(),
+        None => history.get_state_at_or_before(tick)?.value(),
+    }
+}
+
 pub(crate) trait TupleInterpolationBundle: InterpolationBundle {
-    /// Component kinds written by the tuple interpolation apply system.
-    fn component_kinds() -> Vec<ComponentKind>;
-
-    /// Registers and returns component IDs for the live components written by the tuple.
-    fn component_ids(app: &mut App) -> Vec<ComponentId>;
-
     /// Applies interpolation for one cached archetype that selected this rule.
     fn apply_archetype(
         world: UnsafeWorldCell,
@@ -110,19 +146,14 @@ pub(crate) trait TupleInterpolationBundle: InterpolationBundle {
         rule_id: InterpolationRuleId,
         ctx: FrameInterpolationContext,
         skip_interpolation: bool,
-        deferred_apply: &mut DeferredEntityCommands,
     );
 
-    /// Adds per-component history rules for every component in the bundle.
-    fn add_history_rules<F>(
+    /// Builds the self-contained component members stored by the bundle rule.
+    fn rule_members(
         app: &mut App,
-        config: InterpolationRuleConfig,
         include_interpolation_history: bool,
-    ) where
-        F: QueryFilter + 'static;
-
-    /// Marks every member component as interpolated in Lightyear's component registry.
-    fn mark_interpolated(app: &mut App);
+        include_frame_history: bool,
+    ) -> Vec<InterpolationRuleComponent>;
 }
 
 macro_rules! impl_interpolation_bundle {
@@ -130,24 +161,16 @@ macro_rules! impl_interpolation_bundle {
         $N:tt,
         (
             $C0:ident,
-            $component0:ident,
             $history0:ident,
-            $start_tick0:ident,
             $start0:ident,
-            $end0:ident,
-            $end_tick0:ident,
             $end_value0:ident,
             $output0:ident
         ),
         $(
             (
                 $C:ident,
-                $component:ident,
                 $history:ident,
-                $start_tick:ident,
                 $start:ident,
-                $end:ident,
-                $end_tick:ident,
                 $end_value:ident,
                 $output:ident
             )
@@ -173,7 +196,7 @@ macro_rules! impl_interpolation_bundle {
                 config: InterpolationRuleConfig,
             )
             where
-                F: QueryFilter + 'static,
+                F: ArchetypeFilter + 'static,
             {
                 add_interpolation_bundle_rule::<Self, F>(app, fns, config);
             }
@@ -184,17 +207,6 @@ macro_rules! impl_interpolation_bundle {
             $C0: SyncComponent,
             $($C: SyncComponent),+
         {
-            fn component_kinds() -> Vec<ComponentKind> {
-                alloc::vec![ComponentKind::of::<$C0>(), $(ComponentKind::of::<$C>()),+]
-            }
-
-            fn component_ids(app: &mut App) -> Vec<ComponentId> {
-                alloc::vec![
-                    app.world_mut().register_component::<$C0>(),
-                    $(app.world_mut().register_component::<$C>()),+
-                ]
-            }
-
             fn apply_archetype(
                 world: UnsafeWorldCell,
                 archetype: &Archetype,
@@ -226,52 +238,74 @@ macro_rules! impl_interpolation_bundle {
                 )+
 
                 let interpolation =
-                    interpolation_registry.interpolation_for_rule::<($C0, $($C,)+)>(rule_id);
+                    interpolation_registry.interpolation_fn_for_rule::<($C0, $($C,)+)>(rule_id);
                 for entity in archetype.entities() {
                     let row = entity.table_row().index();
                     let $history0 = unsafe { &*$history0.get_unchecked(row).get() };
-                    let Some(($start_tick0, $start0, $end0)) = ({
+                    let Some(mut shared_bracket) = ({
                         present_history_bracket($history0, ctx.interpolation_tick)
                     }) else {
                         continue;
                     };
                     $(
                         let $history = unsafe { &*$history.get_unchecked(row).get() };
-                        let Some(($start_tick, $start, $end)) = ({
-                            present_history_bracket($history, ctx.interpolation_tick)
-                        }) else {
+                        shared_bracket = match present_history_bracket(
+                            $history,
+                            ctx.interpolation_tick,
+                        ) {
+                            Some(bracket) => shared_bracket.intersection(bracket),
+                            None => continue,
+                        };
+                    )+
+                    // Bundle members may have different immediate brackets
+                    // when replication omits unchanged components. Use the
+                    // intersection around the interpolation tick: the latest
+                    // member start and the earliest available member end. A
+                    // member without an entry at either shared tick carries
+                    // its latest present value forward.
+                    let Some($start0) = present_history_value_at(
+                        $history0,
+                        shared_bracket.start_tick,
+                    ).cloned() else {
+                        continue;
+                    };
+                    $(
+                        let Some($start) = present_history_value_at(
+                            $history,
+                            shared_bracket.start_tick,
+                        ).cloned() else {
                             continue;
                         };
                     )+
-                    if false $(|| $start_tick0 != $start_tick)+ {
-                        continue;
-                    }
 
-                    let interpolated = match ($end0, $($end,)+) {
-                        (
-                            Some(($end_tick0, $end_value0)),
-                            $(Some(($end_tick, $end_value)),)+
-                        ) if true $(&& $end_tick0 == $end_tick)+ => {
-                            if let Some(interpolation) = interpolation {
-                                interpolation.interpolate(
-                                    ($start0, $($start,)+),
-                                    ($end_value0, $($end_value,)+),
-                                    InterpolationSampleContext::from_ticks(
-                                        $start_tick0,
-                                        $end_tick0,
-                                        ctx.interpolation_tick,
-                                        ctx.interpolation_overstep,
-                                        ctx.tick_duration,
-                                    ),
-                                )
-                            } else {
-                                ($start0, $($start,)+)
-                            }
-                        }
-                        ($end0, $($end,)+) if $end0.is_none() $(&& $end.is_none())+ => {
-                            ($start0, $($start,)+)
-                        }
-                        _ => continue,
+                    let interpolated = if let Some(shared_end_tick) = shared_bracket.end_tick {
+                        let Some($end_value0) = present_history_value_at(
+                            $history0,
+                            shared_end_tick,
+                        ).cloned() else {
+                            continue;
+                        };
+                        $(
+                            let Some($end_value) = present_history_value_at(
+                                $history,
+                                shared_end_tick,
+                            ).cloned() else {
+                                continue;
+                            };
+                        )+
+                        interpolation.interpolate(
+                            ($start0, $($start,)+),
+                            ($end_value0, $($end_value,)+),
+                            InterpolationSampleContext::from_ticks(
+                                shared_bracket.start_tick,
+                                shared_end_tick,
+                                ctx.interpolation_tick,
+                                ctx.interpolation_overstep,
+                                ctx.tick_duration,
+                            ),
+                        )
+                    } else {
+                        ($start0, $($start,)+)
                     };
 
                     let ($output0, $($output,)+) = interpolated;
@@ -305,7 +339,6 @@ macro_rules! impl_interpolation_bundle {
                 rule_id: InterpolationRuleId,
                 ctx: FrameInterpolationContext,
                 skip_interpolation: bool,
-                deferred_apply: &mut DeferredEntityCommands,
             ) {
                 let Some(table) = table_for_archetype(world, archetype) else {
                     return;
@@ -329,16 +362,8 @@ macro_rules! impl_interpolation_bundle {
                         return;
                     };
                 )+
-                let $component0 = components
-                    .component_id::<$C0>()
-                    .is_some_and(|component_id| archetype.contains(component_id));
-                $(
-                    let $component = components
-                        .component_id::<$C>()
-                        .is_some_and(|component_id| archetype.contains(component_id));
-                )+
                 let interpolation =
-                    interpolation_registry.interpolation_for_rule::<($C0, $($C,)+)>(rule_id);
+                    interpolation_registry.interpolation_fn_for_rule::<($C0, $($C,)+)>(rule_id);
                 for entity in archetype.entities() {
                     let row = entity.table_row().index();
                     let $history0 = unsafe { &mut *$history0.get_unchecked(row).get() };
@@ -368,10 +393,9 @@ macro_rules! impl_interpolation_bundle {
                             $history.previous_value = Some($end_value.clone());
                         )+
                         ($end_value0, $($end_value,)+)
-                    } else if let (Some($start0), $(Some($start),)+ Some(interpolation)) = (
+                    } else if let (Some($start0), $(Some($start),)+) = (
                         $history0.previous_value.clone(),
                         $($history.previous_value.clone(),)+
-                        interpolation,
                     ) {
                         interpolation.interpolate(
                             ($start0, $($start,)+),
@@ -388,77 +412,55 @@ macro_rules! impl_interpolation_bundle {
                     };
 
                     let ($output0, $($output,)+) = interpolated;
-                    // SAFETY: the erased frame-interpolation system declares
-                    // write access to every bundle member, and no references
-                    // to their live values are held while these writes occur.
-                    if $component0 {
-                        // SAFETY: explained above. Component presence was
-                        // resolved from the cached archetype.
-                        unsafe {
-                            write_component_with_change_detection::<$C0>(
-                                world,
-                                entity.id(),
-                                $output0,
-                            );
-                        }
-                    } else {
-                        deferred_apply.insert(entity.id(), $output0);
-                    }
+                    // SAFETY: apply ownership guarantees that this archetype
+                    // contains every bundle member, the erased system declares
+                    // write access to them, and no references to their live
+                    // values are held while these writes occur.
+                    let written = unsafe {
+                        write_component_with_change_detection::<$C0>(
+                            world,
+                            entity.id(),
+                            $output0,
+                        )
+                    };
+                    debug_assert!(
+                        written,
+                        "frame interpolation apply ownership requires every bundle member"
+                    );
                     $(
                         // SAFETY: same as for the first bundle member above.
-                        if $component {
-                            unsafe {
-                                write_component_with_change_detection::<$C>(
-                                    world,
-                                    entity.id(),
-                                    $output,
-                                );
-                            }
-                        } else {
-                            deferred_apply.insert(entity.id(), $output);
-                        }
+                        let written = unsafe {
+                            write_component_with_change_detection::<$C>(
+                                world,
+                                entity.id(),
+                                $output,
+                            )
+                        };
+                        debug_assert!(
+                            written,
+                            "frame interpolation apply ownership requires every bundle member"
+                        );
                     )+
                 }
             }
 
-            fn add_history_rules<F>(
+            fn rule_members(
                 app: &mut App,
-                config: InterpolationRuleConfig,
                 include_interpolation_history: bool,
-            )
-            where
-                F: QueryFilter + 'static,
-            {
-                // Bundle rules store each member component in its own history.
-                // For `no_history` bundle rules we still need synthetic
-                // per-member frame-history rules so FrameInterpolate can reuse
-                // the tuple interpolation function without also creating
-                // delayed-interpolation `ConfirmedHistory<C>` state.
-                add_interpolation_rule::<$C0, F>(
-                    app,
-                    if include_interpolation_history {
-                        InterpolationFns::history_only()
-                    } else {
-                        InterpolationFns::frame_history_only()
-                    },
-                    config,
-                );
-                $(
-                    add_interpolation_rule::<$C, F>(
+                include_frame_history: bool,
+            ) -> Vec<InterpolationRuleComponent> {
+                alloc::vec![
+                    interpolation_rule_member::<$C0>(
                         app,
-                        if include_interpolation_history {
-                            InterpolationFns::history_only()
-                        } else {
-                            InterpolationFns::frame_history_only()
-                        },
-                        config,
-                    );
-                )+
-            }
-
-            fn mark_interpolated(app: &mut App) {
-                mark_interpolated::<$C0>(app);
-                $(mark_interpolated::<$C>(app);)+
+                        include_interpolation_history,
+                        include_frame_history,
+                    ),
+                    $(interpolation_rule_member::<$C>(
+                        app,
+                        include_interpolation_history,
+                        include_frame_history,
+                    )),+
+                ]
             }
         }
     };
@@ -469,12 +471,197 @@ variadics_please::all_tuples_with_size!(
     2,
     8,
     C,
-    component,
     history,
-    start_tick,
     start,
-    end,
-    end_tick,
     end_value,
     output
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::prelude::Component;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct Value(f32);
+
+    #[derive(Clone, Copy)]
+    enum Entry {
+        Present(f32),
+        Removed,
+        Unchanged,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct SampledBracket {
+        bracket: PresentHistoryBracket,
+        start: (Value, Value),
+        end: Option<(Value, Value)>,
+    }
+
+    struct Case {
+        name: &'static str,
+        first: &'static [(u32, Entry)],
+        second: &'static [(u32, Entry)],
+        interpolation_tick: u32,
+        expected: Option<SampledBracket>,
+    }
+
+    fn history(entries: &[(u32, Entry)]) -> ConfirmedHistory<Value> {
+        let mut history = ConfirmedHistory::default();
+        for &(tick, entry) in entries {
+            match entry {
+                Entry::Present(value) => history.insert_present(Tick(tick), Value(value)),
+                Entry::Removed => history.insert_removed(Tick(tick)),
+                Entry::Unchanged => {
+                    assert!(history.add_unchanged(Tick(tick)));
+                }
+            }
+        }
+        history
+    }
+
+    fn sample_pair(
+        first: &ConfirmedHistory<Value>,
+        second: &ConfirmedHistory<Value>,
+        interpolation_tick: Tick,
+    ) -> Option<SampledBracket> {
+        let bracket = present_history_bracket(first, interpolation_tick)?
+            .intersection(present_history_bracket(second, interpolation_tick)?);
+        let start = (
+            present_history_value_at(first, bracket.start_tick)?.clone(),
+            present_history_value_at(second, bracket.start_tick)?.clone(),
+        );
+        let end = match bracket.end_tick {
+            Some(end_tick) => Some((
+                present_history_value_at(first, end_tick)?.clone(),
+                present_history_value_at(second, end_tick)?.clone(),
+            )),
+            None => None,
+        };
+        Some(SampledBracket {
+            bracket,
+            start,
+            end,
+        })
+    }
+
+    /// Checks shared bundle brackets across mismatched, unchanged, removed, and open histories.
+    #[test]
+    fn shared_present_history_bracket_cases() {
+        let cases = [
+            Case {
+                name: "different immediate start and end ticks",
+                first: &[(10, Entry::Present(1.0)), (30, Entry::Present(3.0))],
+                second: &[(15, Entry::Present(10.0)), (20, Entry::Present(20.0))],
+                interpolation_tick: 17,
+                expected: Some(SampledBracket {
+                    bracket: PresentHistoryBracket {
+                        start_tick: Tick(15),
+                        end_tick: Some(Tick(20)),
+                    },
+                    start: (Value(1.0), Value(10.0)),
+                    end: Some((Value(1.0), Value(20.0))),
+                }),
+            },
+            Case {
+                name: "one member has no future entry",
+                first: &[(10, Entry::Present(0.0)), (20, Entry::Present(10.0))],
+                second: &[(10, Entry::Present(7.0))],
+                interpolation_tick: 15,
+                expected: Some(SampledBracket {
+                    bracket: PresentHistoryBracket {
+                        start_tick: Tick(10),
+                        end_tick: Some(Tick(20)),
+                    },
+                    start: (Value(0.0), Value(7.0)),
+                    end: Some((Value(10.0), Value(7.0))),
+                }),
+            },
+            Case {
+                name: "removal is a constant present endpoint",
+                first: &[(10, Entry::Present(0.0)), (20, Entry::Present(10.0))],
+                second: &[(10, Entry::Present(3.0)), (20, Entry::Removed)],
+                interpolation_tick: 15,
+                expected: Some(SampledBracket {
+                    bracket: PresentHistoryBracket {
+                        start_tick: Tick(10),
+                        end_tick: Some(Tick(20)),
+                    },
+                    start: (Value(0.0), Value(3.0)),
+                    end: Some((Value(10.0), Value(3.0))),
+                }),
+            },
+            Case {
+                name: "both members have no future entry",
+                first: &[(10, Entry::Present(2.0))],
+                second: &[(5, Entry::Present(4.0))],
+                interpolation_tick: 15,
+                expected: Some(SampledBracket {
+                    bracket: PresentHistoryBracket {
+                        start_tick: Tick(10),
+                        end_tick: None,
+                    },
+                    start: (Value(2.0), Value(4.0)),
+                    end: None,
+                }),
+            },
+            Case {
+                name: "member is removed at the interpolation tick",
+                first: &[(10, Entry::Present(0.0)), (20, Entry::Present(10.0))],
+                second: &[(10, Entry::Present(3.0)), (20, Entry::Removed)],
+                interpolation_tick: 20,
+                expected: None,
+            },
+            Case {
+                name: "member is present again at its reinsertion tick",
+                first: &[(10, Entry::Present(0.0)), (30, Entry::Present(20.0))],
+                second: &[
+                    (10, Entry::Removed),
+                    (20, Entry::Present(4.0)),
+                    (30, Entry::Present(8.0)),
+                ],
+                interpolation_tick: 20,
+                expected: Some(SampledBracket {
+                    bracket: PresentHistoryBracket {
+                        start_tick: Tick(20),
+                        end_tick: Some(Tick(30)),
+                    },
+                    start: (Value(0.0), Value(4.0)),
+                    end: Some((Value(20.0), Value(8.0))),
+                }),
+            },
+            Case {
+                name: "unchanged member carries across the other member's endpoint",
+                first: &[(10, Entry::Present(3.0)), (20, Entry::Unchanged)],
+                second: &[
+                    (10, Entry::Present(0.0)),
+                    (15, Entry::Present(10.0)),
+                    (20, Entry::Unchanged),
+                ],
+                interpolation_tick: 12,
+                expected: Some(SampledBracket {
+                    bracket: PresentHistoryBracket {
+                        start_tick: Tick(10),
+                        end_tick: Some(Tick(15)),
+                    },
+                    start: (Value(3.0), Value(0.0)),
+                    end: Some((Value(3.0), Value(10.0))),
+                }),
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(
+                sample_pair(
+                    &history(case.first),
+                    &history(case.second),
+                    Tick(case.interpolation_tick),
+                ),
+                case.expected,
+                "{}",
+                case.name,
+            );
+        }
+    }
+}
