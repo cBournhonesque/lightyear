@@ -13,6 +13,7 @@ use bevy_ecs::{
     world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
 use bevy_platform::collections::HashMap;
+use bevy_platform::hash::NoOpHash;
 use lightyear_core::prelude::Interpolated;
 
 /// Cached interpolation policies shared by resolution-equivalent archetypes.
@@ -25,8 +26,7 @@ pub struct InterpolatedArchetypes {
     generation: ArchetypeGeneration,
     interpolated_component_id: ComponentId,
     policies: Vec<CachedInterpolationPolicy>,
-    policy_ids: HashMap<InterpolationArchetypeKey, usize>,
-    key_scratch: InterpolationArchetypeKey,
+    policy_ids: HashMap<InterpolationArchetypeKey, usize, NoOpHash>,
     resolution_scratch: RuleResolutionScratch,
 }
 
@@ -129,7 +129,6 @@ impl FromWorld for InterpolatedArchetypes {
             interpolated_component_id: world.register_component::<Interpolated>(),
             policies: Vec::new(),
             policy_ids: HashMap::default(),
-            key_scratch: InterpolationArchetypeKey::default(),
             resolution_scratch: RuleResolutionScratch::default(),
         }
     }
@@ -153,8 +152,8 @@ impl InterpolatedArchetypes {
             .iter()
             .filter(|archetype| archetype.contains(self.interpolated_component_id))
         {
-            registry.populate_archetype_key(archetype, RuleTarget::Default, &mut self.key_scratch);
-            if let Some(&policy_id) = self.policy_ids.get(&self.key_scratch) {
+            let key = registry.archetype_key(archetype, RuleTarget::Default);
+            if let Some(&policy_id) = self.policy_ids.get(&key) {
                 self.policies[policy_id].archetype_ids.push(archetype.id());
             } else {
                 let mut policy = CachedInterpolationPolicy {
@@ -206,7 +205,7 @@ impl InterpolatedArchetypes {
                 }
                 let policy_id = self.policies.len();
                 self.policies.push(policy);
-                self.policy_ids.insert(self.key_scratch.clone(), policy_id);
+                self.policy_ids.insert(key, policy_id);
             }
         }
     }

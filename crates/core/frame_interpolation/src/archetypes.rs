@@ -10,6 +10,7 @@ use bevy_ecs::{
     world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
 use bevy_platform::collections::HashMap;
+use bevy_platform::hash::NoOpHash;
 use lightyear_interpolation::registry::{
     InterpolationArchetypeKey, InterpolationRegistry, RuleResolutionScratch, RuleTarget,
 };
@@ -27,8 +28,7 @@ pub struct FrameInterpolatedArchetypes {
     frame_interpolate_component_id: ComponentId,
     skip_frame_interpolation_component_id: ComponentId,
     policies: Vec<CachedFrameInterpolationPolicy>,
-    policy_ids: HashMap<InterpolationArchetypeKey, usize>,
-    key_scratch: InterpolationArchetypeKey,
+    policy_ids: HashMap<InterpolationArchetypeKey, usize, NoOpHash>,
     resolution_scratch: RuleResolutionScratch,
 }
 
@@ -112,7 +112,6 @@ impl FromWorld for FrameInterpolatedArchetypes {
                 .register_component::<SkipFrameInterpolation>(),
             policies: Vec::new(),
             policy_ids: HashMap::default(),
-            key_scratch: InterpolationArchetypeKey::default(),
             resolution_scratch: RuleResolutionScratch::default(),
         }
     }
@@ -134,10 +133,12 @@ impl FrameInterpolatedArchetypes {
             .iter()
             .filter(|archetype| archetype.contains(self.frame_interpolate_component_id))
         {
-            registry.populate_archetype_key(archetype, RuleTarget::Frame, &mut self.key_scratch);
-            self.key_scratch
-                .include_if_present(archetype, self.skip_frame_interpolation_component_id);
-            if let Some(&policy_id) = self.policy_ids.get(&self.key_scratch) {
+            let key = registry.archetype_key_with(
+                archetype,
+                RuleTarget::Frame,
+                core::iter::once(self.skip_frame_interpolation_component_id),
+            );
+            if let Some(&policy_id) = self.policy_ids.get(&key) {
                 self.policies[policy_id].archetype_ids.push(archetype.id());
             } else {
                 let rules = registry.resolved_rules_for_archetype(
@@ -167,7 +168,7 @@ impl FrameInterpolatedArchetypes {
                     history_components,
                     apply_callbacks,
                 });
-                self.policy_ids.insert(self.key_scratch.clone(), policy_id);
+                self.policy_ids.insert(key, policy_id);
             }
         }
     }
