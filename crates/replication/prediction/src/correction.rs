@@ -106,7 +106,7 @@ use bevy_ecs::{
     system::{SystemMeta, SystemParam, SystemParamValidationError},
     world::unsafe_world_cell::UnsafeWorldCell,
 };
-use bevy_platform::collections::HashMap;
+use bevy_platform::{collections::HashMap, hash::NoOpHash};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
@@ -281,8 +281,7 @@ pub(crate) struct PostRollbackCorrectionArchetypes {
     generation: ArchetypeGeneration,
     correction_count: usize,
     policies: Vec<CachedPostRollbackCorrectionPolicy>,
-    policy_ids: HashMap<InterpolationArchetypeKey, usize>,
-    key_scratch: InterpolationArchetypeKey,
+    policy_ids: HashMap<InterpolationArchetypeKey, usize, NoOpHash>,
     active_members_scratch: Vec<ComponentKind>,
     resolution_scratch: RuleResolutionScratch,
 }
@@ -294,7 +293,6 @@ impl Default for PostRollbackCorrectionArchetypes {
             correction_count: 0,
             policies: Vec::new(),
             policy_ids: HashMap::default(),
-            key_scratch: InterpolationArchetypeKey::default(),
             active_members_scratch: Vec::new(),
             resolution_scratch: RuleResolutionScratch::default(),
         }
@@ -334,16 +332,16 @@ impl PostRollbackCorrectionArchetypes {
             // Only components with `PreviousVisual<C>` need a visual-correction
             // error. Other members of a selected bundle rule may still be sampled
             // and temporarily written while producing those corrected values.
-            interpolation_registry.populate_archetype_key(
+            let key = interpolation_registry.archetype_key_with(
                 archetype,
                 RuleTarget::Frame,
-                &mut self.key_scratch,
+                prediction_registry
+                    .post_rollback_corrections()
+                    .map(|correction| correction.previous_visual_component_id),
             );
             self.active_members_scratch.clear();
             for correction in prediction_registry.post_rollback_corrections() {
                 if archetype.contains(correction.previous_visual_component_id) {
-                    self.key_scratch
-                        .include_if_present(archetype, correction.previous_visual_component_id);
                     self.active_members_scratch.push(correction.kind());
                 }
             }
@@ -351,7 +349,7 @@ impl PostRollbackCorrectionArchetypes {
                 continue;
             }
 
-            if let Some(&policy_id) = self.policy_ids.get(&self.key_scratch) {
+            if let Some(&policy_id) = self.policy_ids.get(&key) {
                 self.policies[policy_id].archetype_ids.push(archetype.id());
             } else {
                 // Correction reuses frame histories and frame apply functions. The
@@ -376,7 +374,7 @@ impl PostRollbackCorrectionArchetypes {
                 );
                 let policy_id = self.policies.len();
                 self.policies.push(policy);
-                self.policy_ids.insert(self.key_scratch.clone(), policy_id);
+                self.policy_ids.insert(key, policy_id);
             }
         }
     }

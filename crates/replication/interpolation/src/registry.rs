@@ -37,6 +37,7 @@ use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::registry::receive_fns::WriteFn;
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
+use core::hash::{BuildHasher, Hash, Hasher};
 use core::time::Duration;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory, Interpolated, Tick};
@@ -103,23 +104,23 @@ pub struct RuleResolutionScratch {
     resolved_rules: Vec<ResolvedRule>,
 }
 
-/// Presence of only the components that can affect interpolation rule resolution.
+/// Hash of the component presence that can affect interpolation rule resolution.
 ///
 /// Archetypes with the same key can share one resolved interpolation policy
 /// even when their unrelated component sets differ.
-#[derive(Debug, Clone, Default, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 #[doc(hidden)]
-pub struct InterpolationArchetypeKey {
-    component_ids: Vec<ComponentId>,
-}
+pub struct InterpolationArchetypeKey(u64);
 
 impl InterpolationArchetypeKey {
-    /// Adds a cache-specific component when it is present on `archetype`.
-    #[doc(hidden)]
-    pub fn include_if_present(&mut self, archetype: &Archetype, component_id: ComponentId) {
-        if archetype.contains(component_id) && !self.component_ids.contains(&component_id) {
-            self.component_ids.push(component_id);
+    fn new(archetype: &Archetype, component_ids: impl IntoIterator<Item = ComponentId>) -> Self {
+        let mut hasher = bevy_platform::hash::FixedHasher.build_hasher();
+        for component_id in component_ids {
+            if archetype.contains(component_id) {
+                component_id.hash(&mut hasher);
+            }
         }
+        Self(hasher.finish())
     }
 }
 
@@ -218,26 +219,38 @@ impl InterpolationRegistry {
             .expect("interpolation rule ID should belong to this registry")
     }
 
-    /// Replaces `key` with the rule-resolution-relevant component presence for
-    /// `archetype` and `target`.
+    /// Hashes the rule-resolution-relevant component presence for `archetype`
+    /// and `target`.
     #[doc(hidden)]
-    pub fn populate_archetype_key(
+    pub fn archetype_key(
         &self,
         archetype: &Archetype,
         target: RuleTarget,
-        key: &mut InterpolationArchetypeKey,
-    ) {
-        key.component_ids.clear();
+    ) -> InterpolationArchetypeKey {
+        self.archetype_key_with(archetype, target, core::iter::empty())
+    }
+
+    /// Hashes the rule-resolution-relevant component presence plus additional
+    /// cache-specific components for `archetype` and `target`.
+    #[doc(hidden)]
+    pub fn archetype_key_with(
+        &self,
+        archetype: &Archetype,
+        target: RuleTarget,
+        additional_component_ids: impl IntoIterator<Item = ComponentId>,
+    ) -> InterpolationArchetypeKey {
         let component_ids = match target {
             RuleTarget::Default => &self.default_archetype_key_component_ids,
             RuleTarget::Frame => &self.frame_archetype_key_component_ids,
         };
-        key.component_ids.extend(
-            component_ids
-                .iter()
-                .copied()
-                .filter(|component_id| archetype.contains(*component_id)),
-        );
+        InterpolationArchetypeKey::new(
+            archetype,
+            component_ids.iter().copied().chain(
+                additional_component_ids
+                    .into_iter()
+                    .filter(|component_id| !component_ids.contains(component_id)),
+            ),
+        )
     }
 
     #[cfg(test)]
