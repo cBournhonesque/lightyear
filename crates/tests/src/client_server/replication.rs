@@ -520,6 +520,9 @@ fn test_manual_interpolated_marker_backfills_existing_replicated_component() {
         .world_mut()
         .entity_mut(client_entity)
         .insert(Interpolated);
+    // History initialization is handled by the interpolation system for the
+    // entity's newly matched rule, rather than synchronously by an observer.
+    stepper.frame_step(1);
 
     let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
     assert_eq!(
