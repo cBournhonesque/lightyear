@@ -62,7 +62,6 @@ impl<C: Debug> ComponentRegistration<'_, C> {
                     .entry(kind)
                     .or_insert_with(|| ComponentMetadata {
                         component_id,
-                        replication: None,
                         deterministic: None,
                     })
                     .deterministic = Some(DeterministicFns::new::<C>(default_inner_hash_fn::<C>));
@@ -87,7 +86,6 @@ impl<C: Debug> ComponentRegistration<'_, C> {
                     .entry(kind)
                     .or_insert_with(|| ComponentMetadata {
                         component_id,
-                        replication: None,
                         deterministic: None,
                     })
                     .deterministic = Some(DeterministicFns::new(f));

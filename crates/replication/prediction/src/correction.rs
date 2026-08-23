@@ -51,6 +51,36 @@
 //!   by the rule back to the corrected simulation value from
 //!   [`FrameInterpolationHistory`].
 //!
+//! ## Selecting correction-time interpolation work
+//!
+//! Correction does not have its own kind of interpolation rule. It resolves
+//! the normal frame-interpolation rules for the archetype, including their
+//! priority, filters, and independent history/apply ownership. A component is
+//! *active for correction* when the archetype contains its [`PreviousVisual`].
+//!
+//! From those resolved rules, correction caches:
+//!
+//! - each winning frame-apply callback whose rule contains at least one active
+//!   component; and
+//! - frame-history restore callbacks for every component that those apply
+//!   callbacks may write.
+//!
+//! The complete apply callback is retained for a bundle. For example, if only
+//! `A` has `PreviousVisual<A>` and `(A, B)` wins frame apply, correction runs
+//! the complete `(A, B)` callback. The callback reads both repaired
+//! `FrameInterpolationHistory<A>` and `FrameInterpolationHistory<B>` and
+//! temporarily writes both live components. Only `A` gets a
+//! [`VisualCorrection`], but both `A` and `B` must then be restored to their
+//! corrected simulation values.
+//!
+//! The cached frame-history metadata is not passed to the apply callback and
+//! does not repair or update history. Each apply callback fetches the histories
+//! for its own rule members. Correction obtains history metadata from the rules
+//! that won frame-history ownership only to get the type-erased restore
+//! callback for each temporarily written component. This distinction matters
+//! because frame-history ownership and frame-apply ownership can be assigned to
+//! different rules.
+//!
 //! Finally, `add_visual_correction` runs in
 //! [`RollbackSystems::VisualCorrection`], ordered after
 //! [`FrameInterpolationSystems::Interpolate`]. Normal frame interpolation first
@@ -86,11 +116,14 @@ use lightyear_core::ecs_utils::{
 };
 use lightyear_core::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::registry::InterpolationRegistry;
-use lightyear_interpolation::rules::frame_interpolate::{
-    CachedFrameInterpolationApply, CachedFrameInterpolationComponent, FrameInterpolationContext,
+use lightyear_interpolation::registry::{
+    InterpolationArchetypeKey, InterpolationRegistry, ResolvedRule, RuleResolutionScratch,
+    RuleTarget,
 };
-use lightyear_interpolation::rules::{InterpolationRuleId, RuleKind};
+use lightyear_interpolation::rules::frame_interpolate::{
+    CachedFrameInterpolationApply, CachedFrameInterpolationHistoryComponent,
+    FrameInterpolationContext,
+};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diffable::Diffable;
 use lightyear_replication::registry::{ComponentKind, LerpFn};
@@ -237,23 +270,33 @@ unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
 ///
 /// Correction reuses the same interpolation rules as frame interpolation, but
 /// it only needs to run them for components that were visually captured before
-/// rollback. This cache avoids re-evaluating filters and bundle precedence for
-/// every post-rollback correction pass.
+/// rollback. For each archetype, `active_members_scratch` contains precisely
+/// the component kinds whose `PreviousVisual<C>` is present. Its presence is
+/// included in the cache key, so archetypes with different active correction
+/// members cannot accidentally share a policy. Resolution-equivalent
+/// archetypes share one policy, avoiding both repeated rule resolution and
+/// duplicate callback vectors.
 #[derive(Debug)]
 pub(crate) struct PostRollbackCorrectionArchetypes {
     generation: ArchetypeGeneration,
-    rule_count: usize,
     correction_count: usize,
-    archetypes: Vec<CachedPostRollbackCorrectionArchetype>,
+    policies: Vec<CachedPostRollbackCorrectionPolicy>,
+    policy_ids: HashMap<InterpolationArchetypeKey, usize>,
+    key_scratch: InterpolationArchetypeKey,
+    active_members_scratch: Vec<ComponentKind>,
+    resolution_scratch: RuleResolutionScratch,
 }
 
 impl Default for PostRollbackCorrectionArchetypes {
     fn default() -> Self {
         Self {
             generation: ArchetypeGeneration::initial(),
-            rule_count: 0,
             correction_count: 0,
-            archetypes: Vec::new(),
+            policies: Vec::new(),
+            policy_ids: HashMap::default(),
+            key_scratch: InterpolationArchetypeKey::default(),
+            active_members_scratch: Vec::new(),
+            resolution_scratch: RuleResolutionScratch::default(),
         }
     }
 }
@@ -261,7 +304,8 @@ impl Default for PostRollbackCorrectionArchetypes {
 impl PostRollbackCorrectionArchetypes {
     fn clear(&mut self) {
         self.generation = ArchetypeGeneration::initial();
-        self.archetypes.clear();
+        self.policies.clear();
+        self.policy_ids.clear();
     }
 
     /// Refreshes the correction cache for newly-created archetypes.
@@ -279,164 +323,178 @@ impl PostRollbackCorrectionArchetypes {
         prediction_registry: &PredictionRegistry,
         interpolation_registry: &InterpolationRegistry,
     ) {
-        let rule_count = interpolation_registry.rule_count();
         let correction_count = prediction_registry.post_rollback_corrections().count();
-        if self.rule_count != rule_count || self.correction_count != correction_count {
+        if self.correction_count != correction_count {
             self.clear();
-            self.rule_count = rule_count;
             self.correction_count = correction_count;
         }
 
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
         for archetype in archetypes[old_generation..].iter() {
-            let mut cached = CachedPostRollbackCorrectionArchetype::new(archetype.id());
-            cached.collect_active_members(archetype, prediction_registry);
-            if cached.active_members.is_empty() {
+            // Only components with `PreviousVisual<C>` need a visual-correction
+            // error. Other members of a selected bundle rule may still be sampled
+            // and temporarily written while producing those corrected values.
+            interpolation_registry.populate_archetype_key(
+                archetype,
+                RuleTarget::Frame,
+                &mut self.key_scratch,
+            );
+            self.active_members_scratch.clear();
+            for correction in prediction_registry.post_rollback_corrections() {
+                if archetype.contains(correction.previous_visual_component_id) {
+                    self.key_scratch
+                        .include_if_present(archetype, correction.previous_visual_component_id);
+                    self.active_members_scratch.push(correction.kind());
+                }
+            }
+            if self.active_members_scratch.is_empty() {
                 continue;
             }
 
-            for kind in interpolation_registry.rule_kinds() {
-                if let Some(rule_id) =
-                    interpolation_registry.select_rule_for_archetype(components, archetype, kind)
-                {
-                    cached.selected_rules.insert(kind, rule_id);
-                    if let Some(component) = interpolation_registry
-                        .cached_frame_history_component(components, archetype, rule_id)
-                    {
-                        cached.frame_history_components.push(component);
-                    }
-                }
+            if let Some(&policy_id) = self.policy_ids.get(&self.key_scratch) {
+                self.policies[policy_id].archetype_ids.push(archetype.id());
+            } else {
+                // Correction reuses frame histories and frame apply functions. The
+                // PredictionRegistry/PreviousVisual set decides which members
+                // actually receive correction; it is not a third interpolation target.
+                let rules = interpolation_registry.resolved_rules_for_archetype(
+                    components,
+                    archetype,
+                    RuleTarget::Frame,
+                    &mut self.resolution_scratch,
+                );
+                let mut policy = CachedPostRollbackCorrectionPolicy {
+                    archetype_ids: alloc::vec![archetype.id()],
+                    apply_callbacks: Vec::new(),
+                    restore_components: Vec::new(),
+                };
+                policy.resolve_rules(
+                    archetype,
+                    interpolation_registry,
+                    rules,
+                    &self.active_members_scratch,
+                );
+                let policy_id = self.policies.len();
+                self.policies.push(policy);
+                self.policy_ids.insert(self.key_scratch.clone(), policy_id);
             }
-
-            cached.resolve_apply_rules(interpolation_registry);
-            cached.assert_all_members_covered();
-            self.archetypes.push(cached);
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item = &CachedPostRollbackCorrectionArchetype> {
-        self.archetypes.iter()
+    fn iter(&self) -> impl Iterator<Item = (ArchetypeId, &CachedPostRollbackCorrectionPolicy)> {
+        self.policies.iter().flat_map(|policy| {
+            policy
+                .archetype_ids
+                .iter()
+                .copied()
+                .map(move |archetype_id| (archetype_id, policy))
+        })
+    }
+
+    #[cfg(test)]
+    fn archetype_count(&self) -> usize {
+        self.policies
+            .iter()
+            .map(|policy| policy.archetype_ids.len())
+            .sum()
     }
 }
 
-/// Cached correction-time interpolation policy for one archetype.
+/// Correction policy shared by archetypes with the same relevant components.
 #[derive(Debug)]
-struct CachedPostRollbackCorrectionArchetype {
-    id: ArchetypeId,
-    active_members: Vec<ComponentKind>,
-    covered_members: Vec<ComponentKind>,
-    selected_rules: HashMap<RuleKind, InterpolationRuleId>,
-    apply_rules: Vec<CachedFrameInterpolationApply>,
-    frame_history_components: Vec<CachedFrameInterpolationComponent>,
-    restore_components: Vec<CachedFrameInterpolationComponent>,
+struct CachedPostRollbackCorrectionPolicy {
+    /// Archetypes whose relevant component presence resolves to this policy.
+    archetype_ids: Vec<ArchetypeId>,
+    /// Winning frame-apply callbacks whose rule overlaps at least one active
+    /// `PreviousVisual<C>` component.
+    ///
+    /// A bundle callback is stored in full. For example, if only `A` has
+    /// `PreviousVisual<A>`, a winning `(A, B)` callback still reads both frame
+    /// histories and writes both live components so that it applies the bundle
+    /// atomically.
+    apply_callbacks: Vec<CachedFrameInterpolationApply>,
+    /// Frame-history restore callbacks for every component that
+    /// `apply_callbacks` may temporarily write.
+    ///
+    /// This includes non-corrected bundle members such as `B` in the example
+    /// above: no typed correction handler will restore `B`, because it has no
+    /// `PreviousVisual<B>`. The callbacks come from the rules that won the
+    /// frame-history lane, which may differ from the rules in `apply_callbacks`.
+    /// History metadata for components not written by `apply_callbacks` is
+    /// discarded.
+    restore_components: Vec<CachedFrameInterpolationHistoryComponent>,
 }
 
-impl CachedPostRollbackCorrectionArchetype {
-    fn new(id: ArchetypeId) -> Self {
-        Self {
-            id,
-            active_members: Vec::new(),
-            covered_members: Vec::new(),
-            selected_rules: HashMap::default(),
-            apply_rules: Vec::new(),
-            frame_history_components: Vec::new(),
-            restore_components: Vec::new(),
-        }
-    }
-
-    fn id(&self) -> ArchetypeId {
-        self.id
-    }
-
-    fn apply_rules(&self) -> &[CachedFrameInterpolationApply] {
-        &self.apply_rules
-    }
-
-    fn restore_components(&self) -> &[CachedFrameInterpolationComponent] {
-        &self.restore_components
-    }
-
-    fn collect_active_members(
+impl CachedPostRollbackCorrectionPolicy {
+    /// Resolves the correction work for `active_members`, the components on
+    /// this archetype that currently have `PreviousVisual<C>`.
+    ///
+    /// A resolved apply rule is cached only if it overlaps an active member,
+    /// but all of that rule's members are recorded because a bundle callback
+    /// writes the complete bundle. History metadata is collected independently
+    /// from the resolved history rules, then restricted to those recorded
+    /// members to produce `restore_components`. Finally, every active member
+    /// must be covered by a cached apply callback; correction cannot calculate
+    /// a new visual sample without one.
+    fn resolve_rules(
         &mut self,
         archetype: &Archetype,
-        prediction_registry: &PredictionRegistry,
+        registry: &InterpolationRegistry,
+        rules: &[ResolvedRule],
+        active_members: &[ComponentKind],
     ) {
-        self.active_members.extend(
-            prediction_registry
-                .post_rollback_corrections()
-                .filter(|correction| archetype.contains(correction.previous_visual_component_id))
-                .map(|correction| correction.kind()),
-        );
-    }
-
-    fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
-        self.apply_rules.clear();
-        self.covered_members.clear();
+        self.apply_callbacks.clear();
         self.restore_components.clear();
 
-        // `selected_rules` contains the best matching rule for each rule kind
-        // on this archetype, for example `A`, `B`, and `(A, B)`. Correction
-        // only creates correction errors for members that have
+        // Correction only creates correction errors for members that have
         // `PreviousVisual<C>` on this archetype. Rule ownership must still
         // match normal frame interpolation: a bundle is atomic and may use
         // non-corrected members as inputs to the corrected member's sample.
-        let mut candidates = self
-            .selected_rules
-            .iter()
-            .filter_map(|(&kind, &rule_id)| registry.rule(rule_id).map(|_| (kind, rule_id)))
-            .collect::<Vec<_>>();
-        candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
-
-        let mut claimed_members = Vec::new();
-        for (_, rule_id) in candidates {
-            let Some(rule) = registry.rule(rule_id) else {
-                continue;
-            };
-            if rule
-                .members()
-                .iter()
-                .any(|member| claimed_members.contains(member))
+        //
+        // These lists are needed only while constructing the cache:
+        // - `covered_members` verifies that every active member has an apply fn.
+        // - `frame_history_components` contains restore metadata from every
+        //   resolved history rule. Apply callbacks fetch history values themselves.
+        // - `restore_members` contains every member written by the retained apply
+        //   callbacks. It filters the history metadata into `restore_components`.
+        let mut covered_members = Vec::new();
+        let mut frame_history_components = Vec::new();
+        let mut restore_members = Vec::new();
+        for resolved in rules {
+            let rule = registry.rule(resolved.rule_id);
+            if resolved.owns_history {
+                frame_history_components.extend(rule.cached_frame_history_components(archetype));
+            }
+            if !resolved.owns_apply
+                || !rule
+                    .members()
+                    .any(|member| active_members.contains(&member))
             {
                 continue;
             }
-
-            claimed_members.extend(rule.members().iter().copied());
-            let active_rule_members = rule
-                .members()
-                .iter()
-                .filter(|member| self.active_members.contains(member))
-                .copied()
-                .collect::<Vec<_>>();
-            if active_rule_members.is_empty() {
-                continue;
-            }
-            if let Some(apply) = registry.cached_frame_apply_component(rule_id) {
-                self.covered_members.extend(active_rule_members);
-                self.apply_rules.push(apply);
+            if let Some(apply) = rule.cached_frame_apply(resolved.rule_id) {
+                covered_members.extend(
+                    rule.members()
+                        .filter(|member| active_members.contains(member)),
+                );
+                self.apply_callbacks.push(apply);
                 for member in rule.members() {
-                    if self
-                        .restore_components
-                        .iter()
-                        .any(|component| component.kind() == *member)
-                    {
-                        continue;
-                    }
-                    if let Some(component) = self
-                        .frame_history_components
-                        .iter()
-                        .find(|component| component.kind() == *member)
-                    {
-                        self.restore_components.push(*component);
+                    if !restore_members.contains(&member) {
+                        restore_members.push(member);
                     }
                 }
             }
         }
-    }
+        self.restore_components.extend(
+            frame_history_components
+                .iter()
+                .filter(|component| restore_members.contains(&component.kind()))
+                .copied(),
+        );
 
-    fn assert_all_members_covered(&self) {
-        for member in &self.active_members {
+        for member in active_members {
             assert!(
-                self.covered_members.contains(member),
+                covered_members.contains(member),
                 "No interpolation function was found for correction. Register an interpolation rule with an interpolation function for this component or bundle before calling add_correction/add_linear_correction/add_correction_fn."
             );
         }
@@ -517,7 +575,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         &interpolation_registry,
     );
 
-    // 1. Reuse the interpolation rules selected for this archetype to compute
+    // 1. Reuse the interpolation rules selected for each archetype to compute
     // the corrected visual sample at the current fixed-overstep. This can run
     // bundle rules such as `(A, B)`, so correction sees the same visual state
     // that frame interpolation would have produced.
@@ -526,7 +584,6 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         &correction_archetypes,
         &interpolation_registry,
         ctx,
-        &mut deferred_apply,
     );
 
     // 2. Compare the original pre-rollback visual value against the corrected
@@ -575,13 +632,12 @@ fn apply_frame_interpolation_for_visual_correction(
     correction_archetypes: &PostRollbackCorrectionArchetypes,
     interpolation_registry: &InterpolationRegistry,
     ctx: PostRollbackCorrectionContext,
-    deferred_apply: &mut DeferredEntityCommands,
 ) {
-    for cached_archetype in correction_archetypes.iter() {
-        let Some(archetype) = world.archetypes().get(cached_archetype.id()) else {
+    for (archetype_id, policy) in correction_archetypes.iter() {
+        let Some(archetype) = world.archetypes().get(archetype_id) else {
             continue;
         };
-        for apply in cached_archetype.apply_rules() {
+        for apply in &policy.apply_callbacks {
             (apply.apply_frame_interpolation())(
                 world,
                 archetype,
@@ -592,7 +648,6 @@ fn apply_frame_interpolation_for_visual_correction(
                     sample_delta_secs: Some(ctx.sample_delta_secs),
                 },
                 false,
-                deferred_apply,
             );
         }
     }
@@ -608,11 +663,11 @@ fn restore_applied_frame_interpolation_components(
     world: UnsafeWorldCell,
     correction_archetypes: &PostRollbackCorrectionArchetypes,
 ) {
-    for cached_archetype in correction_archetypes.iter() {
-        let Some(archetype) = world.archetypes().get(cached_archetype.id()) else {
+    for (archetype_id, policy) in correction_archetypes.iter() {
+        let Some(archetype) = world.archetypes().get(archetype_id) else {
             continue;
         };
-        for component in cached_archetype.restore_components() {
+        for component in &policy.restore_components {
             (component.restore_frame_history())(world, archetype, component);
         }
     }
@@ -911,6 +966,9 @@ mod tests {
     #[component(storage = "SparseSet")]
     struct SparseCorrection(f32);
 
+    #[derive(Component)]
+    struct UnrelatedCorrectionComponent;
+
     impl Ease for CorrectionA {
         fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
             FunctionCurve::new(Interval::UNIT, move |t| {
@@ -952,11 +1010,42 @@ mod tests {
             .id();
         app.world_mut().flush();
         assert!(app.world().get::<FrameInterpolate>(entity).is_some());
-        assert!(
-            app.world()
-                .get::<FrameInterpolationHistory<CorrectionA>>(entity)
-                .is_some()
+    }
+
+    /// Checks that correction archetypes differing only by unrelated components share a policy.
+    #[test]
+    fn correction_archetypes_share_resolution_equivalent_policies() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.component::<CorrectionA>().predict().add_correction();
+        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|start, end, t| {
+            CorrectionA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.finish();
+
+        app.world_mut().spawn((
+            CorrectionA(1.0),
+            PreviousVisual(CorrectionA(0.0)),
+            FrameInterpolationHistory::<CorrectionA>::default(),
+        ));
+        app.world_mut().spawn((
+            CorrectionA(2.0),
+            PreviousVisual(CorrectionA(0.0)),
+            FrameInterpolationHistory::<CorrectionA>::default(),
+            UnrelatedCorrectionComponent,
+        ));
+
+        let mut cache = PostRollbackCorrectionArchetypes::default();
+        let world = app.world();
+        cache.update(
+            world.archetypes(),
+            world.components(),
+            world.resource::<PredictionRegistry>(),
+            world.resource::<InterpolationRegistry>(),
         );
+
+        assert_eq!(cache.archetype_count(), 2);
+        assert_eq!(cache.policies.len(), 1);
     }
 
     #[test]

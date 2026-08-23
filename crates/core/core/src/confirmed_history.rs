@@ -126,6 +126,12 @@ impl<C> ConfirmedHistory<C> {
         self.resolve_state_at_index(index)
     }
 
+    /// Get the latest authoritative state strictly before `tick`.
+    pub fn get_state_before(&self, tick: Tick) -> Option<&HistoryState<C>> {
+        let index = self.index_before(tick)?;
+        self.resolve_state_at_index(index)
+    }
+
     /// Get the authoritative state exactly at `tick`.
     pub fn get_state_at(&self, tick: Tick) -> Option<&HistoryState<C>> {
         let pos = self
@@ -157,11 +163,6 @@ impl<C> ConfirmedHistory<C> {
                 .get(i)
                 .and_then(|(_, state)| state.explicit_state())
         })
-    }
-
-    fn state_before(&self, tick: Tick) -> Option<&HistoryState<C>> {
-        let index = self.index_before(tick)?;
-        self.resolve_state_at_index(index)
     }
 
     fn insert_raw(&mut self, tick: Tick, state: ConfirmedHistoryState<C>) {
@@ -206,7 +207,10 @@ impl<C: PartialEq> ConfirmedHistory<C> {
     /// before `tick`, the raw entry is stored as
     /// an internal unchanged marker.
     pub fn insert(&mut self, tick: Tick, state: HistoryState<C>) {
-        let entry = if self.state_before(tick).is_some_and(|prev| prev == &state) {
+        let entry = if self
+            .get_state_before(tick)
+            .is_some_and(|prev| prev == &state)
+        {
             ConfirmedHistoryState::SameAsPrecedent
         } else {
             ConfirmedHistoryState::Explicit(state)
@@ -250,7 +254,10 @@ impl<C: PartialEq> ConfirmedHistory<C> {
         {
             self.buffer.pop_back();
         }
-        let entry = if self.state_before(tick).is_some_and(|prev| prev == &state) {
+        let entry = if self
+            .get_state_before(tick)
+            .is_some_and(|prev| prev == &state)
+        {
             ConfirmedHistoryState::SameAsPrecedent
         } else {
             ConfirmedHistoryState::Explicit(state)
@@ -277,7 +284,7 @@ impl<C> ConfirmedHistory<C> {
     /// state did not change at `tick` even though no explicit component update
     /// was received.
     pub fn add_unchanged(&mut self, tick: Tick) -> bool {
-        if self.get_state_at(tick).is_some() || self.state_before(tick).is_none() {
+        if self.get_state_at(tick).is_some() || self.get_state_before(tick).is_none() {
             return false;
         }
         self.insert_raw(tick, ConfirmedHistoryState::SameAsPrecedent);
@@ -484,6 +491,27 @@ mod tests {
         assert_eq!(effective_value_at(&history, Tick(2)), Some(1.0));
         assert!(history.get_present(Tick(3)).is_none());
         assert_eq!(effective_value_at(&history, Tick(5)), Some(5.0));
+    }
+
+    /// Checks that strict-before lookup excludes the entry at the requested tick.
+    #[test]
+    fn get_state_before_excludes_the_requested_tick() {
+        let mut history = ConfirmedHistory::<TestValue>::default();
+        history.insert_present(Tick(1), TestValue(1.0));
+        history.insert_removed(Tick(3));
+        history.insert_present(Tick(5), TestValue(5.0));
+
+        assert!(history.get_state_before(Tick(1)).is_none());
+        assert_eq!(
+            history
+                .get_state_before(Tick(3))
+                .and_then(HistoryState::value),
+            Some(&TestValue(1.0))
+        );
+        assert!(matches!(
+            history.get_state_before(Tick(5)),
+            Some(HistoryState::Removed)
+        ));
     }
 
     #[test]

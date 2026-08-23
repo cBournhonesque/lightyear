@@ -1061,13 +1061,6 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         registry.register::<C>(prediction_history_id, confirmed_history_id);
         add_prediction_systems::<C>(self.app);
 
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        let metadata = registry
-            .component_metadata_map
-            .get_mut(&ComponentKind::of::<C>())
-            .unwrap();
-        metadata.replication.as_mut().unwrap().set_predicted(true);
-        // metadata.serialization.as_mut().unwrap().add_clone::<C>();
         self
     }
 
@@ -1107,12 +1100,6 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         add_prediction_systems::<C>(self.app);
         crate::plugin::add_prediction_diff_systems::<C>(self.app);
 
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        let metadata = registry
-            .component_metadata_map
-            .get_mut(&ComponentKind::of::<C>())
-            .unwrap();
-        metadata.replication.as_mut().unwrap().set_predicted(true);
         self
     }
 

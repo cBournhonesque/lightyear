@@ -373,26 +373,6 @@ impl<C> ComponentRegistration<'_, C> {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct ReplicationMetadata {
-    pub(crate) predicted: bool,
-    pub(crate) interpolated: bool,
-}
-
-impl ReplicationMetadata {
-    // TODO: Could we override this for a certain component? i.e. on an entity, the user can say
-    //  "this component is not predicted"
-    /// Mark the component as being predicted.
-    pub fn set_predicted(&mut self, predicted: bool) {
-        self.predicted = predicted;
-    }
-
-    /// Mark the component as being interpolated.
-    pub fn set_interpolated(&mut self, interpolated: bool) {
-        self.interpolated = interpolated;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

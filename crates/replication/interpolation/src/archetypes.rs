@@ -1,7 +1,7 @@
-use crate::registry::InterpolationRegistry;
-use crate::rules::{
-    CachedInterpolationApply, CachedInterpolationComponent, InterpolationRuleId, RuleKind,
+use crate::registry::{
+    InterpolationArchetypeKey, InterpolationRegistry, RuleResolutionScratch, RuleTarget,
 };
+use crate::rules::{CachedInterpolationApply, CachedInterpolationComponent};
 use alloc::vec::Vec;
 use bevy_ecs::{
     archetype::{ArchetypeGeneration, ArchetypeId, Archetypes},
@@ -15,16 +15,19 @@ use bevy_ecs::{
 use bevy_platform::collections::HashMap;
 use lightyear_core::prelude::Interpolated;
 
-/// Cached interpolation rules selected for each interpolated archetype.
+/// Cached interpolation policies shared by resolution-equivalent archetypes.
 ///
-/// Interpolation rule filters are archetype-level, so they can be evaluated
-/// once when a new archetype appears instead of once per entity per frame.
+/// Each policy stores all archetype IDs whose differences cannot affect rule
+/// members, histories, or filters. Those archetypes reuse the same history and
+/// apply callback vectors.
 #[doc(hidden)]
 pub struct InterpolatedArchetypes {
     generation: ArchetypeGeneration,
-    rule_count: usize,
     interpolated_component_id: ComponentId,
-    archetypes: Vec<CachedInterpolatedArchetype>,
+    policies: Vec<CachedInterpolationPolicy>,
+    policy_ids: HashMap<InterpolationArchetypeKey, usize>,
+    key_scratch: InterpolationArchetypeKey,
+    resolution_scratch: RuleResolutionScratch,
 }
 
 /// System param exposing the cached interpolated archetypes and world cell.
@@ -51,17 +54,17 @@ impl InterpolationWorld<'_, '_> {
     /// included in this frame's scan.
     pub(crate) fn iter_archetypes(
         &self,
-    ) -> impl Iterator<
-        Item = (
-            &bevy_ecs::archetype::Archetype,
-            &CachedInterpolatedArchetype,
-        ),
-    > {
-        self.state.iter().filter_map(|cached_archetype| {
-            self.world
-                .archetypes()
-                .get(cached_archetype.id())
-                .map(|archetype| (archetype, cached_archetype))
+    ) -> impl Iterator<Item = (&bevy_ecs::archetype::Archetype, &CachedInterpolationPolicy)> {
+        self.state.policies.iter().flat_map(move |policy| {
+            policy
+                .archetype_ids
+                .iter()
+                .filter_map(move |&archetype_id| {
+                    self.world
+                        .archetypes()
+                        .get(archetype_id)
+                        .map(|archetype| (archetype, policy))
+                })
         })
     }
 }
@@ -102,188 +105,178 @@ unsafe impl SystemParam for InterpolationWorld<'_, '_> {
     }
 }
 
-/// Cached interpolation policy for one archetype containing [`Interpolated`].
+/// Interpolation policy shared by archetypes with the same relevant components.
 ///
-/// The cache separates rule selection from component application:
-///
-/// - `selected_rules` stores the highest-priority matching rule for each rule
-///   target (`C` or `(A, B, ...)`). These rules decide ownership of history
-///   updates and interpolation-timeline component presence.
-/// - `apply_rules` stores the selected type-erased apply functions that are
-///   allowed to write live components after overlapping bundle/component rules
-///   have been resolved. For example, a selected `(Position, Rotation)` bundle
-///   rule suppresses application by overlapping selected single-component
-///   rules.
-pub(crate) struct CachedInterpolatedArchetype {
-    /// ID of the archetype this cache entry describes.
-    id: ArchetypeId,
-    /// Highest-priority matching rule for each rule target on this archetype.
-    selected_rules: HashMap<RuleKind, InterpolationRuleId>,
+/// History and apply ownership are resolved independently. A bundle can keep
+/// maintaining histories for absent members while standalone rules apply the
+/// members that remain live.
+pub(crate) struct CachedInterpolationPolicy {
+    /// Archetypes whose relevant component presence resolves to this policy.
+    archetype_ids: Vec<ArchetypeId>,
     /// Component metadata needed only by Lightyear-owned history updates.
     ///
-    /// A selected rule is present here only when it owns history and this
-    /// archetype already contains the corresponding `ConfirmedHistory<C>`
-    /// column. Apply-only rules are cached separately in `apply_rules`.
-    history_update_components: Vec<CachedInterpolationComponent>,
-    /// Type-erased interpolation rules that should write live components.
-    apply_rules: Vec<CachedInterpolationApply>,
-}
-
-impl CachedInterpolatedArchetype {
-    fn new(id: ArchetypeId) -> Self {
-        Self {
-            id,
-            selected_rules: HashMap::default(),
-            history_update_components: Vec::new(),
-            apply_rules: Vec::new(),
-        }
-    }
-
-    pub(crate) fn id(&self) -> ArchetypeId {
-        self.id
-    }
-
-    pub(crate) fn history_update_components(&self) -> &[CachedInterpolationComponent] {
-        &self.history_update_components
-    }
-
-    pub(crate) fn apply_rules(&self) -> &[CachedInterpolationApply] {
-        &self.apply_rules
-    }
+    /// An operation is present here when a resolved winning rule owns it and the
+    /// archetype contains either the live component or its confirmed history.
+    pub(crate) history_components: Vec<CachedInterpolationComponent>,
+    /// Type-erased interpolation callbacks selected for these archetypes.
+    pub(crate) apply_callbacks: Vec<CachedInterpolationApply>,
 }
 
 impl FromWorld for InterpolatedArchetypes {
     fn from_world(world: &mut World) -> Self {
         Self {
             generation: ArchetypeGeneration::initial(),
-            rule_count: 0,
             interpolated_component_id: world.register_component::<Interpolated>(),
-            archetypes: Vec::new(),
+            policies: Vec::new(),
+            policy_ids: HashMap::default(),
+            key_scratch: InterpolationArchetypeKey::default(),
+            resolution_scratch: RuleResolutionScratch::default(),
         }
     }
 }
 
 impl InterpolatedArchetypes {
-    /// Clears all cached archetype rule selections.
+    /// Assigns newly-created interpolated archetypes to shared policies.
     ///
-    /// The cache clears itself when it observes a new registry rule count. The
-    /// next cache update will rescan every interpolated archetype and rebuild
-    /// `selected_rules`, `apply_rules`, and history-update component metadata.
-    pub(crate) fn clear(&mut self) {
-        self.generation = ArchetypeGeneration::initial();
-        self.archetypes.clear();
-    }
-
-    /// Resolves interpolation rules for newly-created interpolated archetypes.
-    ///
-    /// Existing entries are kept until [`Self::clear`] is called. The cache
-    /// tracks the number of registered rules instead of storing a registry
-    /// version.
-    ///
-    /// Rule selection is a two-stage process:
-    ///
-    /// 1. Select the highest-priority matching rule for each rule target using
-    ///    [`InterpolationRegistry::select_rule_for_archetype`]. For an
-    ///    archetype containing components `A` and `B`, this can select one rule
-    ///    for `A`, one for `B`, and one for `(A, B)`.
-    /// 2. Resolve apply ownership between those selected rules. If the selected
-    ///    `(A, B)` rule has higher priority than the selected `A` and `B` rules,
-    ///    it claims both member components and supersedes the individual apply
-    ///    rules for this archetype.
+    /// Matching component and bundle rules are sorted by priority and
+    /// registration order. History and apply each claim members atomically. A
+    /// bundle can therefore own `(A, B)` history while a standalone rule owns
+    /// application of a currently live `A`.
     pub(crate) fn update(
         &mut self,
         archetypes: &Archetypes,
         components: &Components,
         registry: &InterpolationRegistry,
     ) {
-        let rule_count = registry.rule_count();
-        if self.rule_count != rule_count {
-            self.clear();
-            self.rule_count = rule_count;
-        }
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
         for archetype in archetypes[old_generation..]
             .iter()
             .filter(|archetype| archetype.contains(self.interpolated_component_id))
         {
-            let mut cached = CachedInterpolatedArchetype::new(archetype.id());
-            // `rules_by_kind` is already priority-sorted per rule target.
-            // We need one winner per rule target before resolving overlap: a tuple
-            // rule like `(A, B)` competes with other `(A, B)` rules here, not
-            // with the individual `A` or `B` rules yet.
-            for kind in registry.rule_kinds() {
-                if let Some(rule_id) =
-                    registry.select_rule_for_archetype(components, archetype, kind)
-                {
-                    cached.selected_rules.insert(kind, rule_id);
-                    if let Some(component) =
-                        registry.cached_history_update_component(components, archetype, rule_id)
+            registry.populate_archetype_key(archetype, RuleTarget::Default, &mut self.key_scratch);
+            if let Some(&policy_id) = self.policy_ids.get(&self.key_scratch) {
+                self.policies[policy_id].archetype_ids.push(archetype.id());
+            } else {
+                let mut policy = CachedInterpolationPolicy {
+                    archetype_ids: alloc::vec![archetype.id()],
+                    history_components: Vec::new(),
+                    apply_callbacks: Vec::new(),
+                };
+                for resolved in registry.resolved_rules_for_archetype(
+                    components,
+                    archetype,
+                    RuleTarget::Default,
+                    &mut self.resolution_scratch,
+                ) {
+                    let rule = registry.rule(resolved.rule_id);
+
+                    if resolved.owns_history {
+                        for member in &rule.members {
+                            let Some(confirmed) = member.confirmed else {
+                                continue;
+                            };
+                            let history_component_id = member.confirmed_history_component_id;
+                            let history_component_present =
+                                archetype.contains(history_component_id);
+                            let live_component_present =
+                                archetype.contains(member.live_component_id);
+                            debug_assert!(history_component_present || live_component_present);
+                            policy
+                                .history_components
+                                .push(CachedInterpolationComponent {
+                                    history_component_id,
+                                    history_storage: history_component_present
+                                        .then(|| archetype.get_storage_type(history_component_id))
+                                        .flatten(),
+                                    history_component_present,
+                                    live_component_present,
+                                    update_history: confirmed.update_history,
+                                    insert_history: confirmed.insert_history,
+                                });
+                        }
+                    }
+                    if resolved.owns_apply
+                        && let Some(apply_interpolation) = rule.apply_interpolation
                     {
-                        cached.history_update_components.push(component);
+                        policy.apply_callbacks.push(CachedInterpolationApply {
+                            rule_id: resolved.rule_id,
+                            apply_interpolation,
+                        });
                     }
                 }
+                let policy_id = self.policies.len();
+                self.policies.push(policy);
+                self.policy_ids.insert(self.key_scratch.clone(), policy_id);
             }
-            cached.resolve_apply_rules(registry);
-            self.archetypes.push(cached);
         }
     }
 
-    /// Iterates over cached interpolated archetypes.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &CachedInterpolatedArchetype> {
-        self.archetypes.iter()
+    #[cfg(test)]
+    fn archetype_count(&self) -> usize {
+        self.policies
+            .iter()
+            .map(|policy| policy.archetype_ids.len())
+            .sum()
     }
 }
 
-impl CachedInterpolatedArchetype {
-    /// Builds `apply_rules` from `selected_rules` in priority order.
-    ///
-    /// This follows Replicon's priority ordering: selected rules are sorted by
-    /// descending priority and ascending registration order, then rules claim
-    /// their member components.
-    ///
-    /// A bundle interpolation function is atomic: if any member has already been
-    /// claimed, the whole bundle apply function is skipped because it cannot write
-    /// only the unclaimed subset.
-    ///
-    /// For example, if the selected rules are `A`, `B`, and `(A, B)`, and
-    /// `(A, B)` sorts first by priority, it claims both `A` and `B`. The
-    /// individual `A` and `B` apply rules are then skipped because their member
-    /// components are already claimed.
-    fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
-        self.apply_rules.clear();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interpolate::update_history_archetype_erased;
+    use crate::registry::{InterpolationRegistry, component_rule, insert_confirmed_history};
+    use crate::rules::{InterpolationFns, InterpolationRuleConfig};
+    use bevy_ecs::query::With;
 
-        // `selected_rules` already contains the matching rule for each rule
-        // kind on this archetype. Those kinds can overlap: for an archetype
-        // with components `A` and `B`, we can have selected rules for `A`, `B`,
-        // and `(A, B)`.
-        //
-        // This pass walks the selected rules by priority and lets each rule
-        // claim all of its member components. Once a component is claimed, lower
-        // priority rules that also touch it are skipped, so every component is
-        // covered by at most one selected apply rule.
-        let mut candidates = self
-            .selected_rules
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct Value(f32);
+
+    #[derive(Component)]
+    struct FilterMarker;
+
+    #[derive(Component)]
+    struct ExcludedMarker;
+
+    #[derive(Component)]
+    struct Unrelated;
+
+    fn lerp(start: Value, end: Value, t: f32) -> Value {
+        Value(start.0 + (end.0 - start.0) * t)
+    }
+
+    /// Checks that unrelated components share a policy while `With` and `Without` inputs do not.
+    #[test]
+    fn policies_use_only_resolution_relevant_component_presence() {
+        let mut world = World::new();
+        world.register_component::<FilterMarker>();
+        world.register_component::<ExcludedMarker>();
+        let rule = component_rule::<Value, (With<FilterMarker>, Without<ExcludedMarker>)>(
+            &mut world,
+            InterpolationFns::interpolate(lerp),
+            InterpolationRuleConfig::default(),
+            update_history_archetype_erased::<Value>,
+            insert_confirmed_history::<Value>,
+        );
+        let mut registry = InterpolationRegistry::default();
+        registry.insert_rule(rule);
+        registry.finalize();
+
+        world.spawn((Interpolated, Value(1.0)));
+        world.spawn((Interpolated, Value(2.0), Unrelated));
+        world.spawn((Interpolated, Value(3.0), FilterMarker));
+        world.spawn((Interpolated, Value(4.0), FilterMarker, ExcludedMarker));
+
+        let mut cache = InterpolatedArchetypes::from_world(&mut world);
+        cache.update(world.archetypes(), world.components(), &registry);
+
+        assert_eq!(cache.archetype_count(), 4);
+        assert_eq!(cache.policies.len(), 3);
+        let mut archetypes_per_policy = cache
+            .policies
             .iter()
-            .filter_map(|(&kind, &rule_id)| registry.rule(rule_id).map(|_| (kind, rule_id)))
+            .map(|policy| policy.archetype_ids.len())
             .collect::<Vec<_>>();
-        candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
-
-        let mut claimed_members = Vec::new();
-        for (_, rule_id) in candidates {
-            let Some(rule) = registry.rule(rule_id) else {
-                continue;
-            };
-            if rule
-                .members()
-                .iter()
-                .any(|member| claimed_members.contains(member))
-            {
-                continue;
-            }
-            claimed_members.extend(rule.members().iter().copied());
-            if let Some(component) = registry.cached_apply_component(rule_id) {
-                self.apply_rules.push(component);
-            }
-        }
+        archetypes_per_policy.sort_unstable();
+        assert_eq!(archetypes_per_policy, [1, 1, 2]);
     }
 }

@@ -1,15 +1,13 @@
 //! Frame-interpolation callbacks backed by shared interpolation rules.
 //!
-//! The frame-interpolation crate uses these erased helpers when selecting the
-//! highest-priority interpolation rule for entities with `FrameInterpolate`.
+//! The frame-interpolation crate uses these erased helpers after independently
+//! resolving history and apply ownership for entities with `FrameInterpolate`.
 
 use crate::SyncComponent;
 use crate::registry::InterpolationRegistry;
 use crate::rules::{InterpolationRuleId, InterpolationSampleContext};
-use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, StorageType};
-use bevy_ecs::prelude::{Commands, Entity};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::ecs_utils::{
@@ -36,14 +34,14 @@ pub struct FrameInterpolationContext {
 pub type ErasedUpdateFrameHistoryFn = fn(
     UnsafeWorldCell,
     &Archetype,
-    &CachedFrameInterpolationComponent,
+    &CachedFrameInterpolationHistoryComponent,
     &mut DeferredEntityCommands,
 );
 
 /// Type-erased function that restores one component from its frame interpolation history.
 #[doc(hidden)]
 pub type ErasedRestoreFrameHistoryFn =
-    fn(UnsafeWorldCell, &Archetype, &CachedFrameInterpolationComponent);
+    fn(UnsafeWorldCell, &Archetype, &CachedFrameInterpolationHistoryComponent);
 
 /// Type-erased function that applies one selected frame interpolation rule.
 #[doc(hidden)]
@@ -54,61 +52,14 @@ pub type ErasedApplyFrameInterpolationFn = fn(
     InterpolationRuleId,
     FrameInterpolationContext,
     bool,
-    &mut DeferredEntityCommands,
 );
 
-/// Type-erased function that inserts a default `FrameInterpolationHistory<C>`.
-#[doc(hidden)]
-pub type ErasedInsertFrameHistoryFn = fn(Entity, &mut Commands);
-
-/// Type-erased metadata for a component that owns frame interpolation history.
-#[derive(Debug, Clone, Copy)]
-pub struct FrameHistoryComponent {
-    kind: ComponentKind,
-    live_component_id: ComponentId,
-    history_component_id: ComponentId,
-    insert_history: ErasedInsertFrameHistoryFn,
-}
-
-impl FrameHistoryComponent {
-    pub(crate) fn new(
-        kind: ComponentKind,
-        live_component_id: ComponentId,
-        history_component_id: ComponentId,
-        insert_history: ErasedInsertFrameHistoryFn,
-    ) -> Self {
-        Self {
-            kind,
-            live_component_id,
-            history_component_id,
-            insert_history,
-        }
-    }
-
-    #[doc(hidden)]
-    pub fn kind(&self) -> ComponentKind {
-        self.kind
-    }
-
-    #[doc(hidden)]
-    pub fn live_component_id(&self) -> ComponentId {
-        self.live_component_id
-    }
-
-    #[doc(hidden)]
-    pub fn history_component_id(&self) -> ComponentId {
-        self.history_component_id
-    }
-
-    #[doc(hidden)]
-    pub fn insert_history(&self) -> ErasedInsertFrameHistoryFn {
-        self.insert_history
-    }
-}
-
 /// Cached typed component metadata needed by frame interpolation history systems.
+///
+/// The component IDs and type-erased callbacks are copied out of the selected
+/// rule, so frame-history update and restore do not need the rule or its ID.
 #[derive(Debug, Clone, Copy)]
-pub struct CachedFrameInterpolationComponent {
+pub struct CachedFrameInterpolationHistoryComponent {
     /// Component kind whose frame history is updated.
     pub(crate) kind: ComponentKind,
     /// Component ID for `FrameInterpolationHistory<C>`.
@@ -127,7 +78,7 @@ pub struct CachedFrameInterpolationComponent {
     pub(crate) restore_frame_history: ErasedRestoreFrameHistoryFn,
 }
 
-impl CachedFrameInterpolationComponent {
+impl CachedFrameInterpolationHistoryComponent {
     #[doc(hidden)]
     pub fn kind(&self) -> ComponentKind {
         self.kind
@@ -170,6 +121,9 @@ impl CachedFrameInterpolationComponent {
 }
 
 /// Cached type-erased apply metadata for one selected frame interpolation rule.
+///
+/// Apply keeps the rule ID because the rule's typed interpolation function
+/// remains stored in [`InterpolationRegistry`] and is retrieved at runtime.
 #[derive(Debug, Clone, Copy)]
 pub struct CachedFrameInterpolationApply {
     /// ID of the selected rule whose interpolation function should run.
@@ -190,82 +144,6 @@ impl CachedFrameInterpolationApply {
     }
 }
 
-/// Type-erased functions and component access used by frame interpolation.
-///
-/// This is stored as a single optional value on
-/// [`crate::rules::ErasedInterpolationFns`] so frame-specific state is kept
-/// together. The presence of the history and apply callbacks determines which
-/// frame work the rule owns.
-#[derive(Debug, Clone)]
-pub(crate) struct FrameInterpolationFns {
-    pub(crate) history_component_id: Option<ComponentId>,
-    pub(crate) live_component_id: Option<ComponentId>,
-    pub(crate) write_component_ids: Vec<ComponentId>,
-    pub(crate) insert_history: Option<ErasedInsertFrameHistoryFn>,
-    pub(crate) update_history: Option<ErasedUpdateFrameHistoryFn>,
-    pub(crate) restore_history: Option<ErasedRestoreFrameHistoryFn>,
-    pub(crate) apply_interpolation: Option<ErasedApplyFrameInterpolationFn>,
-}
-
-impl FrameInterpolationFns {
-    pub(crate) fn new(
-        history_component_id: Option<ComponentId>,
-        live_component_id: Option<ComponentId>,
-        write_component_ids: Vec<ComponentId>,
-        insert_history: Option<ErasedInsertFrameHistoryFn>,
-        update_history: Option<ErasedUpdateFrameHistoryFn>,
-        restore_history: Option<ErasedRestoreFrameHistoryFn>,
-        apply_interpolation: Option<ErasedApplyFrameInterpolationFn>,
-    ) -> Option<Self> {
-        (history_component_id.is_some()
-            || live_component_id.is_some()
-            || !write_component_ids.is_empty()
-            || insert_history.is_some()
-            || update_history.is_some()
-            || restore_history.is_some()
-            || apply_interpolation.is_some())
-        .then_some(Self {
-            history_component_id,
-            live_component_id,
-            write_component_ids,
-            insert_history,
-            update_history,
-            restore_history,
-            apply_interpolation,
-        })
-    }
-
-    pub(crate) fn owns_history(&self) -> bool {
-        self.history_component_id.is_some()
-            && self.update_history.is_some()
-            && self.restore_history.is_some()
-    }
-
-    pub(crate) fn applies_component(&self) -> bool {
-        self.apply_interpolation.is_some()
-    }
-
-    pub(crate) fn history_component(&self, kind: ComponentKind) -> Option<FrameHistoryComponent> {
-        self.owns_history().then(|| {
-            FrameHistoryComponent::new(
-                kind,
-                self.live_component_id
-                    .expect("frame history requires live component id"),
-                self.history_component_id
-                    .expect("frame history requires history component id"),
-                self.insert_history
-                    .expect("frame history requires insert function"),
-            )
-        })
-    }
-}
-
-pub(crate) fn insert_frame_history<C: SyncComponent>(entity: Entity, commands: &mut Commands) {
-    commands
-        .entity(entity)
-        .try_insert(FrameInterpolationHistory::<C>::default());
-}
-
 /// Records each entity's live `C` into `FrameInterpolationHistory<C>`.
 ///
 /// This runs after fixed updates so `current_value` is the latest fixed-tick
@@ -273,7 +151,7 @@ pub(crate) fn insert_frame_history<C: SyncComponent>(entity: Entity, commands: &
 pub(crate) fn update_frame_history_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
-    component: &CachedFrameInterpolationComponent,
+    component: &CachedFrameInterpolationHistoryComponent,
     deferred_apply: &mut DeferredEntityCommands,
 ) {
     if !component.live_component_present() {
@@ -363,7 +241,7 @@ pub(crate) fn update_frame_history_archetype_erased<C: SyncComponent>(
 pub(crate) fn restore_frame_history_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
-    component: &CachedFrameInterpolationComponent,
+    component: &CachedFrameInterpolationHistoryComponent,
 ) {
     if !component.history_component_present() || !component.live_component_present() {
         return;
@@ -407,8 +285,7 @@ pub(crate) fn restore_frame_history_archetype_erased<C: SyncComponent>(
 
 /// Applies the selected interpolation rule to live `C` for one archetype.
 ///
-/// Missing live components are inserted through deferred commands; existing
-/// components are updated through Bevy's change-detecting mutable access.
+/// Apply ownership guarantees that `C` is present on this archetype.
 pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
@@ -416,7 +293,6 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     rule_id: InterpolationRuleId,
     ctx: FrameInterpolationContext,
     skip_interpolation: bool,
-    deferred_apply: &mut DeferredEntityCommands,
 ) {
     let Some(history_component_id) = world
         .components()
@@ -438,12 +314,7 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     else {
         return;
     };
-    let live_component_present = world
-        .components()
-        .component_id::<C>()
-        .is_some_and(|component_id| archetype.contains(component_id));
-
-    let interpolation = interpolation_registry.interpolation_for_rule::<C>(rule_id);
+    let interpolation = interpolation_registry.interpolation_fn_for_rule::<C>(rule_id);
     for entity in archetype.entities() {
         let row = entity.table_row().index();
         let history = unsafe { &mut *histories.get_unchecked(row).get() };
@@ -463,9 +334,7 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
             );
             history.previous_value = Some(current_value.clone());
             current_value
-        } else if let (Some(previous_value), Some(interpolation)) =
-            (&history.previous_value, interpolation)
-        {
+        } else if let Some(previous_value) = &history.previous_value {
             interpolation.interpolate(
                 previous_value.clone(),
                 current_value,
@@ -489,14 +358,14 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
             overstep = ctx.overstep,
             "applied frame interpolation"
         );
-        if live_component_present {
-            // SAFETY: this erased system declares write access to C, and the
-            // only other live reference here is to FrameInterpolationHistory<C>.
-            unsafe {
-                write_component_with_change_detection::<C>(world, entity.id(), interpolated);
-            }
-        } else {
-            deferred_apply.insert(entity.id(), interpolated);
-        }
+        // SAFETY: apply ownership guarantees that this archetype contains C,
+        // the erased system declares write access to C, and the only other live
+        // reference here is to FrameInterpolationHistory<C>.
+        let written =
+            unsafe { write_component_with_change_detection::<C>(world, entity.id(), interpolated) };
+        debug_assert!(
+            written,
+            "frame interpolation apply ownership requires every live component"
+        );
     }
 }

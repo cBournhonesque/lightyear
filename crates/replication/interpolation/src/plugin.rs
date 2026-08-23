@@ -1,6 +1,6 @@
 use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{apply_interpolation, update_interpolation_history};
-use crate::registry::{InterpolationRegistry, finalize_interpolation_registry};
+use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::{
@@ -64,8 +64,6 @@ impl ToBytes for InterpolationDelay {
     }
 }
 
-// TODO: if Interpolated is added on an existing entity, we need to swap all its existing interpolated components to Confirmed<C>
-
 /// Plugin that enables interpolating between replicated updates received from the remote.
 ///
 /// Each remote update will be stored in a buffer, and the component will smoothly interpolate between two consecutive remote updates.
@@ -117,26 +115,6 @@ pub enum InterpolationSystems {
     All,
 }
 
-/// Backfills `ConfirmedHistory<C>` for registered interpolation rules when
-/// `Interpolated` is added after the live replicated component already exists.
-fn backfill_confirmed_histories_on_interpolated(
-    trigger: On<Add, Interpolated>,
-    interpolation_registry: Res<InterpolationRegistry>,
-    mut commands: Commands,
-) {
-    let Some(archetype) = trigger.trigger().new_archetype else {
-        return;
-    };
-
-    for (live_component_id, history_component_id, backfill) in
-        interpolation_registry.confirmed_history_backfill_fns()
-    {
-        if archetype.contains(live_component_id) && !archetype.contains(history_component_id) {
-            backfill(trigger.entity, &mut commands);
-        }
-    }
-}
-
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
@@ -144,7 +122,6 @@ impl Plugin for InterpolationPlugin {
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
         configure_delayed_interpolated_despawn(app);
-        app.add_observer(backfill_confirmed_histories_on_interpolated);
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();
@@ -169,7 +146,9 @@ impl Plugin for InterpolationPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        finalize_interpolation_registry(app);
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .finalize();
     }
 }
 

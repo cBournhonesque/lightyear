@@ -53,12 +53,7 @@ mod archetypes;
 
 use crate::archetypes::FrameInterpolationWorld;
 use bevy_app::prelude::*;
-use bevy_ecs::{
-    component::{ComponentId, ComponentIdFor},
-    observer::Observer,
-    prelude::*,
-    schedule::common_conditions::not,
-};
+use bevy_ecs::{prelude::*, schedule::common_conditions::not};
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -68,13 +63,10 @@ use bevy_time::{Fixed, Time};
 pub use lightyear_core::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::registry::InterpolationRegistry;
-use lightyear_interpolation::rules::frame_interpolate::{
-    FrameHistoryComponent, FrameInterpolationContext,
-};
+use lightyear_interpolation::rules::frame_interpolate::FrameInterpolationContext;
 use lightyear_replication::ReplicationSystems;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 
 /// System sets used by [`FrameInterpolationPlugin`].
 ///
@@ -109,80 +101,6 @@ pub struct SkipFrameInterpolation;
 pub fn linear_frame_interpolation<C: Ease + Clone>(start: C, end: C, t: f32) -> C {
     let curve = EasingCurve::new(start, end, EaseFunction::Linear);
     curve.sample_unchecked(t)
-}
-
-#[derive(Resource, Debug, Default)]
-struct FrameHistoryComponents {
-    components: SmallVec<[FrameHistoryComponent; 8]>,
-}
-
-/// Ensures every registered `FrameInterpolationHistory<C>` exists when an
-/// entity has both `FrameInterpolate` and the matching live `C`.
-///
-/// This is installed once by [`FrameInterpolationPlugin::finish`]. It watches
-/// `FrameInterpolate` plus every registered live component id that owns frame
-/// history. When `FrameInterpolate` is added, it backfills all matching
-/// histories on the entity. When a watched component is added to an already
-/// frame-interpolated entity, it only checks components from that trigger.
-fn insert_frame_histories_on_frame_interpolate(
-    trigger: On<Add>,
-    frame_history_components: Res<FrameHistoryComponents>,
-    frame_interpolate_id: ComponentIdFor<FrameInterpolate>,
-    mut commands: Commands,
-) {
-    let Some(archetype) = trigger.trigger().new_archetype else {
-        return;
-    };
-    if !archetype.contains(frame_interpolate_id.get()) {
-        return;
-    }
-
-    let added_components = trigger.trigger().components;
-    let frame_interpolate_added = added_components.contains(&frame_interpolate_id.get());
-    for component in &frame_history_components.components {
-        if !frame_interpolate_added && !added_components.contains(&component.live_component_id()) {
-            continue;
-        }
-        if archetype.contains(component.live_component_id())
-            && !archetype.contains(component.history_component_id())
-        {
-            (component.insert_history())(trigger.entity, &mut commands);
-        }
-    }
-}
-
-fn install_frame_history_observer(app: &mut App) {
-    let frame_interpolate_id = app.world_mut().register_component::<FrameInterpolate>();
-    let components = {
-        let registry = app.world().resource::<InterpolationRegistry>();
-        let mut components = SmallVec::<[FrameHistoryComponent; 8]>::new();
-        for component in registry.frame_history_components() {
-            if !components
-                .iter()
-                .any(|existing: &FrameHistoryComponent| existing.kind() == component.kind())
-            {
-                components.push(component);
-            }
-        }
-        components
-    };
-    if components.is_empty() {
-        return;
-    }
-
-    let mut watched_components = SmallVec::<[ComponentId; 8]>::new();
-    watched_components.push(frame_interpolate_id);
-    watched_components.extend(
-        components
-            .iter()
-            .map(FrameHistoryComponent::live_component_id),
-    );
-    app.world_mut()
-        .insert_resource(FrameHistoryComponents { components });
-    app.world_mut().spawn(
-        Observer::new(insert_frame_histories_on_frame_interpolate)
-            .with_components(watched_components),
-    );
 }
 
 /// Bevy plugin that enables type-erased frame interpolation.
@@ -258,7 +176,9 @@ impl Plugin for FrameInterpolationPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        install_frame_history_observer(app);
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .finalize();
     }
 }
 
@@ -269,7 +189,7 @@ pub(crate) fn restore_frame_interpolation(
     frame_world.update_archetypes(&interpolation_registry);
     let world = frame_world.world;
     for (archetype, cached_archetype) in frame_world.iter_archetypes() {
-        for component in cached_archetype.history_components() {
+        for component in &cached_archetype.history_components {
             (component.restore_frame_history())(world, archetype, component);
         }
     }
@@ -285,7 +205,7 @@ pub(crate) fn update_frame_interpolation_histories(
     frame_world.update_archetypes(&interpolation_registry);
     let world = frame_world.world;
     for (archetype, cached_archetype) in frame_world.iter_archetypes() {
-        for component in cached_archetype.history_components() {
+        for component in &cached_archetype.history_components {
             (component.update_frame_history())(world, archetype, component, &mut deferred_apply);
         }
     }
@@ -297,9 +217,7 @@ pub(crate) fn apply_frame_interpolation(
     time: Res<Time<Fixed>>,
     mut frame_world: FrameInterpolationWorld,
     interpolation_registry: Res<InterpolationRegistry>,
-    mut commands: Commands,
 ) {
-    let mut deferred_apply = DeferredEntityCommands::default();
     let ctx = FrameInterpolationContext {
         overstep: time.overstep_fraction().clamp(0.0, 1.0),
         sample_delta_secs: Some(time.timestep().as_secs_f32()),
@@ -308,20 +226,17 @@ pub(crate) fn apply_frame_interpolation(
     frame_world.update_archetypes(&interpolation_registry);
     let world = frame_world.world;
     for (archetype, cached_archetype) in frame_world.iter_archetypes() {
-        for component in cached_archetype.apply_rules() {
+        for component in &cached_archetype.apply_callbacks {
             (component.apply_frame_interpolation())(
                 world,
                 archetype,
                 &interpolation_registry,
                 component.rule_id(),
                 ctx,
-                cached_archetype.skip_interpolation(),
-                &mut deferred_apply,
+                cached_archetype.skip_interpolation,
             );
         }
     }
-
-    deferred_apply.apply(&mut commands);
 }
 
 /// Common frame interpolation exports.
@@ -338,7 +253,6 @@ pub mod prelude {
 mod unit_tests {
     use super::*;
     use bevy_app::{App, FixedPostUpdate, PostUpdate, RunFixedMainLoop};
-    use bevy_ecs::observer::Observer;
     use bevy_replicon::prelude::RepliconSharedPlugin;
     use bevy_state::app::StatesPlugin;
     use core::time::Duration;
@@ -356,6 +270,9 @@ mod unit_tests {
 
     #[derive(Component, Clone, Debug, PartialEq)]
     struct FrameB(f32);
+
+    #[derive(Component)]
+    struct DisabledFrameHistory;
 
     #[derive(Component, Clone, Debug, PartialEq)]
     #[component(storage = "SparseSet")]
@@ -394,8 +311,22 @@ mod unit_tests {
         )
     }
 
+    /// Checks that rule registration is rejected after the frame plugin finalizes the registry.
     #[test]
-    fn frame_history_observer_inserts_history_when_frame_interpolate_is_added() {
+    #[should_panic(
+        expected = "cannot register interpolation rules after InterpolationRegistry has been finalized"
+    )]
+    fn frame_plugin_rejects_late_rule_registration() {
+        let mut app = App::new();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.finish();
+
+        app.interpolate_with::<FrameA>(InterpolationFns::disabled());
+    }
+
+    /// Checks that adding `FrameInterpolate` later initializes existing component history.
+    #[test]
+    fn frame_update_inserts_history_when_frame_interpolate_is_added() {
         let mut app = App::new();
         app.add_plugins(FrameInterpolationPlugin);
         app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
@@ -411,6 +342,7 @@ mod unit_tests {
         );
 
         app.world_mut().entity_mut(entity).insert(FrameInterpolate);
+        app.world_mut().run_schedule(FixedPostUpdate);
 
         assert!(
             app.world()
@@ -419,8 +351,9 @@ mod unit_tests {
         );
     }
 
+    /// Checks that adding a registered component later initializes its frame history.
     #[test]
-    fn frame_history_observer_inserts_history_when_component_is_added() {
+    fn frame_update_inserts_history_when_component_is_added() {
         let mut app = App::new();
         app.add_plugins(FrameInterpolationPlugin);
         app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
@@ -436,6 +369,7 @@ mod unit_tests {
         );
 
         app.world_mut().entity_mut(entity).insert(FrameA(1.0));
+        app.world_mut().run_schedule(FixedPostUpdate);
 
         assert!(
             app.world()
@@ -444,8 +378,9 @@ mod unit_tests {
         );
     }
 
+    /// Checks that spawning the marker and component together initializes frame history.
     #[test]
-    fn frame_history_observer_inserts_history_when_both_are_spawned() {
+    fn frame_update_inserts_history_when_both_are_spawned() {
         let mut app = App::new();
         app.add_plugins(FrameInterpolationPlugin);
         app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
@@ -454,6 +389,7 @@ mod unit_tests {
         app.finish();
 
         let entity = app.world_mut().spawn((FrameA(1.0), FrameInterpolate)).id();
+        app.world_mut().run_schedule(FixedPostUpdate);
 
         assert!(
             app.world()
@@ -462,8 +398,36 @@ mod unit_tests {
         );
     }
 
+    /// Checks that a winning disabled rule blocks lower-priority frame-history creation.
     #[test]
-    fn frame_history_observer_is_shared_by_registered_components() {
+    fn disabled_winner_does_not_insert_lower_rule_frame_history() {
+        let mut app = App::new();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.interpolate_with_priority_filtered::<FrameA, With<DisabledFrameHistory>>(
+            100,
+            InterpolationFns::disabled(),
+        );
+        app.finish();
+
+        let entity = app
+            .world_mut()
+            .spawn((FrameA(1.0), DisabledFrameHistory, FrameInterpolate))
+            .id();
+        app.world_mut().run_schedule(FixedPostUpdate);
+
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_none()
+        );
+    }
+
+    /// Checks that every component owned by winning rules receives frame history.
+    #[test]
+    fn frame_update_initializes_all_histories_for_the_winning_rules() {
         let mut app = App::new();
         app.add_plugins(FrameInterpolationPlugin);
         app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
@@ -474,17 +438,11 @@ mod unit_tests {
         }));
         app.finish();
 
-        let observer_count = app
-            .world_mut()
-            .query::<&Observer>()
-            .iter(app.world())
-            .count();
-        assert_eq!(observer_count, 1);
-
         let entity = app
             .world_mut()
             .spawn((FrameA(1.0), FrameB(2.0), FrameInterpolate))
             .id();
+        app.world_mut().run_schedule(FixedPostUpdate);
 
         assert!(
             app.world()
@@ -507,6 +465,7 @@ mod unit_tests {
             .accumulate_overstep(Duration::from_millis(500));
         app.add_plugins(FrameInterpolationPlugin);
         app.interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::no_history(bundle_lerp));
+        app.finish();
 
         let entity = app
             .world_mut()
@@ -560,6 +519,43 @@ mod unit_tests {
         );
     }
 
+    /// Checks that a bundle can own histories while a component rule applies the live member.
+    #[test]
+    fn frame_bundle_maintains_history_while_component_rule_applies_to_live_member() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::no_history(bundle_lerp));
+        app.finish();
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(0.0)),
+                    current_value: Some(FrameA(10.0)),
+                },
+                FrameInterpolationHistory::<FrameB> {
+                    previous_value: Some(FrameB(0.0)),
+                    current_value: Some(FrameB(20.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(5.0)));
+        assert!(!app.world().entity(entity).contains::<FrameB>());
+    }
+
     #[test]
     fn frame_bundle_interpolation_receives_fixed_timestep() {
         let mut app = App::new();
@@ -571,6 +567,7 @@ mod unit_tests {
         app.interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::no_history_with_context(
             bundle_context_lerp,
         ));
+        app.finish();
 
         let entity = app
             .world_mut()
@@ -606,12 +603,13 @@ mod unit_tests {
         app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
             FrameA(10.0 + start.0 + (end.0 - start.0) * t)
         }));
+        app.finish();
 
         assert!(
             app.world()
                 .components()
                 .component_id::<ConfirmedHistory<FrameA>>()
-                .is_none()
+                .is_some()
         );
 
         let entity = app
@@ -664,6 +662,7 @@ mod unit_tests {
             InterpolationFns::history_only()
                 .interpolate(|start, end, t| FrameA(20.0 + start.0 + (end.0 - start.0) * t)),
         );
+        app.finish();
 
         assert!(
             app.world()
@@ -706,6 +705,7 @@ mod unit_tests {
                 FrameA(20.0 + start.0 + (end.0 - start.0) * t)
             }),
         );
+        app.finish();
 
         let entity = app
             .world_mut()
@@ -735,6 +735,7 @@ mod unit_tests {
         app.interpolate_with::<SparseFrame>(InterpolationFns::no_history(|start, end, t| {
             SparseFrame(start.0 + (end.0 - start.0) * t)
         }));
+        app.finish();
 
         let entity = app
             .world_mut()
@@ -798,6 +799,7 @@ mod unit_tests {
             PostUpdate,
             observe_frame_interpolation_changes.after(FrameInterpolationSystems::Interpolate),
         );
+        app.finish();
 
         app.world_mut().spawn((
             FrameInterpolate,

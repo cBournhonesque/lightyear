@@ -10,20 +10,26 @@ use bevy_ecs::{
     world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
 use bevy_platform::collections::HashMap;
-use lightyear_interpolation::registry::InterpolationRegistry;
-use lightyear_interpolation::rules::frame_interpolate::{
-    CachedFrameInterpolationApply, CachedFrameInterpolationComponent,
+use lightyear_interpolation::registry::{
+    InterpolationArchetypeKey, InterpolationRegistry, RuleResolutionScratch, RuleTarget,
 };
-use lightyear_interpolation::rules::{InterpolationRuleId, RuleKind};
+use lightyear_interpolation::rules::frame_interpolate::{
+    CachedFrameInterpolationApply, CachedFrameInterpolationHistoryComponent,
+};
 
-/// Cached frame interpolation rules selected for each archetype with [`FrameInterpolate`].
+/// Frame interpolation policies shared by resolution-equivalent archetypes.
+///
+/// Each policy stores all archetype IDs whose rule members, frame histories,
+/// filters, and [`SkipFrameInterpolation`] presence are the same.
 #[doc(hidden)]
 pub struct FrameInterpolatedArchetypes {
     generation: ArchetypeGeneration,
-    rule_count: usize,
     frame_interpolate_component_id: ComponentId,
     skip_frame_interpolation_component_id: ComponentId,
-    archetypes: Vec<CachedFrameInterpolatedArchetype>,
+    policies: Vec<CachedFrameInterpolationPolicy>,
+    policy_ids: HashMap<InterpolationArchetypeKey, usize>,
+    key_scratch: InterpolationArchetypeKey,
+    resolution_scratch: RuleResolutionScratch,
 }
 
 /// System param exposing cached frame interpolation archetypes and a low-level world cell.
@@ -43,14 +49,19 @@ impl FrameInterpolationWorld<'_, '_> {
     ) -> impl Iterator<
         Item = (
             &bevy_ecs::archetype::Archetype,
-            &CachedFrameInterpolatedArchetype,
+            &CachedFrameInterpolationPolicy,
         ),
     > {
-        self.state.iter().filter_map(|cached_archetype| {
-            self.world
-                .archetypes()
-                .get(cached_archetype.id())
-                .map(|archetype| (archetype, cached_archetype))
+        self.state.policies.iter().flat_map(move |policy| {
+            policy
+                .archetype_ids
+                .iter()
+                .filter_map(move |&archetype_id| {
+                    self.world
+                        .archetypes()
+                        .get(archetype_id)
+                        .map(|archetype| (archetype, policy))
+                })
         })
     }
 }
@@ -96,134 +107,137 @@ impl FromWorld for FrameInterpolatedArchetypes {
     fn from_world(world: &mut World) -> Self {
         Self {
             generation: ArchetypeGeneration::initial(),
-            rule_count: 0,
             frame_interpolate_component_id: world.register_component::<FrameInterpolate>(),
             skip_frame_interpolation_component_id: world
                 .register_component::<SkipFrameInterpolation>(),
-            archetypes: Vec::new(),
+            policies: Vec::new(),
+            policy_ids: HashMap::default(),
+            key_scratch: InterpolationArchetypeKey::default(),
+            resolution_scratch: RuleResolutionScratch::default(),
         }
     }
 }
 
 impl FrameInterpolatedArchetypes {
-    pub(crate) fn clear(&mut self) {
-        self.generation = ArchetypeGeneration::initial();
-        self.archetypes.clear();
-    }
-
+    /// Assigns newly-created frame-interpolated archetypes to shared policies.
+    ///
+    /// Components that cannot affect frame rule resolution are omitted from
+    /// the key, so adding one does not duplicate the callback vectors.
     pub(crate) fn update(
         &mut self,
         archetypes: &Archetypes,
         components: &Components,
         registry: &InterpolationRegistry,
     ) {
-        let rule_count = registry.rule_count();
-        if self.rule_count != rule_count {
-            self.clear();
-            self.rule_count = rule_count;
-        }
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
         for archetype in archetypes[old_generation..]
             .iter()
             .filter(|archetype| archetype.contains(self.frame_interpolate_component_id))
         {
-            let mut cached = CachedFrameInterpolatedArchetype::new(
-                archetype.id(),
-                archetype.contains(self.skip_frame_interpolation_component_id),
-            );
-            for kind in registry.rule_kinds() {
-                if let Some(rule_id) =
-                    registry.select_rule_for_archetype(components, archetype, kind)
-                {
-                    cached.selected_rules.insert(kind, rule_id);
-                    if let Some(component) =
-                        registry.cached_frame_history_component(components, archetype, rule_id)
+            registry.populate_archetype_key(archetype, RuleTarget::Frame, &mut self.key_scratch);
+            self.key_scratch
+                .include_if_present(archetype, self.skip_frame_interpolation_component_id);
+            if let Some(&policy_id) = self.policy_ids.get(&self.key_scratch) {
+                self.policies[policy_id].archetype_ids.push(archetype.id());
+            } else {
+                let rules = registry.resolved_rules_for_archetype(
+                    components,
+                    archetype,
+                    RuleTarget::Frame,
+                    &mut self.resolution_scratch,
+                );
+                let mut history_components = Vec::new();
+                let mut apply_callbacks = Vec::new();
+                for resolved in rules {
+                    let rule = registry.rule(resolved.rule_id);
+                    if resolved.owns_history {
+                        history_components.extend(rule.cached_frame_history_components(archetype));
+                    }
+                    if resolved.owns_apply
+                        && let Some(callback) = rule.cached_frame_apply(resolved.rule_id)
                     {
-                        cached.history_components.push(component);
+                        apply_callbacks.push(callback);
                     }
                 }
+                let policy_id = self.policies.len();
+                self.policies.push(CachedFrameInterpolationPolicy {
+                    archetype_ids: alloc::vec![archetype.id()],
+                    skip_interpolation: archetype
+                        .contains(self.skip_frame_interpolation_component_id),
+                    history_components,
+                    apply_callbacks,
+                });
+                self.policy_ids.insert(self.key_scratch.clone(), policy_id);
             }
-            cached.resolve_apply_rules(registry);
-            self.archetypes.push(cached);
         }
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &CachedFrameInterpolatedArchetype> {
-        self.archetypes.iter()
-    }
-}
-
-/// Cached frame interpolation policy for one archetype containing [`FrameInterpolate`].
-pub(crate) struct CachedFrameInterpolatedArchetype {
-    id: ArchetypeId,
-    skip_interpolation: bool,
-    selected_rules: HashMap<RuleKind, InterpolationRuleId>,
-    history_components: Vec<CachedFrameInterpolationComponent>,
-    apply_rules: Vec<CachedFrameInterpolationApply>,
-}
-
-impl CachedFrameInterpolatedArchetype {
-    fn new(id: ArchetypeId, skip_interpolation: bool) -> Self {
-        Self {
-            id,
-            skip_interpolation,
-            selected_rules: HashMap::default(),
-            history_components: Vec::new(),
-            apply_rules: Vec::new(),
-        }
-    }
-
-    pub(crate) fn id(&self) -> ArchetypeId {
-        self.id
-    }
-
-    pub(crate) fn skip_interpolation(&self) -> bool {
-        self.skip_interpolation
-    }
-
-    pub(crate) fn history_components(&self) -> &[CachedFrameInterpolationComponent] {
-        &self.history_components
-    }
-
-    pub(crate) fn apply_rules(&self) -> &[CachedFrameInterpolationApply] {
-        &self.apply_rules
-    }
-
-    fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
-        self.apply_rules.clear();
-
-        // `selected_rules` already contains the matching rule for each rule
-        // kind on this archetype. Those kinds can overlap: for an archetype
-        // with components `A` and `B`, we can have selected rules for `A`, `B`,
-        // and `(A, B)`.
-        //
-        // This pass walks the selected rules by priority and lets each rule
-        // claim all of its member components. Once a component is claimed, lower
-        // priority rules that also touch it are skipped, so every component is
-        // covered by at most one selected apply rule.
-        let mut candidates = self
-            .selected_rules
+    #[cfg(test)]
+    fn archetype_count(&self) -> usize {
+        self.policies
             .iter()
-            .filter_map(|(&kind, &rule_id)| registry.rule(rule_id).map(|_| (kind, rule_id)))
-            .collect::<Vec<_>>();
-        candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
+            .map(|policy| policy.archetype_ids.len())
+            .sum()
+    }
+}
 
-        let mut claimed_members = Vec::new();
-        for (_, rule_id) in candidates {
-            let Some(rule) = registry.rule(rule_id) else {
-                continue;
-            };
-            if rule
-                .members()
-                .iter()
-                .any(|member| claimed_members.contains(member))
-            {
-                continue;
-            }
-            claimed_members.extend(rule.members().iter().copied());
-            if let Some(component) = registry.cached_frame_apply_component(rule_id) {
-                self.apply_rules.push(component);
-            }
-        }
+/// Frame interpolation policy shared by archetypes with the same relevant components.
+pub(crate) struct CachedFrameInterpolationPolicy {
+    /// Archetypes whose relevant component presence resolves to this policy.
+    archetype_ids: Vec<ArchetypeId>,
+    pub(crate) skip_interpolation: bool,
+    pub(crate) history_components: Vec<CachedFrameInterpolationHistoryComponent>,
+    pub(crate) apply_callbacks: Vec<CachedFrameInterpolationApply>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_app::App;
+    use lightyear_interpolation::registry::AppInterpolationExt;
+    use lightyear_interpolation::rules::InterpolationFns;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct Value(f32);
+
+    #[derive(Component)]
+    struct Unrelated;
+
+    fn lerp(start: Value, end: Value, t: f32) -> Value {
+        Value(start.0 + (end.0 - start.0) * t)
+    }
+
+    /// Checks that frame policies ignore unrelated components but distinguish skip markers.
+    #[test]
+    fn frame_policies_use_only_resolution_relevant_component_presence() {
+        let mut app = App::new();
+        app.interpolate_with::<Value>(InterpolationFns::no_history(lerp));
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .finalize();
+
+        app.world_mut().spawn((FrameInterpolate, Value(1.0)));
+        app.world_mut()
+            .spawn((FrameInterpolate, Value(2.0), Unrelated));
+        app.world_mut()
+            .spawn((FrameInterpolate, Value(3.0), SkipFrameInterpolation));
+
+        let mut cache = FrameInterpolatedArchetypes::from_world(app.world_mut());
+        let world = app.world();
+        cache.update(
+            world.archetypes(),
+            world.components(),
+            world.resource::<InterpolationRegistry>(),
+        );
+
+        assert_eq!(cache.archetype_count(), 3);
+        assert_eq!(cache.policies.len(), 2);
+        let mut archetypes_per_policy = cache
+            .policies
+            .iter()
+            .map(|policy| policy.archetype_ids.len())
+            .collect::<Vec<_>>();
+        archetypes_per_policy.sort_unstable();
+        assert_eq!(archetypes_per_policy, [1, 2]);
     }
 }

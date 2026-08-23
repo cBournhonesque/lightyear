@@ -237,12 +237,12 @@ impl Plugin for LightyearAvianPlugin {
         Self::install_position_to_transform_markers(app);
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
-                if self.register_physics_components
-                    && app.world().contains_resource::<ComponentRegistry>()
-                {
-                    Self::register_position_mode_components(app);
+                if self.register_physics_components {
+                    if app.world().contains_resource::<ComponentRegistry>() {
+                        Self::register_position_mode_components(app);
+                    }
+                    Self::add_position_rotation_hermite_rule(app);
                 }
-                Self::add_position_rotation_hermite_rule(app);
                 if !self.update_syncs_manually {
                     let mut config = app.world_mut().resource_mut::<PhysicsTransformConfig>();
                     config.position_to_transform = true;
@@ -1219,7 +1219,6 @@ mod tests {
             FrameInterpolationPlugin,
             LightyearAvianPlugin {
                 update_syncs_manually: true,
-                register_physics_components: false,
                 ..Default::default()
             },
         ));
@@ -1307,6 +1306,7 @@ mod tests {
     #[test]
     fn position_mode_writes_frame_interpolated_pose_to_transform() {
         let mut app = App::new();
+        app.init_resource::<Time>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
         app.add_plugins((
             PhysicsSchedulePlugin::default(),
@@ -1332,6 +1332,9 @@ mod tests {
                 FrameInterpolate,
             ))
             .id();
+
+        // Frame histories are initialized by the fixed-post-update cache pass.
+        app.world_mut().run_schedule(FixedPostUpdate);
 
         // Warm up Avian's Changed<Position> filter so the next write must be detected from
         // frame interpolation rather than from the component's spawn tick.
@@ -1390,13 +1393,18 @@ mod tests {
                 Transform::from_xyz(10.0, 20.0, 0.0),
                 GlobalTransform::default(),
                 FrameInterpolate,
-                FrameInterpolationHistory::<Position> {
-                    previous_value: Some(Position::default()),
-                    current_value: Some(canonical_position),
-                },
             ))
             .id();
 
+        // Frame histories are initialized by the fixed-post-update cache pass.
+        app.world_mut().run_schedule(FixedPostUpdate);
+        *app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<FrameInterpolationHistory<Position>>()
+            .unwrap() = FrameInterpolationHistory {
+            previous_value: Some(Position::default()),
+            current_value: Some(canonical_position),
+        };
         seed_stationary_hermite_histories(&mut app, entity, true);
 
         // PostUpdate leaves the interpolated visual pose in both Position and Transform.
@@ -1597,6 +1605,7 @@ mod tests_3d {
     #[test]
     fn position_mode_writes_frame_interpolated_pose_to_transform() {
         let mut app = App::new();
+        app.init_resource::<Time>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
         app.add_plugins((
             PhysicsSchedulePlugin::default(),
@@ -1622,6 +1631,9 @@ mod tests_3d {
                 FrameInterpolate,
             ))
             .id();
+
+        // Frame histories are initialized by the fixed-post-update cache pass.
+        app.world_mut().run_schedule(FixedPostUpdate);
 
         // Warm up Avian's Changed<Position> filter so the next write must be detected from
         // frame interpolation rather than from the component's spawn tick.
@@ -1680,13 +1692,18 @@ mod tests_3d {
                 Transform::from_xyz(10.0, 20.0, 30.0),
                 GlobalTransform::default(),
                 FrameInterpolate,
-                FrameInterpolationHistory::<Position> {
-                    previous_value: Some(Position::default()),
-                    current_value: Some(canonical_position),
-                },
             ))
             .id();
 
+        // Frame histories are initialized by the fixed-post-update cache pass.
+        app.world_mut().run_schedule(FixedPostUpdate);
+        *app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<FrameInterpolationHistory<Position>>()
+            .unwrap() = FrameInterpolationHistory {
+            previous_value: Some(Position::default()),
+            current_value: Some(canonical_position),
+        };
         seed_stationary_hermite_histories(&mut app, entity, true);
 
         app.world_mut().run_schedule(PostUpdate);
