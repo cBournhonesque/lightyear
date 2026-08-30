@@ -1,11 +1,13 @@
+use crate::archetypes::{CachedDiffComponent, CachedPredictionComponent};
 use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::{SyncComponent, correction};
 use bevy_app::App;
+use bevy_ecs::archetype::{Archetype, ArchetypeEntity};
 use bevy_ecs::component::{ComponentId, Mutable};
 use bevy_ecs::prelude::*;
 use bevy_ecs::ptr::PtrMut;
-use bevy_ecs::world::FilteredEntityMut;
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -22,10 +24,11 @@ use core::fmt::Debug;
 use indexmap::IndexMap;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prediction::Predicted;
-use lightyear_core::prelude::ConfirmedHistory;
+use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory};
 use lightyear_core::tick::Tick;
 use lightyear_frame_interpolation::FrameInterpolationPlugin;
 use lightyear_replication::checkpoint::resolve_message_tick;
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::diffable::Diffable;
 use lightyear_replication::prelude::{PreSpawned, PredictedSend};
@@ -33,6 +36,7 @@ use lightyear_replication::registry::replication::{
     AppComponentExt, ComponentRegistration, ComponentRegistrator,
 };
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
+use lightyear_utils::ecs::{get_component_unchecked, get_component_unchecked_mut};
 #[cfg(feature = "metrics")]
 use std::sync::OnceLock;
 use tracing::{debug, error, trace, trace_span};
@@ -44,10 +48,8 @@ fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
 
 #[derive(Debug, Clone)]
 pub struct PredictionMetadata {
-    /// Id of the [`PredictionHistory<C>`] component
-    pub prediction_history_id: ComponentId,
-    /// Id of the [`ConfirmedHistory<C>`] component
-    pub confirmed_history_id: ComponentId,
+    /// Rollback metadata shared by networked prediction and local rollback.
+    pub rollback: RollbackMetadata,
     /// store `PreviousVisual<C>`, but the user owns the actual correction logic.
     pub(crate) custom_correction: bool,
     /// Type-erased handlers used by the generic post-rollback correction system.
@@ -61,14 +63,64 @@ pub struct PredictionMetadata {
     /// Will default to a PartialEq::ne implementation, but can be overridden.
     pub(crate) should_rollback: unsafe fn(),
     pub(crate) check_rollback: CheckRollbackFn,
+    /// Type-erased rollback replay snap for components with full prediction enabled.
+    pub(crate) snap_to_confirmed: Option<SnapToConfirmedFn>,
     /// For a diff-replicated component on one entity, returns its earliest unresolved diff tick at
     /// or before a candidate completed checkpoint.
     pub(crate) pending_diff_tick: Option<PendingDiffTickFn>,
+    /// Type-erased pruning for the diff receiver associated with this component.
+    pub(crate) prune_history_diff_receiver: Option<PruneHistoryDiffReceiverFn>,
     #[cfg(feature = "metrics")]
     metric_handles: PredictionMetricHandles,
     #[cfg(feature = "deterministic")]
     /// Function to hash the value in [`PredictionHistory<C>`] at a given tick.
     pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
+}
+
+/// Type-erased rollback preparation metadata shared by networked and local-only components.
+#[derive(Debug, Clone)]
+pub struct RollbackMetadata {
+    /// Id of the [`PredictionHistory<C>`] component.
+    pub prediction_history_id: ComponentId,
+    /// Id of the [`ConfirmedHistory<C>`] component.
+    pub confirmed_history_id: ComponentId,
+    pub(crate) frame_interpolation_history_id: ComponentId,
+    pub(crate) prepare_rollback: PrepareRollbackFn,
+    pub(crate) update_frame_interpolation_post_rollback: UpdateFrameInterpolationPostRollbackFn,
+}
+
+impl RollbackMetadata {
+    fn new<C: Component<Mutability = Mutable> + Clone>(
+        prediction_history_id: ComponentId,
+        confirmed_history_id: ComponentId,
+        frame_interpolation_history_id: ComponentId,
+    ) -> Self {
+        Self {
+            prediction_history_id,
+            confirmed_history_id,
+            frame_interpolation_history_id,
+            prepare_rollback: crate::rollback::prepare_rollback_component::<C>,
+            update_frame_interpolation_post_rollback:
+                crate::correction::update_frame_interpolation_post_rollback_component::<C>,
+        }
+    }
+}
+
+pub(crate) fn register_rollback_metadata<C: Component<Mutability = Mutable> + Clone>(
+    app: &mut App,
+    prediction_history_id: ComponentId,
+    confirmed_history_id: ComponentId,
+) {
+    let frame_interpolation_history_id = app
+        .world_mut()
+        .register_component::<FrameInterpolationHistory<C>>();
+    app.world_mut()
+        .resource_mut::<PredictionRegistry>()
+        .register_rollback::<C>(
+            prediction_history_id,
+            confirmed_history_id,
+            frame_interpolation_history_id,
+        );
 }
 
 #[cfg(feature = "metrics")]
@@ -131,11 +183,42 @@ impl PredictionMetadata {
 
 /// Function that will check if we should do a rollback by comparing the confirmed component value
 /// with the predicted component's history.
-type CheckRollbackFn = unsafe fn(
+pub(crate) type CheckRollbackFn = unsafe fn(
     &PredictionRegistry,
     confirmed_tick: Tick,
-    entity_mut: &mut FilteredEntityMut,
+    world: UnsafeWorldCell,
+    archetype: &Archetype,
+    entity: &ArchetypeEntity,
+    component: &CachedPredictionComponent,
 ) -> bool;
+
+/// Type-erased rollback preparation for one component column in one archetype.
+pub(crate) type PrepareRollbackFn = unsafe fn(
+    UnsafeWorldCell,
+    &Archetype,
+    &CachedPredictionComponent,
+    Tick,
+    Tick,
+    bool,
+    &mut DeferredEntityCommands,
+);
+
+/// Type-erased rollback replay snap for one component column in one archetype.
+pub(crate) type SnapToConfirmedFn = unsafe fn(
+    UnsafeWorldCell,
+    &Archetype,
+    &CachedPredictionComponent,
+    Tick,
+    &mut DeferredEntityCommands,
+);
+
+/// Type-erased post-rollback repair for one frame-history column in one archetype.
+pub(crate) type UpdateFrameInterpolationPostRollbackFn =
+    unsafe fn(UnsafeWorldCell, &Archetype, &CachedPredictionComponent, Tick);
+
+/// Type-erased diff receiver pruning for one confirmed-history column in one archetype.
+pub(crate) type PruneHistoryDiffReceiverFn =
+    unsafe fn(UnsafeWorldCell, &Archetype, &CachedDiffComponent, Tick, &mut ReplicationStorage);
 
 /// Type-erased pending-diff lookup for one predicted diff component on one entity.
 pub(crate) type PendingDiffTickFn = fn(&ReplicationStorage, Tick, Entity) -> Option<Tick>;
@@ -148,14 +231,10 @@ pub(crate) type PendingDiffTickFn = fn(&ReplicationStorage, Tick, Entity) -> Opt
 pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn()) -> bool;
 
 impl PredictionMetadata {
-    fn new<C: SyncComponent>(
-        prediction_history_id: ComponentId,
-        confirmed_history_id: ComponentId,
-    ) -> Self {
+    fn new<C: SyncComponent>(rollback: RollbackMetadata) -> Self {
         let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
-            prediction_history_id,
-            confirmed_history_id,
+            rollback,
             custom_correction: false,
             correction: None,
             should_rollback: unsafe {
@@ -164,7 +243,9 @@ impl PredictionMetadata {
                 )
             },
             check_rollback: PredictionRegistry::check_rollback_at_completed_checkpoint::<C>,
+            snap_to_confirmed: None,
             pending_diff_tick: None,
+            prune_history_diff_receiver: None,
             #[cfg(feature = "metrics")]
             metric_handles: PredictionMetricHandles::default(),
             #[cfg(feature = "deterministic")]
@@ -184,18 +265,54 @@ pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 pub struct PredictionRegistry {
     /// Predicted components in registration order.
     pub prediction_map: IndexMap<ComponentKind, PredictionMetadata>,
+    /// Rollback-only components that do not have network prediction metadata.
+    local_rollback_map: IndexMap<ComponentKind, RollbackMetadata>,
 }
 
 impl PredictionRegistry {
-    fn register<C: SyncComponent>(
+    pub(crate) fn register<C: SyncComponent>(&mut self) {
+        let kind = ComponentKind::of::<C>();
+        if self.prediction_map.contains_key(&kind) {
+            return;
+        }
+        let rollback = self
+            .local_rollback_map
+            .shift_remove(&kind)
+            .expect("rollback metadata should be registered before prediction metadata");
+        self.prediction_map
+            .insert(kind, PredictionMetadata::new::<C>(rollback));
+    }
+
+    pub(crate) fn register_rollback<C: Component<Mutability = Mutable> + Clone>(
         &mut self,
         prediction_history_id: ComponentId,
         confirmed_history_id: ComponentId,
+        frame_interpolation_history_id: ComponentId,
     ) {
         let kind = ComponentKind::of::<C>();
-        self.prediction_map.entry(kind).or_insert_with(|| {
-            PredictionMetadata::new::<C>(prediction_history_id, confirmed_history_id)
+        if self.prediction_map.contains_key(&kind) {
+            return;
+        }
+        self.local_rollback_map.entry(kind).or_insert_with(|| {
+            RollbackMetadata::new::<C>(
+                prediction_history_id,
+                confirmed_history_id,
+                frame_interpolation_history_id,
+            )
         });
+    }
+
+    pub(crate) fn rollback_metadata(
+        &self,
+    ) -> impl Iterator<Item = (ComponentKind, &RollbackMetadata)> {
+        self.prediction_map
+            .iter()
+            .map(|(kind, metadata)| (*kind, &metadata.rollback))
+            .chain(
+                self.local_rollback_map
+                    .iter()
+                    .map(|(kind, metadata)| (*kind, metadata)),
+            )
     }
 
     fn set_should_rollback<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>) {
@@ -211,17 +328,29 @@ impl PredictionRegistry {
         };
     }
 
-    fn set_pending_diff_tick<C: SyncComponent + RepliconDiffable>(&mut self) {
-        self.prediction_map
+    pub(crate) fn set_pending_diff_tick<C: SyncComponent + RepliconDiffable>(&mut self) {
+        let metadata = self
+            .prediction_map
             .get_mut(&ComponentKind::of::<C>())
             .expect(
                 "The component has not been registered for prediction. Did you call `.predict_diff()`?",
-            )
-            .pending_diff_tick = Some(|storage, candidate, entity| {
+            );
+        metadata.pending_diff_tick = Some(|storage, candidate, entity| {
             storage
                 .get::<HistoryDiffReceiver<C>>(entity)
                 .and_then(|receiver| receiver.earliest_pending_tick_at_or_before(candidate))
         });
+        metadata.prune_history_diff_receiver =
+            Some(crate::predicted_history::prune_history_diff_receiver_component::<C>);
+    }
+
+    pub(crate) fn set_snap_to_confirmed<C: SyncComponent>(&mut self) {
+        self.prediction_map
+            .get_mut(&ComponentKind::of::<C>())
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            )
+            .snap_to_confirmed = Some(crate::predicted_history::snap_to_confirmed_component::<C>);
     }
 
     fn custom_correction<C: SyncComponent>(&mut self) {
@@ -388,21 +517,35 @@ impl PredictionRegistry {
     unsafe fn check_rollback_at_completed_checkpoint<C: SyncComponent>(
         &self,
         confirmed_tick: Tick,
-        entity_mut: &mut FilteredEntityMut,
+        world: UnsafeWorldCell,
+        archetype: &Archetype,
+        entity: &ArchetypeEntity,
+        component: &CachedPredictionComponent,
     ) -> bool {
-        let entity = entity_mut.id();
+        let entity_id = entity.id();
         let name = DebugName::type_name::<C>();
         let _span = trace_span!(
             "check_rollback_at_completed_checkpoint",
             ?name,
-            %entity,
+            entity = %entity_id,
             ?confirmed_tick
         )
         .entered();
         let confirmed_value = {
-            let Some(mut component_history) = entity_mut.get_mut::<ConfirmedHistory<C>>() else {
-                // No confirmed history means no authoritative value to compare against.
-                return false;
+            let confirmed_storage = component
+                .confirmed_history_storage
+                .expect("rollback-check cache requires confirmed history");
+            // SAFETY: the archetype cache proves that this entity contains ConfirmedHistory<C>
+            // with this component id and storage, and the system declares unique access to it.
+            let component_history = unsafe {
+                get_component_unchecked_mut(
+                    world,
+                    entity,
+                    archetype.table_id(),
+                    confirmed_storage,
+                    component.confirmed_history_id,
+                )
+                .deref_mut::<ConfirmedHistory<C>>()
             };
 
             let Some(last_confirmed_state) =
@@ -413,7 +556,7 @@ impl PredictionRegistry {
                 // any replication updates yet.
                 trace!(
                     "No confirmed value in history for entity {:?}, skipping rollback check",
-                    entity
+                    entity_id
                 );
                 return false;
             };
@@ -431,9 +574,20 @@ impl PredictionRegistry {
             confirmed_value
         };
 
-        let Some(prediction_history) = entity_mut.get::<PredictionHistory<C>>() else {
-            // No prediction history means no predicted state to compare against.
-            return false;
+        let prediction_history_storage = component
+            .prediction_history_storage
+            .expect("rollback check requires prediction history");
+        // SAFETY: the archetype cache proves that this entity contains PredictionHistory<C>
+        // with this component id and storage, and the system declares read access to it.
+        let prediction_history = unsafe {
+            get_component_unchecked(
+                world,
+                entity,
+                archetype.table_id(),
+                prediction_history_storage,
+                component.prediction_history_id,
+            )
+            .deref::<PredictionHistory<C>>()
         };
 
         // This is a completion-time consistency check.
@@ -447,7 +601,7 @@ impl PredictionRegistry {
         // against a present confirmed value.
         let Some(predicted_state) = prediction_history.get_state(confirmed_tick) else {
             trace!(
-                ?entity,
+                entity = ?entity_id,
                 ?confirmed_tick,
                 component = ?name,
                 "No predicted state retained for unchanged rollback check"
@@ -1013,12 +1167,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .app
             .world_mut()
             .register_component::<ConfirmedHistory<C>>();
+        register_rollback_metadata::<C>(self.app, prediction_history_id, confirmed_history_id);
         let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
         trace!(
             "Adding prediction for component {:?}",
             DebugName::type_name::<C>()
         );
-        registry.register::<C>(prediction_history_id, confirmed_history_id);
+        registry.register::<C>();
         add_prediction_systems::<C>(self.app);
 
         self
@@ -1051,12 +1206,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .app
             .world_mut()
             .register_component::<ConfirmedHistory<C>>();
+        register_rollback_metadata::<C>(self.app, prediction_history_id, confirmed_history_id);
         let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
         trace!(
             "Adding diff prediction for component {:?}",
             DebugName::type_name::<C>()
         );
-        registry.register::<C>(prediction_history_id, confirmed_history_id);
+        registry.register::<C>();
         registry.set_pending_diff_tick::<C>();
         add_prediction_systems::<C>(self.app);
         crate::plugin::add_prediction_diff_systems::<C>(self.app);
@@ -1146,15 +1302,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .app
             .world_mut()
             .register_component::<ConfirmedHistory<C>>();
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self
-            .app
-            .world_mut()
-            .get_resource_mut::<PredictionRegistry>()
-        else {
+        // Skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added).
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
             return self;
-        };
-        registry.register::<C>(prediction_history_id, confirmed_history_id);
+        }
+        register_rollback_metadata::<C>(self.app, prediction_history_id, confirmed_history_id);
+        let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
+        registry.register::<C>();
         registry.set_should_rollback::<C>(should_rollback);
         self
     }
@@ -1176,8 +1330,9 @@ pub trait PredictionAppRegistrationExt {
 fn register_prediction_metadata<C: SyncComponent>(app: &mut App) {
     let prediction_history_id = app.world_mut().register_component::<PredictionHistory<C>>();
     let confirmed_history_id = app.world_mut().register_component::<ConfirmedHistory<C>>();
+    register_rollback_metadata::<C>(app, prediction_history_id, confirmed_history_id);
     if let Some(mut registry) = app.world_mut().get_resource_mut::<PredictionRegistry>() {
-        registry.register::<C>(prediction_history_id, confirmed_history_id);
+        registry.register::<C>();
     }
 }
 

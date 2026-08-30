@@ -34,11 +34,11 @@
 //!   while rollback is active, so frame history must be repaired manually.
 //!
 //! Post-rollback processing repairs frame history before creating corrections:
-//! - `repair_frame_interpolation_history` runs for every predicted component
+//! - `update_frame_interpolation_post_rollback` runs for every predicted component
 //!   in [`RollbackSystems::EndRollback`]. It updates
 //!   [`FrameInterpolationHistory`] from the corrected live `C` and the previous
 //!   tick entry in [`PredictionHistory`].
-//! - `update_frame_interpolation_post_rollback` then calls the selected
+//! - `create_visual_corrections_post_rollback` then calls the selected
 //!   frame-interpolation rule from [`InterpolationRegistry`] for archetypes
 //!   that contain at least one [`PreviousVisual`]. This temporarily writes the
 //!   corrected visual sample into the live components, using the same component
@@ -91,6 +91,7 @@
 //! is removed.
 
 use crate::SyncComponent;
+use crate::archetypes::{CachedPredictionComponent, UpdateFrameInterpolationPostRollbackWorld};
 use crate::manager::PredictionManager;
 use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
@@ -126,7 +127,8 @@ use lightyear_interpolation::rules::frame_interpolate::{
 };
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diffable::Diffable;
-use lightyear_replication::registry::{ComponentKind, LerpFn};
+use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
+use lightyear_utils::ecs::get_component_unchecked;
 use tracing::trace;
 
 /// The visual value of the component before the rollback started
@@ -524,7 +526,7 @@ pub fn add_correction_systems<
         app.insert_resource(PostRollbackCorrectionSystemInstalled);
         app.add_systems(
             PreUpdate,
-            update_frame_interpolation_post_rollback
+            create_visual_corrections_post_rollback
                 .in_set(RollbackSystems::EndRollback)
                 .before(crate::rollback::end_rollback),
         );
@@ -543,12 +545,12 @@ pub fn add_correction_systems<
 /// Creates visual corrections after a rollback from frame-interpolation state.
 ///
 /// This system runs in [`PreUpdate`], in [`RollbackSystems::EndRollback`],
-/// after [`repair_frame_interpolation_history`] and before
+/// after [`update_frame_interpolation_post_rollback`] and before
 /// [`crate::rollback::end_rollback`]. It runs the selected frame-interpolation
 /// rules to compute the corrected visual sample, creates [`VisualCorrection`]
 /// from that sample and [`PreviousVisual`], then restores live components to
 /// their corrected simulation values.
-pub(crate) fn update_frame_interpolation_post_rollback(
+pub(crate) fn create_visual_corrections_post_rollback(
     time: Res<Time<Fixed>>,
     timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
@@ -596,30 +598,106 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     deferred_apply.apply(&mut commands);
 }
 
-/// Repair the frame-interpolation history of `C` to reflect `C`'s prediction
-/// timeline.
+/// Update frame-interpolation history to reflect the post-rollback prediction timeline.
 ///
 /// If `C` was replayed due to rollback then it may have different values from
 /// before the rollback. Its frame-interpolation history still holds onto those
 /// old values and needs to be corrected.
-pub(crate) fn repair_frame_interpolation_history<C: Component<Mutability = Mutable> + Clone>(
-    timeline: Res<LocalTimeline>,
-    mut components: Query<(
-        Option<&C>,
-        &PredictionHistory<C>,
-        &mut FrameInterpolationHistory<C>,
-    )>,
+pub(crate) fn update_frame_interpolation_post_rollback(
+    mut prediction_world: UpdateFrameInterpolationPostRollbackWorld,
+    timeline: Option<Res<LocalTimeline>>,
+    prediction_registry: Res<PredictionRegistry>,
+    component_registry: Res<ComponentRegistry>,
 ) {
+    let Some(timeline) = timeline else {
+        return;
+    };
     let tick = timeline.tick();
-    for (component, prediction_history, mut frame_history) in &mut components {
-        frame_history.previous_value = prediction_history.get(tick - 1).cloned();
-        frame_history.current_value = component.cloned();
+    prediction_world.update_archetypes(&prediction_registry, &component_registry);
+
+    let world = prediction_world.world;
+    for (archetype, cached) in prediction_world.predicted_archetypes() {
+        if !cached.default_query_target {
+            continue;
+        }
+        for component in &cached.predicted_components {
+            if component.prediction_history_storage.is_none()
+                || component.frame_interpolation_history_storage.is_none()
+            {
+                continue;
+            }
+            // SAFETY: the cache records the exact live, prediction-history, and frame-history
+            // component ids for this archetype, and the system declares their required accesses.
+            unsafe {
+                (component.update_frame_interpolation_post_rollback)(
+                    world, archetype, component, tick,
+                );
+            }
+        }
+    }
+}
+
+/// Updates one cached component's frame history after rollback replay.
+///
+/// # Safety
+///
+/// `component` must describe `C`, `PredictionHistory<C>`, and
+/// `FrameInterpolationHistory<C>` for `archetype`, and the caller must hold the accesses declared
+/// by [`UpdateFrameInterpolationPostRollbackWorld`].
+pub(crate) unsafe fn update_frame_interpolation_post_rollback_component<
+    C: Component<Mutability = Mutable> + Clone,
+>(
+    world: UnsafeWorldCell,
+    archetype: &Archetype,
+    component: &CachedPredictionComponent,
+    tick: Tick,
+) {
+    let prediction_history_storage = component
+        .prediction_history_storage
+        .expect("frame-history repair requires prediction history");
+    for entity in archetype.entities() {
+        let prediction_history = unsafe {
+            get_component_unchecked(
+                world,
+                entity,
+                archetype.table_id(),
+                prediction_history_storage,
+                component.prediction_history_id,
+            )
+            .deref::<PredictionHistory<C>>()
+        };
+        let current_value = component.component_storage.map(|storage| unsafe {
+            get_component_unchecked(
+                world,
+                entity,
+                archetype.table_id(),
+                storage,
+                component.component_id,
+            )
+            .deref::<C>()
+            .clone()
+        });
+        let repaired = FrameInterpolationHistory::<C> {
+            previous_value: prediction_history.get(tick - 1).cloned(),
+            current_value,
+        };
+
+        // SAFETY: the dispatcher declares unique access to FrameInterpolationHistory<C>, and no
+        // reference to that component is held by this callback.
+        let written = unsafe {
+            write_component_with_change_detection::<FrameInterpolationHistory<C>>(
+                world,
+                entity.id(),
+                repaired,
+            )
+        };
+        debug_assert!(written, "cached frame-history component should still exist");
     }
 }
 
 /// Applies selected frame-interpolation rules to post-rollback visual samples.
 ///
-/// This helper is called by [`update_frame_interpolation_post_rollback`] in
+/// This helper is called by [`create_visual_corrections_post_rollback`] in
 /// [`PreUpdate`], in [`RollbackSystems::EndRollback`], after frame histories
 /// have been repaired and before [`VisualCorrection`] is created. It iterates
 /// the correction archetype cache and runs each selected type-erased frame
@@ -674,7 +752,7 @@ fn restore_applied_frame_interpolation_components(
 /// Creates a `VisualCorrection<D>` from the corrected visual sample.
 ///
 /// This erased handler is called by
-/// [`update_frame_interpolation_post_rollback`] in [`PreUpdate`], in
+/// [`create_visual_corrections_post_rollback`] in [`PreUpdate`], in
 /// [`RollbackSystems::EndRollback`], after frame-interpolation rules have
 /// temporarily written the corrected visual value into live `C`. It compares
 /// that value with [`PreviousVisual<C>`], stores the resulting diff in
@@ -759,7 +837,7 @@ pub(crate) fn create_visual_correction_from_live_erased<
 /// Restores live `C` to the corrected simulation value after sampling visuals.
 ///
 /// This erased handler is called by
-/// [`update_frame_interpolation_post_rollback`] in [`PreUpdate`], in
+/// [`create_visual_corrections_post_rollback`] in [`PreUpdate`], in
 /// [`RollbackSystems::EndRollback`], after [`VisualCorrection`] has been
 /// created. The frame-apply phase temporarily writes visual values into live
 /// components; this restores each live `C` from
@@ -942,7 +1020,7 @@ mod tests {
 
     use super::*;
     use crate::plugin::PredictionMarkerPlugin;
-    use crate::registry::{PredictionBuilderExt, PredictionRegistry};
+    use crate::registry::{PredictionAppRegistrationExt, PredictionBuilderExt, PredictionRegistry};
 
     fn app_with_replication_markers() -> App {
         let mut app = App::new();
@@ -1151,8 +1229,22 @@ mod tests {
             ))
             .id();
 
+        app.world_mut().clear_trackers();
+        let live_frame_history_tick = app
+            .world()
+            .entity(live)
+            .get_change_ticks::<FrameInterpolationHistory<CorrectionA>>()
+            .unwrap()
+            .changed;
+        let removed_frame_history_tick = app
+            .world()
+            .entity(removed)
+            .get_change_ticks::<FrameInterpolationHistory<CorrectionA>>()
+            .unwrap()
+            .changed;
+
         app.world_mut()
-            .run_system_once(repair_frame_interpolation_history::<CorrectionA>)
+            .run_system_once(update_frame_interpolation_post_rollback)
             .unwrap();
 
         // A surviving component uses its previous sample from prediction
@@ -1166,6 +1258,15 @@ mod tests {
             Some(CorrectionA(PREVIOUS_VALUE))
         );
         assert_eq!(live_history.current_value, Some(CorrectionA(CURRENT_VALUE)));
+        assert_ne!(
+            app.world()
+                .entity(live)
+                .get_change_ticks::<FrameInterpolationHistory<CorrectionA>>()
+                .unwrap()
+                .changed,
+            live_frame_history_tick,
+            "repair must retain Bevy change detection for surviving components"
+        );
 
         // A removed component retains the previous prediction sample and clears
         // the current frame sample so interpolation cannot reinsert it.
@@ -1178,6 +1279,15 @@ mod tests {
             Some(CorrectionA(REMOVED_PREVIOUS_VALUE))
         );
         assert_eq!(removed_history.current_value, None);
+        assert_ne!(
+            app.world()
+                .entity(removed)
+                .get_change_ticks::<FrameInterpolationHistory<CorrectionA>>()
+                .unwrap()
+                .changed,
+            removed_frame_history_tick,
+            "repair must retain Bevy change detection for removed live components"
+        );
     }
 
     // Verifies that repair reads a sparse-set live component while updating
@@ -1197,6 +1307,9 @@ mod tests {
         const STALE_CURRENT_VALUE: f32 = 200.0;
 
         let mut app = App::new();
+        app.init_resource::<PredictionRegistry>();
+        app.init_resource::<ComponentRegistry>();
+        app.local_rollback::<SparseCorrection>();
         app.insert_resource(LocalTimeline::default());
         app.world_mut()
             .resource_mut::<LocalTimeline>()
@@ -1220,7 +1333,7 @@ mod tests {
             .id();
 
         app.world_mut()
-            .run_system_once(repair_frame_interpolation_history::<SparseCorrection>)
+            .run_system_once(update_frame_interpolation_post_rollback)
             .unwrap();
 
         // The sparse live value supplies the current sample, and prediction
@@ -1266,7 +1379,7 @@ mod tests {
         ));
 
         app.world_mut()
-            .run_system_once(update_frame_interpolation_post_rollback)
+            .run_system_once(create_visual_corrections_post_rollback)
             .unwrap();
     }
 }
