@@ -16,18 +16,15 @@ Does that mean that we fully know the state of entity B? How do we determine the
 
 Then the question becomes, how does that affect how we rollback?
 We need:
-- when we receive an update, we can do a rollback check and add a new confirmed value in the history
-- for entities that were not updated, we do a rollback check at the latest completed mutate tick T only if that completed tick advanced (otherwise we already did the check). When the completed tick advances, then we can set a new confirmed value for all entities that were not updated. This means that the last confirmed value is AT LEAST
+- when we receive an update, we add its authoritative value to confirmed history;
+- once a completed checkpoint advances, we compare every replicated predicted component at that
+  checkpoint. We cannot skip an entity just because it received an update: confirmation is tracked
+  per entity, and another predicted component on that entity may have been unchanged and mismatched;
 - To rollback we have 2 choices:
   - rollback from the earliest confirmed tick across all predicted entities (predicted entities are a subset of all entities so it's possible that this is more recent than the latest completed mutate tick)
   - rollback from the latest completed mutate tick
     For simplicity we will do the second choice
-- When we detect an explicit mismatch while receiving an update, we record the mismatch tick early,
-  but we do not roll back from that tick until a completed mutate tick has reached it. At that
-  point, we roll back from the latest completed mutate tick so every replicated component has a
-  known authoritative state.
-- If we don't do a mismatch check, we rollback from the latest completed mutate tick.
-- One thing to be careful of is that we could have completed mutate tick T, but have received confirmed updates for ticks > T. In which case we don't want to overwrite them when we rollback, and instead use these confirmed values!
+- One thing to be careful of is that we could have completed mutate tick T, but have received confirmed updates for ticks > T. In which case we don't want to overwrite them when we rollback, and instead use these confirmed values during the rollback!
 
  */
 
@@ -38,19 +35,21 @@ use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
 use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, StateRollbackMetadata};
 use crate::plugin::PredictionSystems;
-use crate::registry::PredictionRegistry;
+use crate::registry::{PendingDiffTickFn, PredictionRegistry};
 use alloc::vec::Vec;
 use bevy_app::FixedMain;
 use bevy_app::prelude::*;
-use bevy_ecs::component::Mutable;
+use bevy_ecs::component::{ComponentId, Mutable};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
-use bevy_ecs::system::{ParamBuilder, QueryParamBuilder};
+use bevy_ecs::system::{LocalBuilder, ParamBuilder, QueryParamBuilder};
 use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy_reflect::Reflect;
+use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::{ClientMessages, ClientSystems};
 use bevy_replicon::shared::backend::channels::ServerChannel;
+use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
@@ -130,6 +129,7 @@ impl Plugin for RollbackPlugin {
         // rollback decision system to operate on remote inputs.
         app.init_resource::<ComponentRegistry>();
         app.init_resource::<ReplicationCheckpointMap>();
+        app.init_resource::<ServerMutateTicks>();
         app.init_resource::<PreSpawnedReceiver>();
 
         #[cfg(feature = "p2p")]
@@ -195,22 +195,27 @@ impl Plugin for RollbackPlugin {
             .remove_resource::<PredictionRegistry>()
             .unwrap();
 
-        let replicated_prediction_histories = prediction_registry
-            .prediction_map
-            .iter()
-            // don't check_rollback for non-networked components, which are not present in the ComponentRegistry
-            .filter_map(|(kind, p)| {
-                component_registry
-                    .component_metadata_map
-                    .contains_key(kind)
-                    .then_some((p.prediction_history_id, p.confirmed_history_id))
-            })
-            .collect::<Vec<_>>();
+        let mut replicated_prediction_histories = Vec::new();
+        let mut pending_diff_tick_fns = Vec::new();
+        for (kind, metadata) in &prediction_registry.prediction_map {
+            // Don't check rollback for non-networked components, which are not present in the
+            // ComponentRegistry.
+            if !component_registry.component_metadata_map.contains_key(kind) {
+                continue;
+            }
+            replicated_prediction_histories.push((
+                metadata.prediction_history_id,
+                metadata.confirmed_history_id,
+            ));
+            if let Some(pending_diff_tick) = metadata.pending_diff_tick {
+                pending_diff_tick_fns.push((metadata.prediction_history_id, pending_diff_tick));
+            }
+        }
 
         let check_rollback = (
             QueryParamBuilder::new(|builder| {
-                builder.data::<&Predicted>();
-                builder.data::<&ConfirmHistory>();
+                builder.with::<Predicted>();
+                builder.with::<ConfirmHistory>();
                 builder.without::<DeterministicPredicted>();
                 builder.without::<DisableRollback>();
                 // include PredictionDisable entities (entities that are predicted and 'despawned'
@@ -239,6 +244,9 @@ impl Plugin for RollbackPlugin {
                     }
                 });
             }),
+            // Component registration is complete at this point. Cache only the diff-specific
+            // history id/function pairs needed to constrain completed rollback checkpoints.
+            LocalBuilder(pending_diff_tick_fns),
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -248,6 +256,9 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            // A nested tuple counts as one outer system parameter, keeping the dynamically built
+            // system below Bevy's 16-element tuple limit.
+            (ParamBuilder, ParamBuilder),
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -381,13 +392,9 @@ fn check_received_replication_messages(
 fn reset_state_rollback_metadata_on_topology_change(
     networking: Res<NetworkingMetadata>,
     mut metadata: ResMut<StateRollbackMetadata>,
-    prediction_manager: Option<ResMut<PredictionManager>>,
 ) {
     if networking.is_changed() {
         metadata.reset_connection_state();
-        if let Some(mut prediction_manager) = prediction_manager {
-            prediction_manager.pending_entity_state_checks.clear();
-        }
     }
 }
 
@@ -395,23 +402,25 @@ fn reset_state_rollback_metadata_on_topology_change(
 /// We do this separately from `prepare_rollback` because even if we stop the `check_rollback` function
 /// early as soon as we find a mismatch, but we need to rollback all components to the original state.
 ///
-/// Key invariant: `ReplicationCheckpointMap::last_confirmed_tick() = T` guarantees that for all entities,
-/// we have complete information at tick T:
-/// - Entities that received an update at T: their confirmed value is in the message
-/// - Entities that didn't receive an update: their value at T = their last confirmed value
+/// Key invariant: a completed checkpoint C guarantees that for all entities, we have complete
+/// information at C:
+/// - entities that received an update at C have their confirmed value in history;
+/// - entities that did not receive an update have the same value as their last confirmation before C.
 fn check_rollback(
     // we want Query<(&mut PredictionHistory<C>, &Confirmed<C>), With<Predicted>>
     // make sure to include disabled entities
-    mut predicted_entities: Query<(&ConfirmHistory, FilteredEntityMut)>,
+    mut predicted_entities: Query<FilteredEntityMut>,
+    pending_diff_tick_fns: Local<Vec<(ComponentId, PendingDiffTickFn)>>,
     timeline: SyncedLocalTimeline,
     input_config: Res<InputTimelineConfig>,
     last_confirmed_input: Res<LastConfirmedInput>,
     mut prediction_manager: ResMut<PredictionManager>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     checkpoints: Res<ReplicationCheckpointMap>,
+    server_mutate_ticks: Res<ServerMutateTicks>,
+    replication_storage: Option<Res<ReplicationStorage>>,
     mut prespawned_receiver: ResMut<PreSpawnedReceiver>,
-    component_registry: Res<ComponentRegistry>,
-    prediction_registry: Res<PredictionRegistry>,
+    (component_registry, prediction_registry): (Res<ComponentRegistry>, Res<PredictionRegistry>),
     awaiting_catchup: Query<(), (With<CatchUpGated>, With<ConfirmHistory>)>,
     deterministic_predicted: Query<&DeterministicPredicted>,
     parallel_commands: ParallelCommands,
@@ -426,10 +435,34 @@ fn check_rollback(
         .rollback_policy
         .effective_max_rollback_ticks(&input_config);
 
-    // The tick where ALL messages have been received (guaranteed complete information).
-    // Explicit mismatch checks can exist before this is known, so don't return early.
+    // Let:
+    // - T be the current local simulation tick;
+    // - S be the globally latest confirmed checkpoint;
+    // - C0 be the latest confirmed checkpoint with C0 <= T;
+    // - P be the earliest unresolved diff tick at or before C0;
+    // - C be C0 when no such P exists, otherwise the latest completed checkpoint before P.
+    //
+    // In the usual case, the client is ahead of the server so S <= T and C0 = S. The
+    // completed-checkpoint scan checks all replicated predicted components. This is
+    // required for correctness: Replicon's confirmation marker is
+    // entity-level, so the old receive-time path could skip an updated entity even when
+    // another predicted component on that entity was unchanged and mismatched.
+    //
+    // If S > T, Replicon's completion history lets us find C0 even though the latest completed
+    // checkpoint is still in the local future. Diff replication adds one more constraint: an
+    // unresolved diff at P makes the effective authoritative state unknown at every tick from P
+    // onward. We therefore cannot use C0 when P <= C0. In that case, choose the latest globally
+    // completed checkpoint strictly before the earliest such P. We intentionally derive that
+    // fallback from ServerMutateTicks rather than ConfirmedHistory: histories contain explicit
+    // component updates and selected unchanged anchors, not every globally completed checkpoint.
     let server_confirmed_tick = checkpoints.last_confirmed_tick();
-    let server_confirmed_replicon_tick = checkpoints.last_confirmed_replicon_tick();
+    let candidate_confirmed_tick = match server_confirmed_tick {
+        Some(confirmed_tick) if confirmed_tick <= tick => Some(confirmed_tick),
+        Some(_) => checkpoints
+            .latest_completed_at_or_before(&server_mutate_ticks, tick)
+            .map(|checkpoint| checkpoint.tick),
+        None => None,
+    };
 
     let do_rollback = move |rollback_tick: Tick,
                             prediction_manager: &PredictionManager,
@@ -555,176 +588,150 @@ fn check_rollback(
             "policy-driven rollback checks deferred while a catch-up snapshot is pending"
         );
     } else {
+        // Start from the newest globally completed checkpoint at or before the local tick, then
+        // constrain it by unresolved diffs on predicted diff-replicated components.
+        //
+        // We might be in a situation where a tick is confirmed in ServerMutateTicks, but the diff
+        // is not ready and is instead in 'pending' state. We go through all DiffHistoryReceiver
+        // and find the earliest 'pending' tick before our candidate. If  there are none, we can
+        // use C0. Else we find the earliest confirmed tick before that.
+        let confirmed_tick = (|| {
+            let candidate = candidate_confirmed_tick?;
+            let Some(storage) = replication_storage.as_deref() else {
+                return Some(candidate);
+            };
+
+            let mut earliest_pending_tick = None;
+            for &(prediction_history_id, pending_diff_tick) in pending_diff_tick_fns.iter() {
+                for entity_mut in predicted_entities
+                    .iter_mut()
+                    .filter(|entity_mut| entity_mut.contains_id(prediction_history_id))
+                {
+                    let Some(pending_tick) = pending_diff_tick(storage, candidate, entity_mut.id())
+                    else {
+                        continue;
+                    };
+                    earliest_pending_tick = Some(
+                        earliest_pending_tick
+                            .map_or(pending_tick, |earliest| Tick::min(earliest, pending_tick)),
+                    );
+                }
+            }
+
+            match earliest_pending_tick {
+                // P itself is unresolved, so the bound is strict. The selected rollback target is
+                // still required to be a globally completed Replicon checkpoint.
+                Some(pending_tick) => checkpoints
+                    .latest_completed_before(&server_mutate_ticks, pending_tick)
+                    .map(|checkpoint| checkpoint.tick),
+                None => Some(candidate),
+            }
+        })();
+
         // If we check for rollback on both state and input, state takes precedence.
         match prediction_manager.rollback_policy.state {
             // if we received a state update, we don't check for mismatches and just set the rollback tick
             RollbackMode::Always => {
-                if let Some(server_confirmed_tick) = server_confirmed_tick
+                if let Some(confirmed_tick) = confirmed_tick
                     && received_state
                     && !predicted_entities.is_empty()
                 {
                     debug!(
-                        ?server_confirmed_tick,
+                        ?confirmed_tick,
                         "Rollback because we have received a new confirmed state. (no mismatch check)"
                     );
                     do_rollback(
-                        server_confirmed_tick,
+                        confirmed_tick,
                         &prediction_manager,
                         &mut commands,
                         Rollback::FromState,
                     );
+                    state_metadata.set_last_processed_confirmed_tick(confirmed_tick);
                 };
             }
             RollbackMode::Check => {
-                // Check if the completed mutate tick has advanced since we last processed it.
-                //
-                // If multiple server-completed ticks arrive before this system
-                // runs, process only the latest one. A later completed tick is
-                // the best rollback point because it minimizes replay work while
-                // still certifying complete authoritative state for every
-                // replicated component at that tick.
-                let server_ticks_advanced = server_confirmed_tick
-                    .is_some_and(|tick| state_metadata.has_confirmed_tick_advanced(tick));
-
-                // If the completed mutate tick advanced, rollback or check unchanged entities.
-                // Only check if we haven't already triggered a rollback.
-                if let (Some(server_confirmed_tick), Some(server_confirmed_replicon_tick)) =
-                    (server_confirmed_tick, server_confirmed_replicon_tick)
+                // Do a rollback check using the confirmed state at C (which is guaranteed to
+                // be complete) and the predicted history state at C
+                if let Some(confirmed_tick) = confirmed_tick
                     && !prediction_manager.is_rollback()
-                    && server_ticks_advanced
+                    && state_metadata.has_confirmed_tick_advanced(confirmed_tick)
                 {
-                    if server_confirmed_tick > tick {
-                        debug!(
-                            "Confirmed mutate tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
-                            server_confirmed_tick, tick
-                        );
-                    } else {
-                        let deferred_check_entities = prediction_manager
-                            .pending_entity_state_checks
-                            .take_through(server_confirmed_tick);
-                        if let Some(mismatch_tick) =
-                            state_metadata.pending_mismatch_at_or_before(server_confirmed_tick)
-                        {
-                            debug!(
-                                ?server_confirmed_tick,
-                                ?mismatch_tick,
-                                "Rollback from completed mutate tick with recorded explicit mismatch"
-                            );
-                            trace!(
-                                target: "lightyear_debug::prediction",
-                                kind = "state_mismatch_consumed",
-                                schedule = "PreUpdate",
-                                sample_point = "PreUpdate",
-                                local_tick = tick.0,
-                                confirmed_tick = server_confirmed_tick.0,
-                                mismatch_tick = mismatch_tick.0,
-                                rollback_tick = server_confirmed_tick.0,
-                                "state mismatch consumed at completed mutate tick"
-                            );
-                            state_metadata.clear_mismatch_history();
-                            do_rollback(
-                                server_confirmed_tick,
-                                &prediction_manager,
-                                &mut commands,
-                                Rollback::FromState,
-                            );
-                        } else {
-                            // A completed mutate tick certifies every replicated component at that
-                            // tick. This scan normally handles entities that were not explicitly
-                            // confirmed at the completed Replicon checkpoint. It also handles an
-                            // explicitly confirmed entity when its receive-time check was deferred
-                            // because the authoritative tick was ahead of the local timeline.
-                            //
-                            // Do not use `ConfirmHistory::last_tick()` for this skip. An entity can
-                            // have newer explicit confirmations than the completed checkpoint while
-                            // also having an explicit confirmation at the completed checkpoint. What
-                            // matters here is exact membership: if `ConfirmHistory::contains` resolves the
-                            // completed Replicon tick, receive-time history writes already checked the
-                            // explicit state for that tick unless `deferred_check_entities` says the
-                            // state was not locally checkable then.
-                            trace!(
-                                ?tick,
-                                ?server_confirmed_tick,
-                                ?server_confirmed_replicon_tick,
-                                "Checking for state-based rollback at completed mutate tick"
-                            );
+                    // A completed mutate tick C certifies every replicated component at C, so
+                    // always scan all of them. Explicitly updated components use their received
+                    // samples, while unchanged components use their last authoritative value
+                    // because completion proves it carried forward to C.
+                    trace!(
+                        ?tick,
+                        ?confirmed_tick,
+                        latest_completed_tick = ?server_confirmed_tick,
+                        "Checking for state-based rollback at completed mutate tick"
+                    );
 
-                            let predicted_entities = adaptive_for_each_mut!(predicted_entities);
-                            predicted_entities.for_each(
-                                |(confirm_history, mut entity_mut)| {
-                                if prediction_manager.is_rollback() {
-                                    return
-                                }
-
-                                if confirm_history.contains(server_confirmed_replicon_tick)
-                                    && !deferred_check_entities.contains(&entity_mut.id())
-                                {
-                                    trace!(
-                                        entity = ?entity_mut.id(),
-                                        replicon_tick = ?server_confirmed_replicon_tick,
-                                        "Skipping unchanged rollback check for entity explicitly confirmed at completed mutate tick"
-                                    );
-                                    return
-                                }
-
-                                // For each predicted component, compare the predicted value at
-                                // `server_confirmed_tick` with the component's authoritative value.
-                                // The checker uses an exact `ConfirmedHistory<C>` sample if one exists;
-                                // otherwise it materializes an unchanged sample from the last confirmed
-                                // value before `server_confirmed_tick`.
-                                for check_rollback in prediction_registry.prediction_map
-                                    .iter()
-                                    .filter_map(|(kind, p)|
-                                        // only check rollback for components that are replicated (ignore non-networked)
-                                        component_registry.component_metadata_map.contains_key(kind).then_some(p.check_rollback)
-                                    )
-                                    .take_while(|_| !prediction_manager.is_rollback())
-                                {
-                                    // SAFETY: `server_confirmed_tick` is globally complete. An exact
-                                    // confirmed component sample is authoritative; if it is absent,
-                                    // completion proves that component was unchanged at this tick.
-                                    let should_rollback = unsafe {
-                                        check_rollback(
-                                            &prediction_registry,
-                                            server_confirmed_tick,
-                                            &mut entity_mut,
-                                        )
-                                    };
-                                    if should_rollback {
-                                        debug!(
-                                            ?server_confirmed_tick,
-                                            "Rollback because of mismatch on unchanged entity"
-                                        );
-                                        trace!(
-                                            target: "lightyear_debug::prediction",
-                                            kind = "unchanged_entity_mismatch",
-                                            schedule = "PreUpdate",
-                                            sample_point = "PreUpdate",
-                                            entity = ?entity_mut.id(),
-                                            local_tick = tick.0,
-                                            confirmed_tick = server_confirmed_tick.0,
-                                            rollback_tick = server_confirmed_tick.0,
-                                            "rollback mismatch detected on unchanged entity"
-                                        );
-                                        parallel_commands.command_scope(|mut c| {
-                                            do_rollback(
-                                                server_confirmed_tick,
-                                                &prediction_manager,
-                                                &mut c,
-                                                Rollback::FromState,
-                                            );
-                                        });
-                                        return;
-                                    }
-                                }
-                            });
-                        }
-                        // Update the last processed tick only after we were able to process it.
-                        state_metadata.set_last_processed_tick(server_confirmed_tick);
+                    adaptive_for_each_mut!(predicted_entities, |mut entity_mut| {
                         if prediction_manager.is_rollback() {
-                            state_metadata.clear_mismatch_history();
+                            return;
                         }
-                    }
+
+                        // For each predicted component, compare the predicted value at C with
+                        // its effective authoritative value. The checker uses an exact sample
+                        // when one exists; otherwise completion of C proves the component was
+                        // unchanged, so it materializes the last confirmed value before C.
+                        for check_rollback in prediction_registry
+                            .prediction_map
+                            .iter()
+                            .filter_map(|(kind, metadata)| {
+                                // Only check rollback for components that are replicated;
+                                // non-networked components have no authoritative state at C.
+                                component_registry
+                                    .component_metadata_map
+                                    .contains_key(kind)
+                                    .then_some(metadata.check_rollback)
+                            })
+                            .take_while(|_| !prediction_manager.is_rollback())
+                        {
+                            // SAFETY: `ServerMutateTicks` reports `confirmed_tick` as globally
+                            // complete, and no predicted diff component has an unresolved update at
+                            // or before it. Absence of an explicit component sample therefore proves
+                            // that the component was unchanged at this checkpoint.
+                            let should_rollback = unsafe {
+                                check_rollback(
+                                    &prediction_registry,
+                                    confirmed_tick,
+                                    &mut entity_mut,
+                                )
+                            };
+                            if should_rollback {
+                                debug!(
+                                    ?confirmed_tick,
+                                    "Rollback because of mismatch at completed checkpoint"
+                                );
+                                trace!(
+                                    target: "lightyear_debug::prediction",
+                                    kind = "completed_checkpoint_mismatch",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity_mut.id(),
+                                    local_tick = tick.0,
+                                    latest_completed_tick = server_confirmed_tick.map(|tick| tick.0),
+                                    completed_tick = confirmed_tick.0,
+                                    rollback_tick = confirmed_tick.0,
+                                    "rollback mismatch detected at completed checkpoint"
+                                );
+                                parallel_commands.command_scope(|mut c| {
+                                    do_rollback(
+                                        confirmed_tick,
+                                        &prediction_manager,
+                                        &mut c,
+                                        Rollback::FromState,
+                                    );
+                                });
+                                return;
+                            }
+                        }
+                    });
+
+                    // Update the last processed confirmed tick only after C was scanned.
+                    state_metadata.set_last_processed_confirmed_tick(confirmed_tick);
                 }
             }
             RollbackMode::Disabled => {}
@@ -961,7 +968,6 @@ pub(crate) fn remove_prediction_disable(
 pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
     timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
-    checkpoints: Res<ReplicationCheckpointMap>,
     mut commands: Commands,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
@@ -983,35 +989,23 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
     let current_tick = timeline.tick();
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
-
-    // The tick where ALL messages have been received, if known.
-    let server_confirmed_tick = checkpoints.last_confirmed_tick();
+    let is_state_rollback = matches!(*rollback, Rollback::FromState);
 
     for (entity, predicted_component, mut predicted_history, confirmed_history) in
         predicted_query.iter_mut()
     {
-        let is_state_rollback = matches!(*rollback, Rollback::FromState);
-        let is_completed_state_rollback =
-            is_state_rollback && server_confirmed_tick == Some(rollback_tick);
-        let is_forced_state_rollback = is_state_rollback && !is_completed_state_rollback;
-
         let restore_state = if is_state_rollback {
             if let Some(history) = confirmed_history.as_ref() {
-                // Completed state rollbacks restore from the latest globally completed
-                // mutate tick. That completed tick proves that a component without an
-                // explicit update is unchanged since its previous confirmed state, even
-                // if `add_unchanged` was never called because rollback checking stopped
+                // A policy-driven state rollback uses the diff-aware completed checkpoint C stored
+                // in PredictionManager as its rollback target. Completion of C proves that a
+                // component without an explicit update is unchanged since its previous confirmed
+                // state, even if `add_unchanged` was never called because rollback checking stopped
                 // after the first mismatch.
                 //
-                // Forced state rollbacks use the same lookup, but rely on the caller's
-                // stronger precondition: the forced rollback target has already been
-                // seeded with authoritative confirmed history up to `rollback_tick`.
-                // Input rollbacks do not satisfy either precondition and restore from
-                // local predicted history instead.
-                debug_assert!(
-                    is_completed_state_rollback || is_forced_state_rollback,
-                    "state rollback must be completed or forced"
-                );
+                // A forced state rollback uses the same lookup, but relies on the caller's stronger
+                // precondition: its explicit rollback target has already been seeded with
+                // authoritative confirmed history. Input rollbacks instead restore from local
+                // predicted history.
                 history.get_state_at_or_before(rollback_tick).cloned()
             } else {
                 // State rollback can also cover predicted-only local components
@@ -1055,7 +1049,6 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
             component = ?kind,
             local_tick = current_tick.0,
             rollback_tick = rollback_tick.0,
-            confirmed_tick = server_confirmed_tick.map(|tick| tick.0),
             rollback = ?rollback,
             history_len = predicted_history.len(),
             "prepared component rollback"
@@ -1388,7 +1381,6 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<LocalTimeline>();
         world.init_resource::<PredictionRegistry>();
-        world.init_resource::<ReplicationCheckpointMap>();
 
         world.insert_resource(PredictionManager::default());
         world.insert_resource(Rollback::FromState);
@@ -1430,7 +1422,6 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<LocalTimeline>();
         world.init_resource::<PredictionRegistry>();
-        world.init_resource::<ReplicationCheckpointMap>();
 
         world.insert_resource(PredictionManager::default());
         world.insert_resource(Rollback::FromInputs);

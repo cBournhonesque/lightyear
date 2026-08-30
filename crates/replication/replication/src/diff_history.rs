@@ -79,7 +79,32 @@ impl<Diff> PendingDiffMessage<Diff> {
 pub struct HistoryDiffReceiver<C: RepliconDiffable> {
     base_cursor: Option<DiffIndex>,
     base_tick: Option<Tick>,
+    /// Materialized cursors newer than `base_cursor`, paired with the confirmed-history tick that
+    /// stores each cursor's state.
+    ///
+    /// [`ConfirmedHistory`] can provide the effective authoritative state at a completed
+    /// checkpoint, but it does not associate that state with a diff cursor. These mappings are
+    /// retained so a pending diff index can locate the history value for its specific base cursor.
+    ///
+    /// Entries are appended when their cursor is materialized and existing cursor ticks can be
+    /// updated in place, so this vector is not ordered by either cursor or tick. Cursor lookup,
+    /// tick-boundary lookup, and pruning therefore scan the retained entries.
     diff_ticks: Vec<(DiffIndex, Tick)>,
+    /// Received diff ranges that have not yet been materialized into confirmed history.
+    ///
+    /// Replicon acknowledges a mutation when its bytes are received, before applying it, and
+    /// applies buffered mutation messages from newest to oldest. The server can therefore send a
+    /// newer range based on an acknowledged cursor whose older message has not yet run this
+    /// receiver's history callback. The newer range waits here until that callback records its
+    /// base cursor, usually later in the same receive pass.
+    ///
+    /// The cursor stream is linear. If a later overlapping range or snapshot materializes a newer
+    /// cursor first, [`Self::record_cursor`] removes any pending ranges that it supersedes.
+    ///
+    /// Entries are kept in arrival order, but are not processed strictly in that order:
+    /// [`Self::take_ready_update`] scans for the first range whose base cursor is available. In
+    /// normal use the caller drains ready ranges immediately after queuing, so retained entries are
+    /// waiting on a missing base cursor.
     pending: Vec<PendingDiffMessage<C::Diff>>,
     marker: PhantomData<fn() -> C>,
 }
@@ -238,10 +263,30 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
         !self.pending.is_empty()
     }
 
-    /// Returns true when a diff message for `tick` is waiting for a base
-    /// cursor to be materialized in confirmed history.
-    pub fn has_pending_diff_at_tick(&self, tick: Tick) -> bool {
-        self.pending.iter().any(|pending| pending.tick == tick)
+    /// Returns the earliest unresolved diff tick that is not newer than `limit`.
+    ///
+    /// A pending diff at `P` makes the effective authoritative state unknown at every tick from
+    /// `P` onward. A rollback checkpoint `C >= P` is therefore unusable until the pending range is
+    /// materialized or superseded. [`Self::record_cursor`] removes superseded ranges, so every
+    /// entry considered here still constrains checkpoint selection.
+    pub fn earliest_pending_tick_at_or_before(&self, limit: Tick) -> Option<Tick> {
+        self.pending
+            .iter()
+            .map(|pending| pending.tick)
+            .filter(|tick| *tick <= limit)
+            .min()
+    }
+
+    /// Returns true when a diff message at or before `tick` is waiting for its base cursor to be
+    /// materialized in confirmed history.
+    ///
+    /// While this is true, the effective authoritative value at `tick` is not known yet. A
+    /// completed checkpoint must therefore not add a `SameAsPrecedent` history entry at `tick`:
+    /// that marker would resolve past the missing diff to an older, potentially incorrect value.
+    /// Pending ranges superseded by a later materialized cursor are removed by
+    /// [`Self::record_cursor`], so they do not keep later checkpoints unresolved.
+    pub fn has_pending_diff_at_or_before(&self, tick: Tick) -> bool {
+        self.earliest_pending_tick_at_or_before(tick).is_some()
     }
 
     /// Queues a diff message for historical materialization.
@@ -493,6 +538,31 @@ mod tests {
         assert_eq!(receiver.tick_for_cursor(Some(idx(5))), Some(Tick(5)));
     }
 
+    /// A later message can use an older available base and overlap an earlier pending message. Once
+    /// the later message materializes its newer cursor, the earlier pending range is superseded.
+    #[test]
+    fn newer_overlapping_range_supersedes_older_pending_range() {
+        let mut history = ConfirmedHistory::<TestDiffValue>::default();
+        history.insert_present(Tick(0), TestDiffValue(0));
+
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
+        receiver.record_cursor(Tick(0), Some(idx(0)));
+
+        // S3 -> S5 cannot be applied because S3 is not materialized.
+        receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
+        assert_eq!(receiver.take_ready_update(&history).unwrap(), None);
+
+        // S0 -> S6 overlaps the pending range but can be applied from S0.
+        receiver
+            .queue_diffs(Tick(6), idx(1), vec![1, 2, 3, 4, 5, 6])
+            .unwrap();
+        let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
+        assert_eq!((tick, value), (Tick(6), TestDiffValue(6)));
+
+        assert!(receiver.pending.is_empty());
+        assert_eq!(receiver.tick_for_cursor(Some(idx(6))), Some(Tick(6)));
+    }
+
     /// Receiver cleanup must not retire bases or discard pending diff messages
     /// while a newer diff range is waiting for an older base. Otherwise an
     /// unchanged history anchor can be carried forward and the later base
@@ -522,11 +592,11 @@ mod tests {
         assert_eq!((tick, value), (Tick(5), TestDiffValue(5)));
     }
 
-    /// Unchanged anchors are same-as-precedent markers, so they can safely be
-    /// inserted beyond a pending older diff range. When that older range
-    /// materializes, later unchanged anchors inherit the newly inserted value.
+    /// A completed checkpoint beyond a pending diff cannot receive an unchanged anchor until the
+    /// older diff materializes. Once it does, the anchor resolves immediately to the final
+    /// authoritative value and cannot change later.
     #[test]
-    fn older_diff_range_updates_later_unchanged_anchor_when_materialized() {
+    fn older_pending_diff_blocks_later_unchanged_anchor_until_materialized() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
 
@@ -535,7 +605,15 @@ mod tests {
 
         receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
         assert_eq!(receiver.take_ready_update(&history).unwrap(), None);
-        assert_eq!(history.push_unchanged(Tick(6)), Some(Tick(0)));
+        assert_eq!(
+            receiver.earliest_pending_tick_at_or_before(Tick(6)),
+            Some(Tick(5))
+        );
+        assert_eq!(receiver.earliest_pending_tick_at_or_before(Tick(4)), None);
+        assert!(receiver.has_pending_diff_at_or_before(Tick(5)));
+        assert!(receiver.has_pending_diff_at_or_before(Tick(6)));
+        assert!(!receiver.has_pending_diff_at_or_before(Tick(4)));
+        assert!(history.get_state_at(Tick(6)).is_none());
 
         receiver
             .queue_diffs(Tick(3), idx(1), vec![1, 2, 3])
@@ -544,6 +622,8 @@ mod tests {
             history.insert_present(tick, value);
         }
 
+        assert!(!receiver.has_pending_diff_at_or_before(Tick(6)));
+        assert_eq!(history.push_unchanged(Tick(6)), Some(Tick(5)));
         assert_eq!(
             history
                 .get_state_at(Tick(6))

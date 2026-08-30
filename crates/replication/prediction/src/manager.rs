@@ -5,62 +5,11 @@ use bevy_reflect::Reflect;
 
 use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use bevy_ecs::entity::EntityHashSet;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
-
-/// Prediction checks deferred because an authoritative update was ahead of the local timeline.
-///
-/// Receive-time rollback checks cannot compare an update after the current local tick with
-/// prediction history yet. Replicon's `ConfirmHistory` still records that the entity was updated,
-/// however, so the prediction scan's usual `ConfirmHistory` optimization would later skip the
-/// entity entirely. This index remembers those entities by authoritative tick until the
-/// completed server frontier makes them checkable.
-///
-/// [`PredictionRegistry::check_rollback_for_unchanged_component`](crate::registry::PredictionRegistry::check_rollback_for_unchanged_component)
-/// handles each drained entity at that frontier: it uses an explicit confirmed component sample
-/// when one exists, and records the component as unchanged only when no sample exists at the tick.
-#[doc(hidden)]
-#[derive(Debug, Default)]
-pub struct PendingEntityStateChecks {
-    by_tick: BTreeMap<Tick, EntityHashSet>,
-}
-
-impl PendingEntityStateChecks {
-    pub(crate) fn record(&mut self, tick: Tick, entity: Entity) {
-        self.by_tick.entry(tick).or_default().insert(entity);
-    }
-
-    /// Removes and returns all entities whose deferred update is now checkable.
-    pub(crate) fn take_through(&mut self, completed_tick: Tick) -> EntityHashSet {
-        let mut entities = EntityHashSet::default();
-        while self
-            .by_tick
-            .first_key_value()
-            .is_some_and(|(tick, _)| *tick <= completed_tick)
-        {
-            let (_, pending) = self.by_tick.pop_first().unwrap();
-            entities.extend(pending);
-        }
-        entities
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.by_tick.clear();
-    }
-
-    /// Returns whether an entity has a deferred state check at `tick`.
-    #[cfg(any(test, feature = "test_utils"))]
-    pub fn contains(&self, tick: Tick, entity: Entity) -> bool {
-        self.by_tick
-            .get(&tick)
-            .is_some_and(|entities| entities.contains(&entity))
-    }
-}
 
 #[derive(Debug, Clone, Copy, Default, Reflect)]
 pub enum RollbackMode {
@@ -158,12 +107,6 @@ pub struct PredictionManager {
     pub deterministic_despawn: Vec<(Tick, Entity)>,
     #[doc(hidden)]
     pub deterministic_skip_despawn: Vec<(Tick, Entity)>,
-    /// Receive-time state checks deferred until the authoritative tick is locally checkable.
-    ///
-    /// See [`PendingEntityStateChecks`] for why the completed-tick rollback scan needs this index.
-    #[doc(hidden)]
-    #[reflect(ignore)]
-    pub pending_entity_state_checks: PendingEntityStateChecks,
     #[doc(hidden)]
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
@@ -239,20 +182,14 @@ pub struct StateRollbackMetadata {
     ///
     /// Replicon advances `ServerMutateTicks` during receive; this advances only after
     /// `check_rollback` handles that frontier. We retain it separately to:
-    /// - avoid rescanning unchanged entities while the completed frontier is unchanged;
-    /// - let receive functions ignore late updates older than an already-checked frontier;
+    /// - avoid rescanning entities while the completed frontier is unchanged;
     /// - provide a safe watermark for pruning diff history.
     ///
-    /// It can lag behind `ServerMutateTicks` when a completed tick is ahead of the local timeline.
-    last_processed_tick: Option<Tick>,
-
-    /// Earliest receive-time state mismatch not yet covered by a completed rollback check.
-    ///
-    /// A mismatch can be detected before Replicon has completed all mutate messages through that
-    /// tick. We retain the earliest such tick until the completed server frontier reaches it, then
-    /// roll back from that latest globally complete frontier. Later confirmed samples do not need
-    /// separate mismatch entries: they remain in `ConfirmedHistory` and are applied during replay.
-    earliest_pending_mismatch_tick: Option<Tick>,
+    /// This tick is always in the past or present relative to the local simulation tick when it is
+    /// stored. It can lag behind Replicon's globally latest completed checkpoint when that
+    /// checkpoint is still in the local simulation's future, or when an unresolved predicted diff
+    /// makes a newer checkpoint unsafe to process.
+    last_processed_confirmed_tick: Option<Tick>,
 
     /// Set to true if we received any replication message this frame.
     /// Used to trigger `RollbackMode::Always`.
@@ -268,42 +205,11 @@ pub struct StateRollbackMetadata {
 }
 
 impl StateRollbackMetadata {
-    /// Record a receive-time mismatch at `tick`.
-    ///
-    /// Only the earliest pending mismatch matters. Once the globally completed server frontier
-    /// reaches it, rollback starts from that completed frontier and replay applies every later
-    /// confirmed sample retained in `ConfirmedHistory`.
-    ///
-    /// Returns `true` because the unbounded representation can retain every mismatch tick. The
-    /// return value is kept for compatibility with the previous bounded representation, which
-    /// returned `false` when a tick fell outside its 64-tick window.
-    pub fn record_mismatch(&mut self, tick: Tick) -> bool {
-        match self.earliest_pending_mismatch_tick {
-            None => self.earliest_pending_mismatch_tick = Some(tick),
-            Some(existing) if tick < existing => self.earliest_pending_mismatch_tick = Some(tick),
-            _ => {}
-        }
-        true
-    }
-
-    /// Return the earliest pending mismatch once `completed_tick` has reached it.
-    pub(crate) fn pending_mismatch_at_or_before(&self, completed_tick: Tick) -> Option<Tick> {
-        self.earliest_pending_mismatch_tick
-            .filter(|mismatch_tick| *mismatch_tick <= completed_tick)
-    }
-
-    /// Return whether receive-time prediction checks should run for `tick`.
-    pub(crate) fn should_check_mismatch_at(&self, tick: Tick) -> bool {
-        if self
-            .last_processed_tick
-            .is_some_and(|last_processed| tick < last_processed)
-        {
-            return false;
-        }
-        // A later mismatch cannot make rollback eligible any sooner. Keep checking earlier ticks,
-        // though, because an out-of-order confirmed update can move the pending frontier earlier.
-        self.earliest_pending_mismatch_tick
-            .is_none_or(|pending_tick| tick < pending_tick)
+    /// Mark the current frame as having received replicated state.
+    #[cfg(feature = "test_utils")]
+    #[doc(hidden)]
+    pub fn mark_received_messages_this_frame(&mut self) {
+        self.received_messages_this_frame = true;
     }
 
     /// Request a one-shot rollback from `tick`, regardless of the
@@ -311,12 +217,8 @@ impl StateRollbackMetadata {
     ///
     /// Intended for scenarios where an external system (e.g. late-join
     /// catch-up) has deposited confirmed state at a specific tick and
-    /// needs the simulation to re-run from there. Unlike
-    /// [`record_mismatch`], this does not track the earliest across
-    /// multiple calls in a frame — the caller is authoritative about the
-    /// tick. Subsequent calls within the same frame take the earliest.
-    ///
-    /// [`record_mismatch`]: StateRollbackMetadata::record_mismatch
+    /// needs the simulation to re-run from there. Subsequent calls within the
+    /// same frame take the earliest tick.
     pub fn request_forced_rollback(&mut self, tick: Tick) {
         match self.forced_rollback_tick {
             None => self.forced_rollback_tick = Some(tick),
@@ -340,44 +242,39 @@ impl StateRollbackMetadata {
     }
 
     /// Reset the per-frame state tracking.
-    /// Note: the pending mismatch is NOT reset here because receive-time mismatch
-    /// evidence persists until the completed server tick is processed.
     pub(crate) fn reset_frame_state(&mut self) {
         self.received_messages_this_frame = false;
-    }
-
-    /// Clear all retained mismatch evidence.
-    pub fn clear_mismatch_history(&mut self) {
-        self.earliest_pending_mismatch_tick = None;
     }
 
     /// Returns the latest completed server mutate tick consumed by rollback checking.
     ///
     /// During Replicon's receive systems this still reflects the previous rollback-check frontier;
-    /// it is advanced only after the current completed tick has been handled by `check_rollback`.
-    /// It is used both to avoid rescanning an already-consumed completed tick and to reject stale
-    /// receive-time mismatch checks for ticks older than that frontier.
-    pub fn last_processed_tick(&self) -> Option<Tick> {
-        self.last_processed_tick
+    /// it is advanced only after `check_rollback` handles a completed checkpoint that is at or
+    /// before the local simulation tick.
+    /// It is used to avoid rescanning an already-consumed completed tick. This is a processing
+    /// watermark, not the target of a rollback currently in progress; that target is stored in
+    /// [`PredictionManager`] and returned by [`PredictionManager::get_rollback_start_tick`].
+    pub fn last_processed_confirmed_tick(&self) -> Option<Tick> {
+        self.last_processed_confirmed_tick
     }
 
     /// Record that rollback checking consumed this completed server mutate tick.
     ///
-    /// Call this only at the end of the rollback check, after either consuming an explicit mismatch
-    /// or scanning unchanged entities. Do not advance it directly from `ServerMutateTicks`, or while
-    /// the completed tick is still in the client's future: receive functions must continue to see
-    /// the previously processed frontier while the current frame's replication is being applied.
-    pub fn set_last_processed_tick(&mut self, tick: Tick) {
-        self.last_processed_tick = Some(tick);
+    /// Call this only after `check_rollback` consumes the checkpoint: after the full state scan in
+    /// `RollbackMode::Check`, or after scheduling its unconditional rollback in
+    /// `RollbackMode::Always`. Do not advance it directly from `ServerMutateTicks`, while the
+    /// completed tick is still in the client's future, or while a diff at or before this checkpoint
+    /// is unresolved.
+    pub fn set_last_processed_confirmed_tick(&mut self, tick: Tick) {
+        self.last_processed_confirmed_tick = Some(tick);
     }
 
     /// Check if the completed mutate tick has advanced since we last processed it.
     ///
-    /// If this returns false, `check_rollback` can skip the unchanged-entity
-    /// rollback scan because the current `last_confirmed_tick` was already
-    /// handled on an earlier frame.
+    /// If this returns false, `check_rollback` can skip the full state scan because the current
+    /// completed checkpoint was already handled on an earlier frame.
     pub fn has_confirmed_tick_advanced(&self, current_tick: Tick) -> bool {
-        match self.last_processed_tick {
+        match self.last_processed_confirmed_tick {
             None => true, // First time, always process
             Some(last) => current_tick > last,
         }
@@ -422,37 +319,11 @@ mod tests {
     }
 
     #[test]
-    fn pending_mismatch_keeps_earliest_tick() {
-        let mut metadata = StateRollbackMetadata::default();
-        metadata.set_last_processed_tick(Tick(10));
-        metadata.record_mismatch(Tick(12));
-
-        assert_eq!(metadata.pending_mismatch_at_or_before(Tick(11)), None);
-        assert_eq!(
-            metadata.pending_mismatch_at_or_before(Tick(12)),
-            Some(Tick(12))
-        );
-        assert!(!metadata.should_check_mismatch_at(Tick(9)));
-        assert!(!metadata.should_check_mismatch_at(Tick(12)));
-        assert!(!metadata.should_check_mismatch_at(Tick(13)));
-        assert!(metadata.should_check_mismatch_at(Tick(11)));
-
-        metadata.record_mismatch(Tick(14));
-        assert_eq!(metadata.earliest_pending_mismatch_tick, Some(Tick(12)));
-
-        metadata.record_mismatch(Tick(11));
-        assert_eq!(metadata.earliest_pending_mismatch_tick, Some(Tick(11)));
-
-        metadata.clear_mismatch_history();
-        assert_eq!(metadata.earliest_pending_mismatch_tick, None);
-    }
-
-    #[test]
-    fn confirmed_tick_advancement_uses_last_processed_tick() {
+    fn confirmed_tick_advancement_uses_last_processed_confirmed_tick() {
         let mut metadata = StateRollbackMetadata::default();
         assert!(metadata.has_confirmed_tick_advanced(Tick(10)));
 
-        metadata.set_last_processed_tick(Tick(10));
+        metadata.set_last_processed_confirmed_tick(Tick(10));
         assert!(!metadata.has_confirmed_tick_advanced(Tick(10)));
         assert!(!metadata.has_confirmed_tick_advanced(Tick(9)));
         assert!(metadata.has_confirmed_tick_advanced(Tick(11)));
@@ -473,31 +344,6 @@ mod tests {
         assert_eq!(server_mutate_ticks.last_tick(), incomplete_tick);
         assert!(server_mutate_ticks.contains(complete_tick));
         assert!(!server_mutate_ticks.contains(incomplete_tick));
-    }
-
-    #[test]
-    fn completed_frontier_can_jump_past_pending_mismatch() {
-        let mut metadata = StateRollbackMetadata::default();
-        metadata.set_last_processed_tick(Tick(100));
-        metadata.record_mismatch(Tick(105));
-
-        assert_eq!(metadata.pending_mismatch_at_or_before(Tick(104)), None);
-        assert_eq!(
-            metadata.pending_mismatch_at_or_before(Tick(106)),
-            Some(Tick(105))
-        );
-    }
-
-    #[test]
-    fn pending_mismatch_has_no_fixed_tick_window() {
-        let mut metadata = StateRollbackMetadata::default();
-        metadata.set_last_processed_tick(Tick(10));
-        metadata.record_mismatch(Tick(100));
-
-        assert_eq!(
-            metadata.pending_mismatch_at_or_before(Tick(100)),
-            Some(Tick(100))
-        );
     }
 }
 
@@ -538,7 +384,6 @@ impl Default for PredictionManager {
             input_rollback_floor: None,
             deterministic_skip_despawn: Vec::default(),
             deterministic_despawn: Vec::default(),
-            pending_entity_state_checks: PendingEntityStateChecks::default(),
             rollback: RwLock::new(RollbackState::Default),
         }
     }
