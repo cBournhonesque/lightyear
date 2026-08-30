@@ -149,7 +149,15 @@ fn setup_system(mut commands: Commands) {
 }
 
 fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) -> Result {
-    egui::CentralPanel::default().show(contexts.ctx_mut()?, |ui| {
+    let ctx = contexts.ctx_mut()?;
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+    egui::CentralPanel::default().show(&mut viewport_ui, |ui| {
         ui.heading("Lightyear Example Launcher");
         ui.separator();
 

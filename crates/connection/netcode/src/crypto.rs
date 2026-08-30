@@ -2,8 +2,8 @@ use no_std_io2::io;
 
 use super::{MAC_BYTES, PRIVATE_KEY_BYTES};
 use chacha20poly1305::{
-    AeadInPlace, ChaCha20Poly1305, KeyInit, Tag, XChaCha20Poly1305, XNonce,
-    aead::{OsRng, rand_core::RngCore},
+    ChaCha20Poly1305, KeyInit, Tag, XChaCha20Poly1305, XNonce,
+    aead::{AeadInOut, Generate},
 };
 use lightyear_serde::writer::WriteInteger;
 
@@ -17,7 +17,7 @@ pub enum Error {
     #[error("failed to encrypt: {0}")]
     Failed(#[from] chacha20poly1305::aead::Error),
     #[error("failed to generate key: {0}")]
-    GenerateKey(chacha20poly1305::aead::rand_core::Error),
+    GenerateKey(chacha20poly1305::aead::common::getrandom::Error),
 }
 
 /// A 32-byte array, used as a key for encrypting and decrypting packets and connect tokens.
@@ -37,9 +37,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// assert_eq!(key.len(), 32);
 /// ```
 pub fn generate_key() -> Key {
-    let mut key: Key = [0; PRIVATE_KEY_BYTES];
-    OsRng.fill_bytes(&mut key);
-    key
+    Key::generate()
 }
 
 /// The fallible version of [`generate_key`](fn.generate_key.html).
@@ -54,9 +52,7 @@ pub fn generate_key() -> Key {
 /// assert_eq!(key.len(), 32);
 /// ```
 pub fn try_generate_key() -> Result<Key> {
-    let mut key: Key = [0; PRIVATE_KEY_BYTES];
-    OsRng.try_fill_bytes(&mut key).map_err(Error::GenerateKey)?;
-    Ok(key)
+    Key::try_generate().map_err(Error::GenerateKey)
 }
 
 pub fn chacha_encrypt(
@@ -72,10 +68,10 @@ pub fn chacha_encrypt(
     }
     let mut final_nonce = [0; 12];
     io::Cursor::new(&mut final_nonce[4..]).write_u64(nonce)?;
-    let mac = ChaCha20Poly1305::new(key.into()).encrypt_in_place_detached(
+    let mac = ChaCha20Poly1305::new(key.into()).encrypt_inout_detached(
         &final_nonce.into(),
         associated_data.unwrap_or_default(),
-        &mut buf[..size - MAC_BYTES],
+        (&mut buf[..size - MAC_BYTES]).into(),
     );
     #[cfg(feature = "std")]
     let mac = mac?;
@@ -98,12 +94,12 @@ pub fn chacha_decrypt(
     let mut final_nonce = [0; 12];
     io::Cursor::new(&mut final_nonce[4..]).write_u64(nonce)?;
     let (buf, mac) = buf.split_at_mut(buf.len() - MAC_BYTES);
-    let res = ChaCha20Poly1305::new(key.into()).decrypt_in_place_detached(
+    let tag = Tag::try_from(&*mac).expect("MAC has the expected size");
+    let res = ChaCha20Poly1305::new(key.into()).decrypt_inout_detached(
         &final_nonce.into(),
         associated_data.unwrap_or_default(),
-        buf,
-        #[allow(deprecated)]
-        Tag::from_slice(mac),
+        (&mut *buf).into(),
+        &tag,
     );
     #[cfg(feature = "std")]
     res?;
@@ -123,10 +119,10 @@ pub fn xchacha_encrypt(
         // Should have 16 bytes of extra space for the MAC
         return Err(Error::BufferSizeMismatch);
     }
-    let mac = XChaCha20Poly1305::new(key.into()).encrypt_in_place_detached(
+    let mac = XChaCha20Poly1305::new(key.into()).encrypt_inout_detached(
         &nonce,
         associated_data.unwrap_or_default(),
-        &mut buf[..size - MAC_BYTES],
+        (&mut buf[..size - MAC_BYTES]).into(),
     );
     #[cfg(feature = "std")]
     let mac = mac?;
@@ -147,12 +143,12 @@ pub fn xchacha_decrypt(
         return Err(Error::BufferSizeMismatch);
     }
     let (buf, mac) = buf.split_at_mut(buf.len() - MAC_BYTES);
-    let res = XChaCha20Poly1305::new(key.into()).decrypt_in_place_detached(
+    let tag = Tag::try_from(&*mac).expect("MAC has the expected size");
+    let res = XChaCha20Poly1305::new(key.into()).decrypt_inout_detached(
         &nonce,
         associated_data.unwrap_or_default(),
-        buf,
-        #[allow(deprecated)]
-        Tag::from_slice(mac),
+        (&mut *buf).into(),
+        &tag,
     );
     #[cfg(feature = "std")]
     res?;
