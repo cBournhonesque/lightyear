@@ -313,7 +313,6 @@ pub(crate) fn trigger_snapshot_rollback(
         return;
     }
     state_metadata.request_forced_rollback(snapshot_server_tick);
-    state_metadata.clear_mismatch_history();
     manager.pending_snapshot = None;
     manager.activating_snapshot = Some(snapshot);
     info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");

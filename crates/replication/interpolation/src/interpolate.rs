@@ -202,8 +202,17 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
         let row = entity.table_row().index();
         let history = unsafe { &mut *histories.get_unchecked(row).get() };
 
+        // At a completed checkpoint C, a diff component has exactly one of three outcomes:
+        // 1. The component changed at C and the diff was materialized, so the write callback
+        //    already inserted its authoritative state at C. Check ConfirmedHistory first and avoid
+        //    consulting pending diff storage in this case.
+        // 2. An update at or before C is still pending, so its concrete state at C is unresolved
+        //    and ConfirmedHistory must not receive an entry at C yet.
+        // 3. All diffs through C are materialized and there was no update at C, so inserting
+        //    SameAsPrecedent records the final authoritative value carried forward to C.
         if let Some(server_complete_tick) = ctx.server_complete_tick
-            && !history_diff_receiver.has_pending_diff_at_tick(server_complete_tick)
+            && history.get_state_at(server_complete_tick).is_none()
+            && !history_diff_receiver.has_pending_diff_at_or_before(server_complete_tick)
             && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
         {
             trace!(
@@ -667,7 +676,7 @@ mod tests {
         let replicon_tick = RepliconTick::new(replicon_tick);
         let mut checkpoints = app.world_mut().resource_mut::<ReplicationCheckpointMap>();
         checkpoints.record(replicon_tick, server_tick);
-        checkpoints.record_last_confirmed_tick(replicon_tick);
+        checkpoints.record_last_confirmed_checkpoint(replicon_tick);
     }
 
     fn set_interpolation_tick(app: &mut App, tick: Tick) {
@@ -1467,7 +1476,7 @@ mod tests {
     }
 
     #[test]
-    fn update_confirmed_history_diff_advances_when_only_older_diff_is_pending() {
+    fn update_confirmed_history_diff_waits_for_older_pending_diff() {
         let mut app = setup_app(Tick(6), 40);
         use_diff_history_rule(&mut app);
         add_interpolation_test_systems(&mut app);
@@ -1492,15 +1501,12 @@ mod tests {
             .world()
             .get::<ConfirmedHistory<TestComp>>(entity)
             .unwrap();
-        assert_eq!(history.len(), 2);
+        assert_eq!(history.len(), 1);
         assert_eq!(
             history.start_present().map(|(t, v)| (t, v.clone())),
             Some((Tick(0), TestComp(0.0)))
         );
-        assert_eq!(
-            history.get_nth_present(1).map(|(t, v)| (t, v.clone())),
-            Some((Tick(6), TestComp(0.0)))
-        );
+        assert!(history.get_state_at(Tick(6)).is_none());
 
         let receiver = app
             .world()
@@ -1509,6 +1515,39 @@ mod tests {
             .unwrap();
         assert!(receiver.has_pending_diffs());
         assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
+
+        // Materialize the missing S0 -> S3 base and the buffered S3 -> S5 diff. The next update
+        // revisits the still-latest completed checkpoint and can now add its unchanged anchor.
+        let mut receiver = app
+            .world_mut()
+            .resource_mut::<ReplicationStorage>()
+            .remove::<HistoryDiffReceiver<TestComp>>(entity)
+            .unwrap();
+        {
+            let mut entity_mut = app.world_mut().entity_mut(entity);
+            let mut history = entity_mut.get_mut::<ConfirmedHistory<TestComp>>().unwrap();
+            receiver
+                .queue_diffs(Tick(3), idx(1), vec![1.0, 2.0, 3.0])
+                .unwrap();
+            while let Some((tick, value)) = receiver.take_ready_update(&history).unwrap() {
+                history.insert_present(tick, value);
+            }
+        }
+        assert!(!receiver.has_pending_diffs());
+        app.world_mut()
+            .resource_mut::<ReplicationStorage>()
+            .insert(entity, receiver);
+
+        app.update();
+
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestComp>>(entity)
+            .unwrap();
+        assert_eq!(
+            history.get_state_at(Tick(6)).and_then(HistoryState::value),
+            Some(&TestComp(5.0))
+        );
     }
 
     #[test]

@@ -77,9 +77,7 @@ fn test_spawn_predicted_with_hierarchy() {
 /// client's prediction never mispredicts.
 ///
 /// Without the fix, the confirmed insert is parked in `ConfirmedHistory<C>`:
-/// the receive-time mismatch check can be skipped (insert messages ride a
-/// reliable channel and may resolve at/behind the last processed mutate tick),
-/// the unchanged-entity scan returns early without a retained predicted
+/// the completed-checkpoint scan returns early without a retained predicted
 /// sample, and `prepare_rollback` skips the component entirely because the
 /// entity has no `PredictionHistory<C>` — so the component only ever arrives
 /// as a side effect of a rollback caused by something else.

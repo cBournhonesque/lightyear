@@ -337,7 +337,7 @@ fn test_server_insert_on_existing_predicted_entity_triggers_rollback() {
     let world = stepper.client_app().world();
     assert!(
         world.resource::<RollbackObserved>().0,
-        "the receive-time (Some, None) mismatch check should trigger a rollback"
+        "the completed-checkpoint full scan should detect the authoritative insert"
     );
     assert_eq!(
         world

@@ -51,7 +51,7 @@ impl Plugin for RepliconClientPlugin {
         #[cfg(any(feature = "prediction", feature = "interpolation"))]
         app.add_systems(
             PreUpdate,
-            sync_checkpoint_last_confirmed_tick
+            sync_last_confirmed_checkpoint
                 .after(ClientSystems::Receive)
                 .in_set(ReplicationSystems::Receive),
         );
@@ -86,7 +86,7 @@ impl Plugin for RepliconClientPlugin {
 }
 
 #[cfg(any(feature = "prediction", feature = "interpolation"))]
-fn sync_checkpoint_last_confirmed_tick(
+fn sync_last_confirmed_checkpoint(
     server_mutate_ticks: Res<ServerMutateTicks>,
     mut checkpoints: ResMut<ReplicationCheckpointMap>,
     connected_receivers: Query<
@@ -109,7 +109,7 @@ fn sync_checkpoint_last_confirmed_tick(
         return;
     };
     if checkpoints
-        .record_last_confirmed_tick(replicon_tick)
+        .record_last_confirmed_checkpoint(replicon_tick)
         .is_none()
     {
         error!(

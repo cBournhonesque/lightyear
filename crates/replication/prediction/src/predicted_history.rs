@@ -179,7 +179,7 @@ pub(crate) fn handle_local_timeline_shift_history_diff_receiver<C: RepliconDiffa
 
 /// Prune historical diff cursor state that is no longer needed for rollback.
 ///
-/// This promotes the newest cursor at or before `last_processed_tick -
+/// This promotes the newest cursor at or before `last_processed_confirmed_tick -
 /// DIFF_HISTORY_TICK_MARGIN` to the receiver's retained base. The margin keeps
 /// older confirmed values available for late diff messages whose base is
 /// before the latest processed tick but whose target tick has not been received
@@ -189,10 +189,10 @@ pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
     mut storage: ResMut<ReplicationStorage>,
     query: Query<(Entity, &ConfirmedHistory<C>)>,
 ) {
-    let Some(last_processed_tick) = state_metadata.last_processed_tick() else {
+    let Some(last_processed_confirmed_tick) = state_metadata.last_processed_confirmed_tick() else {
         return;
     };
-    let prune_tick = last_processed_tick - DIFF_HISTORY_TICK_MARGIN;
+    let prune_tick = last_processed_confirmed_tick - DIFF_HISTORY_TICK_MARGIN;
     for (entity, history) in query.iter() {
         let Some(receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity) else {
             continue;
@@ -608,10 +608,10 @@ mod tests {
     }
 
     #[test]
-    fn diff_receiver_pruning_keeps_margin_before_last_processed_tick() {
+    fn diff_receiver_pruning_keeps_margin_before_last_processed_confirmed_tick() {
         let mut app = App::new();
         let mut metadata = StateRollbackMetadata::default();
-        metadata.set_last_processed_tick(Tick(16));
+        metadata.set_last_processed_confirmed_tick(Tick(16));
         app.insert_resource(metadata);
         app.insert_resource(ReplicationStorage::default());
         app.add_systems(Update, prune_history_diff_receiver::<TestDiffValue>);

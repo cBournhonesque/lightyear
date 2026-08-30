@@ -47,6 +47,7 @@ use bevy_platform::collections::HashMap;
 #[cfg(feature = "client")]
 use bevy_replicon::client::UserdataReceived;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
+use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::RepliconTick;
 #[cfg(feature = "server")]
 use bevy_replicon::server::ReplicationUserdata;
@@ -80,8 +81,16 @@ const MAX_STORED_CHECKPOINTS: usize = 256;
 pub struct ReplicationCheckpointMap {
     entries: HashMap<RepliconTick, Tick>,
     order: VecDeque<RepliconTick>,
-    last_confirmed_replicon_tick: Option<RepliconTick>,
-    last_confirmed_tick: Option<Tick>,
+    last_confirmed_checkpoint: Option<CompletedCheckpoint>,
+}
+
+/// A completed Replicon checkpoint resolved into Lightyear simulation time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompletedCheckpoint {
+    /// Replicon's protocol tick for this completed checkpoint.
+    pub replicon_tick: RepliconTick,
+    /// Authoritative Lightyear simulation tick carried by the checkpoint.
+    pub tick: Tick,
 }
 
 impl ReplicationCheckpointMap {
@@ -109,42 +118,109 @@ impl ReplicationCheckpointMap {
         self.entries.get(&replicon_tick).copied()
     }
 
-    /// Latest authoritative tick for which Replicon completed all mutate messages.
+    /// Latest authoritative Lightyear tick for which Replicon completed all mutate messages.
     pub fn last_confirmed_tick(&self) -> Option<Tick> {
-        self.last_confirmed_tick
+        self.last_confirmed_checkpoint
+            .map(|checkpoint| checkpoint.tick)
     }
 
-    /// Latest Replicon mutate checkpoint for which all mutate messages completed.
-    pub fn last_confirmed_replicon_tick(&self) -> Option<RepliconTick> {
-        self.last_confirmed_replicon_tick
+    /// Latest checkpoint for which Replicon completed all mutate messages.
+    pub fn last_confirmed_checkpoint(&self) -> Option<CompletedCheckpoint> {
+        self.last_confirmed_checkpoint
     }
 
-    /// Resolve a completed Replicon mutate checkpoint and cache the authoritative tick.
+    /// Return the newest completed checkpoint that is not ahead of `limit`.
     ///
-    /// Returns `None` if the checkpoint mapping has not been received yet.
-    pub fn record_last_confirmed_tick(&mut self, replicon_tick: RepliconTick) -> Option<Tick> {
-        if let Some(tick) = self.get(replicon_tick) {
-            match self.last_confirmed_tick {
-                None => {
-                    self.last_confirmed_replicon_tick = Some(replicon_tick);
-                    self.last_confirmed_tick = Some(tick);
-                }
-                Some(existing) if tick >= existing => {
-                    self.last_confirmed_replicon_tick = Some(replicon_tick);
-                    self.last_confirmed_tick = Some(tick);
-                }
-                _ => {}
-            }
-            return Some(tick);
+    /// The common case uses the cached latest completed checkpoint. When that checkpoint is ahead
+    /// of the local timeline, inspect the retained Replicon-to-Lightyear mappings and keep only
+    /// ticks that [`ServerMutateTicks`] reports as complete. Multiple Replicon ticks can map to the
+    /// same Lightyear tick; ties prefer the most recent Replicon tick.
+    pub fn latest_completed_at_or_before(
+        &self,
+        server_mutate_ticks: &ServerMutateTicks,
+        limit: Tick,
+    ) -> Option<CompletedCheckpoint> {
+        if let Some(checkpoint) = self.last_confirmed_checkpoint
+            && checkpoint.tick <= limit
+        {
+            return Some(checkpoint);
         }
-        None
+
+        self.latest_completed_matching(server_mutate_ticks, |tick| tick <= limit)
+    }
+
+    /// Return the newest completed checkpoint strictly before `limit`.
+    ///
+    /// This is used when an unresolved diff at `limit` makes that tick and every later tick
+    /// unusable as a rollback checkpoint. The returned checkpoint is selected only from mappings
+    /// that [`ServerMutateTicks`] reports as globally complete.
+    pub fn latest_completed_before(
+        &self,
+        server_mutate_ticks: &ServerMutateTicks,
+        limit: Tick,
+    ) -> Option<CompletedCheckpoint> {
+        if let Some(checkpoint) = self.last_confirmed_checkpoint
+            && checkpoint.tick < limit
+        {
+            return Some(checkpoint);
+        }
+
+        self.latest_completed_matching(server_mutate_ticks, |tick| tick < limit)
+    }
+
+    fn latest_completed_matching(
+        &self,
+        server_mutate_ticks: &ServerMutateTicks,
+        is_within_bound: impl Fn(Tick) -> bool,
+    ) -> Option<CompletedCheckpoint> {
+        let mut best = None;
+        for (&replicon_tick, &tick) in &self.entries {
+            if !server_mutate_ticks.contains(replicon_tick) || !is_within_bound(tick) {
+                continue;
+            }
+            let candidate = CompletedCheckpoint {
+                replicon_tick,
+                tick,
+            };
+            if best.is_none_or(|existing: CompletedCheckpoint| {
+                candidate.tick > existing.tick
+                    || (candidate.tick == existing.tick
+                        && replicon_tick.is_newer(existing.replicon_tick))
+            }) {
+                best = Some(candidate);
+            }
+        }
+        best
+    }
+
+    /// Resolve a completed Replicon mutate checkpoint and update the latest confirmed checkpoint.
+    ///
+    /// A checkpoint advances the cache when its Lightyear tick is newer. If multiple Replicon
+    /// checkpoints map to the same Lightyear tick, the newer Replicon checkpoint wins. Returns the
+    /// resolved checkpoint, even when an already-cached checkpoint remains newer, or `None` if the
+    /// mapping has not been received yet.
+    pub fn record_last_confirmed_checkpoint(
+        &mut self,
+        replicon_tick: RepliconTick,
+    ) -> Option<CompletedCheckpoint> {
+        let checkpoint = CompletedCheckpoint {
+            replicon_tick,
+            tick: self.get(replicon_tick)?,
+        };
+        if self.last_confirmed_checkpoint.is_none_or(|existing| {
+            checkpoint.tick > existing.tick
+                || (checkpoint.tick == existing.tick
+                    && checkpoint.replicon_tick.is_newer(existing.replicon_tick))
+        }) {
+            self.last_confirmed_checkpoint = Some(checkpoint);
+        }
+        Some(checkpoint)
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
         self.order.clear();
-        self.last_confirmed_replicon_tick = None;
-        self.last_confirmed_tick = None;
+        self.last_confirmed_checkpoint = None;
     }
 }
 
@@ -235,23 +311,125 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_map_records_latest_confirmed_tick() {
+    fn checkpoint_map_records_latest_confirmed_checkpoint() {
         let mut map = ReplicationCheckpointMap::default();
         map.record(RepliconTick::new(9), Tick(90));
         map.record(RepliconTick::new(10), Tick(100));
+        map.record(RepliconTick::new(11), Tick(100));
 
         assert_eq!(
-            map.record_last_confirmed_tick(RepliconTick::new(10)),
-            Some(Tick(100))
+            map.record_last_confirmed_checkpoint(RepliconTick::new(10)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(10),
+                tick: Tick(100),
+            })
         );
         assert_eq!(
-            map.record_last_confirmed_tick(RepliconTick::new(9)),
-            Some(Tick(90))
+            map.record_last_confirmed_checkpoint(RepliconTick::new(9)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(9),
+                tick: Tick(90),
+            })
+        );
+        assert_eq!(
+            map.record_last_confirmed_checkpoint(RepliconTick::new(11)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(11),
+                tick: Tick(100),
+            })
+        );
+        map.record_last_confirmed_checkpoint(RepliconTick::new(10));
+        assert_eq!(
+            map.last_confirmed_checkpoint(),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(11),
+                tick: Tick(100),
+            })
         );
         assert_eq!(map.last_confirmed_tick(), Some(Tick(100)));
+    }
+
+    #[test]
+    fn checkpoint_map_finds_latest_completed_tick_before_limit() {
+        let mut map = ReplicationCheckpointMap::default();
+        let mut server_ticks = ServerMutateTicks::default();
+        for (replicon, authoritative) in [(8, 80), (9, 90), (10, 100)] {
+            let replicon_tick = RepliconTick::new(replicon);
+            map.record(replicon_tick, Tick(authoritative));
+            server_ticks.confirm(replicon_tick, 1);
+        }
+        map.record_last_confirmed_checkpoint(RepliconTick::new(10));
+
         assert_eq!(
-            map.last_confirmed_replicon_tick(),
-            Some(RepliconTick::new(10))
+            map.latest_completed_at_or_before(&server_ticks, Tick(95)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(9),
+                tick: Tick(90),
+            })
+        );
+        assert_eq!(
+            map.latest_completed_at_or_before(&server_ticks, Tick(100)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(10),
+                tick: Tick(100),
+            })
+        );
+        assert_eq!(
+            map.latest_completed_before(&server_ticks, Tick(100)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(9),
+                tick: Tick(90),
+            })
+        );
+    }
+
+    #[test]
+    fn checkpoint_map_ignores_mapped_but_incomplete_ticks() {
+        let mut map = ReplicationCheckpointMap::default();
+        let mut server_ticks = ServerMutateTicks::default();
+
+        map.record(RepliconTick::new(8), Tick(80));
+        server_ticks.confirm(RepliconTick::new(8), 1);
+        map.record_last_confirmed_checkpoint(RepliconTick::new(8));
+
+        // Userdata is recorded before Replicon applies the message. A mapping can therefore exist
+        // before all mutation messages for its checkpoint have arrived.
+        map.record(RepliconTick::new(9), Tick(90));
+
+        // Put the cached frontier beyond the lookup bound so the historical lookup has to inspect
+        // both the completed and incomplete retained mappings.
+        map.record(RepliconTick::new(10), Tick(110));
+        server_ticks.confirm(RepliconTick::new(10), 1);
+        map.record_last_confirmed_checkpoint(RepliconTick::new(10));
+
+        assert_eq!(
+            map.latest_completed_at_or_before(&server_ticks, Tick(100)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(8),
+                tick: Tick(80),
+            })
+        );
+    }
+
+    #[test]
+    fn checkpoint_map_prefers_newest_replicon_tick_for_same_lightyear_tick() {
+        let mut map = ReplicationCheckpointMap::default();
+        let mut server_ticks = ServerMutateTicks::default();
+        for replicon in [8, 9] {
+            let replicon_tick = RepliconTick::new(replicon);
+            map.record(replicon_tick, Tick(80));
+            server_ticks.confirm(replicon_tick, 1);
+        }
+        map.record(RepliconTick::new(10), Tick(100));
+        server_ticks.confirm(RepliconTick::new(10), 1);
+        map.record_last_confirmed_checkpoint(RepliconTick::new(10));
+
+        assert_eq!(
+            map.latest_completed_at_or_before(&server_ticks, Tick(80)),
+            Some(CompletedCheckpoint {
+                replicon_tick: RepliconTick::new(9),
+                tick: Tick(80),
+            })
         );
     }
 
@@ -259,22 +437,25 @@ mod tests {
     fn checkpoint_map_missing_confirmed_tick_does_not_update_cache() {
         let mut map = ReplicationCheckpointMap::default();
 
-        assert_eq!(map.record_last_confirmed_tick(RepliconTick::new(10)), None);
+        assert_eq!(
+            map.record_last_confirmed_checkpoint(RepliconTick::new(10)),
+            None
+        );
         assert_eq!(map.last_confirmed_tick(), None);
-        assert_eq!(map.last_confirmed_replicon_tick(), None);
+        assert_eq!(map.last_confirmed_checkpoint(), None);
     }
 
     #[test]
-    fn checkpoint_map_clear_resets_confirmed_tick_cache() {
+    fn checkpoint_map_clear_resets_confirmed_checkpoint_cache() {
         let mut map = ReplicationCheckpointMap::default();
         map.record(RepliconTick::new(10), Tick(100));
-        map.record_last_confirmed_tick(RepliconTick::new(10));
+        map.record_last_confirmed_checkpoint(RepliconTick::new(10));
 
         map.clear();
 
         assert_eq!(map.get(RepliconTick::new(10)), None);
         assert_eq!(map.last_confirmed_tick(), None);
-        assert_eq!(map.last_confirmed_replicon_tick(), None);
+        assert_eq!(map.last_confirmed_checkpoint(), None);
     }
 
     #[test]
