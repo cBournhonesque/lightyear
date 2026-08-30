@@ -30,21 +30,22 @@ We need:
 
 use super::Predicted;
 use super::predicted_history::PredictionHistory;
+use crate::archetypes::{CachedPredictionComponent, CheckRollbackWorld, PrepareRollbackWorld};
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
 use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, StateRollbackMetadata};
 use crate::plugin::PredictionSystems;
-use crate::registry::{PendingDiffTickFn, PredictionRegistry};
+use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
 use bevy_app::FixedMain;
 use bevy_app::prelude::*;
-use bevy_ecs::component::{ComponentId, Mutable};
+use bevy_ecs::archetype::Archetype;
+use bevy_ecs::component::Mutable;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
-use bevy_ecs::system::{LocalBuilder, ParamBuilder, QueryParamBuilder};
-use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
+use bevy_ecs::world::{DeferredWorld, unsafe_world_cell::UnsafeWorldCell};
 use bevy_reflect::Reflect;
 use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::{ClientMessages, ClientSystems};
@@ -61,12 +62,13 @@ use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 #[cfg(feature = "p2p")]
 use lightyear_p2p::prelude::{P2PStarted, P2PStopped};
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::prelude::{ConfirmHistory, PreSpawned};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
 use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
-use lightyear_utils::adaptive_for_each_mut;
+use lightyear_utils::ecs::{get_component_unchecked, get_component_unchecked_mut};
 #[cfg(feature = "metrics")]
 use lightyear_utils::timer_gauge;
 use serde::{Deserialize, Serialize};
@@ -112,9 +114,6 @@ pub enum RollbackSystems {
 /// input-driven rollback requests that would restore history from before it. This boundary is
 /// automatic; applications can install input components directly in a `P2PStarted` observer.
 pub struct RollbackPlugin;
-
-#[derive(Component)]
-struct NoRollbackCheckTargets;
 
 impl Plugin for RollbackPlugin {
     fn build(&self, app: &mut App) {
@@ -170,8 +169,12 @@ impl Plugin for RollbackPlugin {
                 check_received_replication_messages
                     .after(ClientSystems::ReceivePackets)
                     .before(ClientSystems::Receive),
+                check_rollback
+                    .in_set(RollbackSystems::Check)
+                    .after(ReplicationSystems::Receive),
                 reset_input_rollback_tracker.after(RollbackSystems::Check),
                 remove_prediction_disable.in_set(RollbackSystems::RemoveDisable),
+                prepare_rollback.in_set(RollbackSystems::Prepare),
                 run_rollback.in_set(RollbackSystems::Rollback),
                 end_rollback.in_set(RollbackSystems::EndRollback),
                 #[cfg(feature = "metrics")]
@@ -181,102 +184,6 @@ impl Plugin for RollbackPlugin {
                     .run_if(not(is_in_rollback)),
             ),
         );
-    }
-
-    /// Wait until every component has been registered in the ComponentRegistry
-    fn finish(&self, app: &mut App) {
-        // temporarily remove component_registry from the app to enable split borrows
-        let component_registry = app
-            .world_mut()
-            .remove_resource::<ComponentRegistry>()
-            .unwrap();
-        let prediction_registry = app
-            .world_mut()
-            .remove_resource::<PredictionRegistry>()
-            .unwrap();
-
-        let mut replicated_prediction_histories = Vec::new();
-        let mut pending_diff_tick_fns = Vec::new();
-        for (kind, metadata) in &prediction_registry.prediction_map {
-            // Don't check rollback for non-networked components, which are not present in the
-            // ComponentRegistry.
-            if !component_registry.component_metadata_map.contains_key(kind) {
-                continue;
-            }
-            replicated_prediction_histories.push((
-                metadata.prediction_history_id,
-                metadata.confirmed_history_id,
-            ));
-            if let Some(pending_diff_tick) = metadata.pending_diff_tick {
-                pending_diff_tick_fns.push((metadata.prediction_history_id, pending_diff_tick));
-            }
-        }
-
-        let check_rollback = (
-            QueryParamBuilder::new(|builder| {
-                builder.with::<Predicted>();
-                builder.with::<ConfirmHistory>();
-                builder.without::<DeterministicPredicted>();
-                builder.without::<DisableRollback>();
-                // include PredictionDisable entities (entities that are predicted and 'despawned'
-                // but we keep them around for rollback check)
-                builder.filter::<Allow<PredictionDisable>>();
-                if !replicated_prediction_histories.is_empty() {
-                    builder.or(|b| {
-                        for history_id in &replicated_prediction_histories {
-                            b.with_id(history_id.0);
-                        }
-                    });
-                } else {
-                    // Keep the unchanged-state query empty when no replicated
-                    // prediction histories are registered. The system still
-                    // needs to run for input rollback checks.
-                    builder.with::<NoRollbackCheckTargets>();
-                }
-                builder.optional(|b| {
-                    // include access to prediction and confirmed histories for all replicated predicted components
-                    // (no need to check rollback for non-networked components)
-                    for (prediction_history_id, confirmed_history_id) in
-                        &replicated_prediction_histories
-                    {
-                        b.mut_id(*prediction_history_id);
-                        b.mut_id(*confirmed_history_id);
-                    }
-                });
-            }),
-            // Component registration is complete at this point. Cache only the diff-specific
-            // history id/function pairs needed to constrain completed rollback checkpoints.
-            LocalBuilder(pending_diff_tick_fns),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            // A nested tuple counts as one outer system parameter, keeping the dynamically built
-            // system below Bevy's 16-element tuple limit.
-            (ParamBuilder, ParamBuilder),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-        )
-            .build_state(app.world_mut())
-            .build_system(check_rollback)
-            .with_name("RollbackPlugin::check_rollback");
-
-        app.add_systems(
-            PreUpdate,
-            check_rollback
-                .in_set(RollbackSystems::Check)
-                .after(ReplicationSystems::Receive),
-        );
-
-        app.insert_resource(component_registry);
-        app.insert_resource(prediction_registry);
     }
 }
 
@@ -407,10 +314,7 @@ fn reset_state_rollback_metadata_on_topology_change(
 /// - entities that received an update at C have their confirmed value in history;
 /// - entities that did not receive an update have the same value as their last confirmation before C.
 fn check_rollback(
-    // we want Query<(&mut PredictionHistory<C>, &Confirmed<C>), With<Predicted>>
-    // make sure to include disabled entities
-    mut predicted_entities: Query<FilteredEntityMut>,
-    pending_diff_tick_fns: Local<Vec<(ComponentId, PendingDiffTickFn)>>,
+    mut prediction_world: CheckRollbackWorld,
     timeline: SyncedLocalTimeline,
     input_config: Res<InputTimelineConfig>,
     last_confirmed_input: Res<LastConfirmedInput>,
@@ -423,7 +327,6 @@ fn check_rollback(
     (component_registry, prediction_registry): (Res<ComponentRegistry>, Res<PredictionRegistry>),
     awaiting_catchup: Query<(), (With<CatchUpGated>, With<ConfirmHistory>)>,
     deterministic_predicted: Query<&DeterministicPredicted>,
-    parallel_commands: ParallelCommands,
     mut commands: Commands,
 ) {
     #[cfg(feature = "metrics")]
@@ -434,6 +337,9 @@ fn check_rollback(
     let max_rollback_ticks = prediction_manager
         .rollback_policy
         .effective_max_rollback_ticks(&input_config);
+    prediction_world.update_archetypes(&prediction_registry, &component_registry);
+    let has_check_entities = prediction_world.has_check_entities();
+    let world = prediction_world.world;
 
     // Let:
     // - T be the current local simulation tick;
@@ -602,19 +508,25 @@ fn check_rollback(
             };
 
             let mut earliest_pending_tick = None;
-            for &(prediction_history_id, pending_diff_tick) in pending_diff_tick_fns.iter() {
-                for entity_mut in predicted_entities
-                    .iter_mut()
-                    .filter(|entity_mut| entity_mut.contains_id(prediction_history_id))
-                {
-                    let Some(pending_tick) = pending_diff_tick(storage, candidate, entity_mut.id())
-                    else {
-                        continue;
-                    };
-                    earliest_pending_tick = Some(
-                        earliest_pending_tick
-                            .map_or(pending_tick, |earliest| Tick::min(earliest, pending_tick)),
-                    );
+            for (archetype, cached) in prediction_world.diff_archetypes() {
+                if !cached.check_target {
+                    continue;
+                }
+                for entity in archetype.entities() {
+                    for component in &cached.diff_components {
+                        if component.prediction_history_storage.is_none() {
+                            continue;
+                        }
+                        let Some(pending_tick) =
+                            (component.pending_diff_tick)(storage, candidate, entity.id())
+                        else {
+                            continue;
+                        };
+                        earliest_pending_tick =
+                            Some(earliest_pending_tick.map_or(pending_tick, |earliest| {
+                                Tick::min(earliest, pending_tick)
+                            }));
+                    }
                 }
             }
 
@@ -634,7 +546,7 @@ fn check_rollback(
             RollbackMode::Always => {
                 if let Some(confirmed_tick) = confirmed_tick
                     && received_state
-                    && !predicted_entities.is_empty()
+                    && has_check_entities
                 {
                     debug!(
                         ?confirmed_tick,
@@ -667,68 +579,65 @@ fn check_rollback(
                         "Checking for state-based rollback at completed mutate tick"
                     );
 
-                    adaptive_for_each_mut!(predicted_entities, |mut entity_mut| {
-                        if prediction_manager.is_rollback() {
-                            return;
+                    'scan: for (archetype, cached) in prediction_world.predicted_archetypes() {
+                        if !cached.check_target {
+                            continue;
                         }
-
-                        // For each predicted component, compare the predicted value at C with
-                        // its effective authoritative value. The checker uses an exact sample
-                        // when one exists; otherwise completion of C proves the component was
-                        // unchanged, so it materializes the last confirmed value before C.
-                        for check_rollback in prediction_registry
-                            .prediction_map
-                            .iter()
-                            .filter_map(|(kind, metadata)| {
-                                // Only check rollback for components that are replicated;
-                                // non-networked components have no authoritative state at C.
-                                component_registry
-                                    .component_metadata_map
-                                    .contains_key(kind)
-                                    .then_some(metadata.check_rollback)
-                            })
-                            .take_while(|_| !prediction_manager.is_rollback())
-                        {
-                            // SAFETY: `ServerMutateTicks` reports `confirmed_tick` as globally
-                            // complete, and no predicted diff component has an unresolved update at
-                            // or before it. Absence of an explicit component sample therefore proves
-                            // that the component was unchanged at this checkpoint.
-                            let should_rollback = unsafe {
-                                check_rollback(
-                                    &prediction_registry,
-                                    confirmed_tick,
-                                    &mut entity_mut,
-                                )
-                            };
-                            if should_rollback {
-                                debug!(
-                                    ?confirmed_tick,
-                                    "Rollback because of mismatch at completed checkpoint"
-                                );
-                                trace!(
-                                    target: "lightyear_debug::prediction",
-                                    kind = "completed_checkpoint_mismatch",
-                                    schedule = "PreUpdate",
-                                    sample_point = "PreUpdate",
-                                    entity = ?entity_mut.id(),
-                                    local_tick = tick.0,
-                                    latest_completed_tick = server_confirmed_tick.map(|tick| tick.0),
-                                    completed_tick = confirmed_tick.0,
-                                    rollback_tick = confirmed_tick.0,
-                                    "rollback mismatch detected at completed checkpoint"
-                                );
-                                parallel_commands.command_scope(|mut c| {
+                        for entity in archetype.entities() {
+                            // For each predicted component, compare the predicted value at C with
+                            // its effective authoritative value. The archetype cache has already
+                            // resolved the exact history columns, so this loop performs no dynamic
+                            // entity-access checks.
+                            for component in &cached.predicted_components {
+                                let (Some(check_rollback), Some(_), Some(_)) = (
+                                    component.check_rollback,
+                                    component.prediction_history_storage,
+                                    component.confirmed_history_storage,
+                                ) else {
+                                    continue;
+                                };
+                                // SAFETY: `ServerMutateTicks` reports `confirmed_tick` as globally
+                                // complete, no cached predicted diff component has an unresolved
+                                // update at or before it, and PredictionWorld declares access to
+                                // every cached history column.
+                                let should_rollback = unsafe {
+                                    check_rollback(
+                                        &prediction_registry,
+                                        confirmed_tick,
+                                        world,
+                                        archetype,
+                                        entity,
+                                        component,
+                                    )
+                                };
+                                if should_rollback {
+                                    debug!(
+                                        ?confirmed_tick,
+                                        "Rollback because of mismatch at completed checkpoint"
+                                    );
+                                    trace!(
+                                        target: "lightyear_debug::prediction",
+                                        kind = "completed_checkpoint_mismatch",
+                                        schedule = "PreUpdate",
+                                        sample_point = "PreUpdate",
+                                        entity = ?entity.id(),
+                                        local_tick = tick.0,
+                                        latest_completed_tick = server_confirmed_tick.map(|tick| tick.0),
+                                        completed_tick = confirmed_tick.0,
+                                        rollback_tick = confirmed_tick.0,
+                                        "rollback mismatch detected at completed checkpoint"
+                                    );
                                     do_rollback(
                                         confirmed_tick,
                                         &prediction_manager,
-                                        &mut c,
+                                        &mut commands,
                                         Rollback::FromState,
                                     );
-                                });
-                                return;
+                                    break 'scan;
+                                }
                             }
                         }
-                    });
+                    }
 
                     // Update the last processed confirmed tick only after C was scanned.
                     state_metadata.set_last_processed_confirmed_tick(confirmed_tick);
@@ -963,39 +872,122 @@ pub(crate) fn remove_prediction_disable(
 /// 1. Clears all **predicted** values from rollback_tick onwards (we will re-predict them)
 /// 2. Preserves all **confirmed** values (we know the real server values and will snap to them during re-simulation)
 /// 3. Reverts the component to the value at rollback_tick
-#[allow(clippy::type_complexity)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
+pub(crate) fn prepare_rollback(
+    mut prediction_world: PrepareRollbackWorld,
     timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
+    component_registry: Res<ComponentRegistry>,
     mut commands: Commands,
-    // We also snap the value of the component to the server state if we are in rollback
-    // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
-    // PredictionHistory is the rollback membership marker. Resource entities
-    // can lose CatchUpGated after activation but still need local rollback.
-    mut predicted_query: Query<
-        (
-            Entity,
-            Option<&mut C>,
-            &mut PredictionHistory<C>,
-            Option<&mut ConfirmedHistory<C>>,
-        ),
-        Without<DisableRollback>,
-    >,
     manager: Res<PredictionManager>,
     rollback: Res<Rollback>,
 ) {
-    let kind = DebugName::type_name::<C>();
     let current_tick = timeline.tick();
-    let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
+    let _span = trace_span!("prepare_rollback", tick = ?current_tick).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
     let is_state_rollback = matches!(*rollback, Rollback::FromState);
+    prediction_world.update_archetypes(&prediction_registry, &component_registry);
 
-    for (entity, predicted_component, mut predicted_history, confirmed_history) in
-        predicted_query.iter_mut()
-    {
+    let world = prediction_world.world;
+    let mut deferred = DeferredEntityCommands::default();
+    for (archetype, cached) in prediction_world.predicted_archetypes() {
+        if !cached.default_query_target || cached.has_disable_rollback {
+            continue;
+        }
+        for component in &cached.predicted_components {
+            if component.prediction_history_storage.is_none() {
+                continue;
+            }
+            // SAFETY: PredictionWorld declares access to every cached live component and history
+            // column, and the cache records the exact ids and storage used by this archetype.
+            unsafe {
+                (component.prepare_rollback)(
+                    world,
+                    archetype,
+                    component,
+                    current_tick,
+                    rollback_tick,
+                    is_state_rollback,
+                    &mut deferred,
+                );
+            }
+        }
+    }
+    deferred.apply(&mut commands);
+}
+
+/// Prepares one cached component column for rollback.
+///
+/// # Safety
+///
+/// `component` must have been resolved for `archetype`, and the caller must hold the accesses
+/// declared by [`PrepareRollbackWorld`].
+pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutable> + Clone>(
+    world: UnsafeWorldCell,
+    archetype: &Archetype,
+    component: &CachedPredictionComponent,
+    current_tick: Tick,
+    rollback_tick: Tick,
+    is_state_rollback: bool,
+    deferred: &mut DeferredEntityCommands,
+) {
+    let kind = DebugName::type_name::<C>();
+    let prediction_history_storage = component
+        .prediction_history_storage
+        .expect("rollback preparation requires prediction history");
+
+    for entity in archetype.entities() {
+        let entity_id = entity.id();
+        let current_component = component.component_storage.map(|storage| {
+            // SAFETY: the cache records C's exact id and storage for this archetype, and the
+            // prepare system declares write access (which includes read access) to C.
+            unsafe {
+                get_component_unchecked(
+                    world,
+                    entity,
+                    archetype.table_id(),
+                    storage,
+                    component.component_id,
+                )
+                .deref::<C>()
+                .clone()
+            }
+        });
+
+        let confirmed_state = if is_state_rollback {
+            component.confirmed_history_storage.and_then(|storage| {
+                // SAFETY: the cache records the confirmed-history id and storage when present,
+                // and the prepare system declares read access to this column.
+                let history = unsafe {
+                    get_component_unchecked(
+                        world,
+                        entity,
+                        archetype.table_id(),
+                        storage,
+                        component.confirmed_history_id,
+                    )
+                    .deref::<ConfirmedHistory<C>>()
+                };
+                history.get_state_at_or_before(rollback_tick).cloned()
+            })
+        } else {
+            None
+        };
+
+        // SAFETY: every cached prepare component is selected by the presence of
+        // PredictionHistory<C>, and the system declares unique access to the column.
+        let predicted_history = unsafe {
+            get_component_unchecked_mut(
+                world,
+                entity,
+                archetype.table_id(),
+                prediction_history_storage,
+                component.prediction_history_id,
+            )
+            .deref_mut::<PredictionHistory<C>>()
+        };
+
         let restore_state = if is_state_rollback {
-            if let Some(history) = confirmed_history.as_ref() {
+            if component.confirmed_history_storage.is_some() {
                 // A policy-driven state rollback uses the diff-aware completed checkpoint C stored
                 // in PredictionManager as its rollback target. Completion of C proves that a
                 // component without an explicit update is unchanged since its previous confirmed
@@ -1006,7 +998,7 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
                 // precondition: its explicit rollback target has already been seeded with
                 // authoritative confirmed history. Input rollbacks instead restore from local
                 // predicted history.
-                history.get_state_at_or_before(rollback_tick).cloned()
+                confirmed_state
             } else {
                 // State rollback can also cover predicted-only local components
                 // that have no authoritative history yet.
@@ -1034,7 +1026,7 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
         predicted_history.clear_after_tick(rollback_tick);
         if let Some(state) = restore_state.clone() {
             predicted_history.add_state(rollback_tick, state);
-        } else if let Some(current) = predicted_component.as_deref() {
+        } else if let Some(current) = current_component.as_ref() {
             // No state exists at rollback_tick (e.g. the entity was revealed to
             // this client after the rollback target). The replay starts from the
             // current component value, so seed the history with it.
@@ -1045,16 +1037,14 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
             kind = "prepare_rollback_component",
             schedule = "PreUpdate",
             sample_point = "PreUpdate",
-            entity = ?entity,
+            entity = ?entity_id,
             component = ?kind,
             local_tick = current_tick.0,
             rollback_tick = rollback_tick.0,
-            rollback = ?rollback,
+            state_rollback = is_state_rollback,
             history_len = predicted_history.len(),
             "prepared component rollback"
         );
-
-        let mut entity_mut = commands.entity(entity);
 
         // Update the component to the value at rollback_tick
         match restore_state {
@@ -1062,7 +1052,7 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
             // removal, so leave the current component value in place.
             None => {
                 trace!(
-                    ?entity,
+                    entity = ?entity_id,
                     ?kind,
                     ?rollback_tick,
                     "No history entry for component at rollback tick; leaving current value in place"
@@ -1070,26 +1060,28 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
             }
             // An explicit removal means the component was authoritatively removed at rollback_tick.
             Some(HistoryState::Removed) => {
-                entity_mut.try_remove::<C>();
+                if current_component.is_some() {
+                    deferred.remove::<C>(entity_id);
+                }
                 trace!("Removing component from predicted entity for rollback");
             }
             // Value exists at rollback_tick (either predicted or confirmed)
             Some(HistoryState::Updated(correct)) => {
-                match predicted_component {
+                match current_component {
                     None => {
                         debug!("Re-adding deleted component to predicted");
-                        entity_mut.insert(correct);
+                        deferred.insert(entity_id, correct);
                     }
-                    Some(mut predicted_component) => {
+                    Some(predicted_component) => {
                         // Keep track of the current visual value so we can smooth the correction
-                        if prediction_registry.has_correction::<C>() {
-                            entity_mut.insert(PreviousVisual(predicted_component.clone()));
+                        if component.has_correction {
+                            deferred.insert(entity_id, PreviousVisual(predicted_component));
                             trace!(
                                 target: "lightyear_debug::prediction",
                                 kind = "previous_visual_stored",
                                 schedule = "PreUpdate",
                                 sample_point = "PreUpdate",
-                                entity = ?entity,
+                                entity = ?entity_id,
                                 component = ?kind,
                                 local_tick = current_tick.0,
                                 rollback_tick = rollback_tick.0,
@@ -1097,8 +1089,13 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
                             );
                         }
 
-                        // Update the component to the corrected value
-                        *predicted_component = correct;
+                        // SAFETY: the prepare system declares unique access to C, and no reference
+                        // to this entity's live C is retained here.
+                        unsafe {
+                            lightyear_core::ecs_utils::write_component_with_change_detection::<C>(
+                                world, entity_id, correct,
+                            );
+                        }
                     }
                 };
             }
@@ -1320,9 +1317,27 @@ pub struct CatchUpGated;
 mod tests {
     use super::*;
     use bevy_ecs::system::RunSystemOnce;
+    use lightyear_core::prelude::FrameInterpolationHistory;
 
     #[derive(Component, Clone, PartialEq, Debug)]
     struct TestComponent(f32);
+
+    fn register_test_rollback(world: &mut World) {
+        world.init_resource::<ComponentRegistry>();
+        world.init_resource::<PredictionRegistry>();
+        world.register_component::<TestComponent>();
+        let prediction_history_id = world.register_component::<PredictionHistory<TestComponent>>();
+        let confirmed_history_id = world.register_component::<ConfirmedHistory<TestComponent>>();
+        let frame_interpolation_history_id =
+            world.register_component::<FrameInterpolationHistory<TestComponent>>();
+        world
+            .resource_mut::<PredictionRegistry>()
+            .register_rollback::<TestComponent>(
+                prediction_history_id,
+                confirmed_history_id,
+                frame_interpolation_history_id,
+            );
+    }
 
     #[cfg(feature = "p2p")]
     #[test]
@@ -1381,6 +1396,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<LocalTimeline>();
         world.init_resource::<PredictionRegistry>();
+        register_test_rollback(&mut world);
 
         world.insert_resource(PredictionManager::default());
         world.insert_resource(Rollback::FromState);
@@ -1392,9 +1408,7 @@ mod tests {
         history.add_predicted(rollback_tick + 5, Some(TestComponent(1.0)));
         let predicted = world.spawn((Predicted, TestComponent(1.0), history)).id();
 
-        world
-            .run_system_once(prepare_rollback::<TestComponent>)
-            .unwrap();
+        world.run_system_once(prepare_rollback).unwrap();
 
         assert_eq!(
             world.get::<TestComponent>(predicted),
@@ -1422,6 +1436,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<LocalTimeline>();
         world.init_resource::<PredictionRegistry>();
+        register_test_rollback(&mut world);
 
         world.insert_resource(PredictionManager::default());
         world.insert_resource(Rollback::FromInputs);
@@ -1438,9 +1453,7 @@ mod tests {
         world
             .resource::<PredictionManager>()
             .set_rollback_tick(Tick(12));
-        world
-            .run_system_once(prepare_rollback::<TestComponent>)
-            .unwrap();
+        world.run_system_once(prepare_rollback).unwrap();
 
         let history = world
             .get::<PredictionHistory<TestComponent>>(predicted)
@@ -1467,9 +1480,7 @@ mod tests {
         world
             .resource::<PredictionManager>()
             .set_rollback_tick(Tick(8));
-        world
-            .run_system_once(prepare_rollback::<TestComponent>)
-            .unwrap();
+        world.run_system_once(prepare_rollback).unwrap();
         assert_eq!(
             world.get::<TestComponent>(predicted),
             Some(&TestComponent(8.0)),

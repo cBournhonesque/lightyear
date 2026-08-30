@@ -4,11 +4,17 @@
 //! 1. Compare local predicted values with confirmed values from the server to detect mismatches
 //! 2. Rollback to a past local state and replay the simulation
 
+use crate::archetypes::{
+    CachedDiffComponent, CachedPredictionComponent, PruneDiffHistoryWorld, SnapToConfirmedWorld,
+};
+use crate::registry::PredictionRegistry;
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
 use crate::{Predicted, SyncComponent, manager::PredictionManager};
-use bevy_ecs::component::{ComponentIdFor, Mutable};
+use bevy_ecs::archetype::Archetype;
+use bevy_ecs::component::ComponentIdFor;
 use bevy_ecs::prelude::*;
 use bevy_ecs::resource::IsResource;
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use bevy_replicon::shared::replication::diff::{DiffBuffer, Diffable as RepliconDiffable};
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
@@ -20,9 +26,12 @@ use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::LocalTimelineShift;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::{ConfirmHistory, PreSpawned};
+use lightyear_replication::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
+use lightyear_utils::ecs::get_component_unchecked;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
@@ -184,17 +193,71 @@ pub(crate) fn handle_local_timeline_shift_history_diff_receiver<C: RepliconDiffa
 /// older confirmed values available for late diff messages whose base is
 /// before the latest processed tick but whose target tick has not been received
 /// yet.
-pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
+pub(crate) fn prune_history_diff_receiver(
+    mut prediction_world: PruneDiffHistoryWorld,
     state_metadata: Res<crate::manager::StateRollbackMetadata>,
     mut storage: ResMut<ReplicationStorage>,
-    query: Query<(Entity, &ConfirmedHistory<C>)>,
+    prediction_registry: Res<PredictionRegistry>,
+    component_registry: Res<ComponentRegistry>,
 ) {
     let Some(last_processed_confirmed_tick) = state_metadata.last_processed_confirmed_tick() else {
         return;
     };
     let prune_tick = last_processed_confirmed_tick - DIFF_HISTORY_TICK_MARGIN;
-    for (entity, history) in query.iter() {
-        let Some(receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity) else {
+
+    prediction_world.update_archetypes(&prediction_registry, &component_registry);
+    let world = prediction_world.world;
+    for (archetype, cached) in prediction_world.diff_archetypes() {
+        if !cached.default_query_target {
+            continue;
+        }
+        for component in &cached.diff_components {
+            if component.confirmed_history_storage.is_none() {
+                continue;
+            }
+            // SAFETY: the cache records the exact confirmed-history column, and the system
+            // declares read access to it while holding unique access to ReplicationStorage.
+            unsafe {
+                (component.prune_history_diff_receiver)(
+                    world,
+                    archetype,
+                    component,
+                    prune_tick,
+                    storage.as_mut(),
+                );
+            }
+        }
+    }
+}
+
+/// Prunes one cached diff receiver type across an archetype.
+///
+/// # Safety
+///
+/// `component` must describe `ConfirmedHistory<C>` for `archetype`, and the caller must have read
+/// access to that column and unique access to `storage`.
+pub(crate) unsafe fn prune_history_diff_receiver_component<C: RepliconDiffable>(
+    world: UnsafeWorldCell,
+    archetype: &Archetype,
+    component: &CachedDiffComponent,
+    prune_tick: Tick,
+    storage: &mut ReplicationStorage,
+) {
+    let confirmed_history_storage = component
+        .confirmed_history_storage
+        .expect("diff pruning requires confirmed history");
+    for entity in archetype.entities() {
+        let history = unsafe {
+            get_component_unchecked(
+                world,
+                entity,
+                archetype.table_id(),
+                confirmed_history_storage,
+                component.confirmed_history_id,
+            )
+            .deref::<ConfirmedHistory<C>>()
+        };
+        let Some(receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity.id()) else {
             continue;
         };
         if !receiver.has_pending_diffs() {
@@ -384,40 +447,114 @@ pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
 /// this system with [`is_in_rollback`](lightyear_core::timeline::is_in_rollback), so the global
 /// [`Rollback`](lightyear_core::timeline::Rollback) resource does not need to be fetched by every
 /// monomorphized component system.
-pub(crate) fn snap_to_confirmed_during_rollback<
-    C: Component<Mutability = Mutable> + Clone + PartialEq + Debug,
->(
+pub(crate) fn snap_to_confirmed_during_rollback(
+    mut prediction_world: SnapToConfirmedWorld,
+    timeline: Option<Res<LocalTimeline>>,
+    prediction_registry: Res<PredictionRegistry>,
+    component_registry: Res<ComponentRegistry>,
     mut commands: Commands,
-    timeline: Res<LocalTimeline>,
-    mut query: Query<(Entity, Option<&mut C>, &ConfirmedHistory<C>), With<Predicted>>,
 ) {
+    let Some(timeline) = timeline else {
+        return;
+    };
     let tick = timeline.tick();
-    query.iter_mut().for_each(|(entity, component, history)| {
+    prediction_world.update_archetypes(&prediction_registry, &component_registry);
+
+    let world = prediction_world.world;
+    let mut deferred = DeferredEntityCommands::default();
+    for (archetype, cached) in prediction_world.predicted_archetypes() {
+        if !cached.default_query_target || !cached.contains_predicted_marker {
+            continue;
+        }
+        for component in &cached.predicted_components {
+            let (Some(snap_to_confirmed), Some(_)) = (
+                component.snap_to_confirmed,
+                component.confirmed_history_storage,
+            ) else {
+                continue;
+            };
+            // SAFETY: the cache records the exact live and confirmed-history columns, and the
+            // system declares write access to the former and read access to the latter.
+            unsafe {
+                snap_to_confirmed(world, archetype, component, tick, &mut deferred);
+            }
+        }
+    }
+    deferred.apply(&mut commands);
+}
+
+/// Snaps one cached predicted component type across an archetype during rollback replay.
+///
+/// # Safety
+///
+/// `component` must describe `C` and `ConfirmedHistory<C>` for `archetype`, and the caller must
+/// hold the accesses declared by [`SnapToConfirmedWorld`].
+pub(crate) unsafe fn snap_to_confirmed_component<C: SyncComponent>(
+    world: UnsafeWorldCell,
+    archetype: &Archetype,
+    component: &CachedPredictionComponent,
+    tick: Tick,
+    deferred: &mut DeferredEntityCommands,
+) {
+    let confirmed_history_storage = component
+        .confirmed_history_storage
+        .expect("replay snap requires confirmed history");
+    for entity in archetype.entities() {
+        let entity_id = entity.id();
+        let history = unsafe {
+            get_component_unchecked(
+                world,
+                entity,
+                archetype.table_id(),
+                confirmed_history_storage,
+                component.confirmed_history_id,
+            )
+            .deref::<ConfirmedHistory<C>>()
+        };
+        let live_component = component.component_storage.map(|storage| unsafe {
+            get_component_unchecked(
+                world,
+                entity,
+                archetype.table_id(),
+                storage,
+                component.component_id,
+            )
+            .deref::<C>()
+        });
+
         // Check if there's a confirmed value at exactly this tick
         if let Some(confirmed_state) = history.get_state_at(tick) {
             match confirmed_state {
                 HistoryState::Updated(confirmed_value) => {
                     // Snap to the confirmed value
-                    if let Some(mut comp) = component {
-                        if comp.deref() != confirmed_value {
+                    if let Some(current) = live_component {
+                        if current != confirmed_value {
                             trace!(
                                 target: "lightyear_debug::prediction",
                                 kind = "snap_to_confirmed",
                                 schedule = "FixedPreUpdate",
                                 sample_point = "FixedPreUpdate",
-                                entity = ?entity,
+                                entity = ?entity_id,
                                 component = ?DebugName::type_name::<C>(),
                                 local_tick = tick.0,
                                 confirmed_tick = tick.0,
                                 value = ?confirmed_value,
                                 "snapped predicted component to confirmed value during rollback"
                             );
-                            *comp = confirmed_value.clone();
+                            // SAFETY: the dispatcher declares unique access to C, and no live-C
+                            // reference is used after this call.
+                            unsafe {
+                                lightyear_core::ecs_utils::write_component_with_change_detection::<C>(
+                                    world,
+                                    entity_id,
+                                    confirmed_value.clone(),
+                                );
+                            }
                         }
                     } else {
                         // Component doesn't exist but should - insert it
                         debug!(
-                            ?entity,
+                            ?entity_id,
                             ?tick,
                             "Inserting confirmed component during rollback for {:?}",
                             DebugName::type_name::<C>()
@@ -427,21 +564,21 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                             kind = "snap_to_confirmed_insert",
                             schedule = "FixedPreUpdate",
                             sample_point = "FixedPreUpdate",
-                            entity = ?entity,
+                            entity = ?entity_id,
                             component = ?DebugName::type_name::<C>(),
                             local_tick = tick.0,
                             confirmed_tick = tick.0,
                             value = ?confirmed_value,
                             "inserted confirmed component during rollback"
                         );
-                        commands.entity(entity).insert(confirmed_value.clone());
+                        deferred.insert(entity_id, confirmed_value.clone());
                     }
                 }
                 HistoryState::Removed => {
                     // Confirmed removal - remove the component if it exists
-                    if component.is_some() {
+                    if live_component.is_some() {
                         debug!(
-                            ?entity,
+                            ?entity_id,
                             ?tick,
                             "Removing component during rollback (confirmed removal) for {:?}",
                             DebugName::type_name::<C>()
@@ -451,18 +588,18 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                             kind = "snap_to_confirmed_remove",
                             schedule = "FixedPreUpdate",
                             sample_point = "FixedPreUpdate",
-                            entity = ?entity,
+                            entity = ?entity_id,
                             component = ?DebugName::type_name::<C>(),
                             local_tick = tick.0,
                             confirmed_tick = tick.0,
                             "removed component for confirmed removal during rollback"
                         );
-                        commands.entity(entity).remove::<C>();
+                        deferred.remove::<C>(entity_id);
                     }
                 }
             }
         }
-    });
+    }
 }
 
 #[cfg(test)]
@@ -470,7 +607,10 @@ mod tests {
     use super::*;
     use crate::manager::{RollbackPolicy, StateRollbackMetadata};
     use bevy_app::{App, Update};
+    use bevy_ecs::entity_disabling::Disabled;
+    use bevy_ecs::system::RunSystemOnce;
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
+    use lightyear_core::prelude::FrameInterpolationHistory;
     use lightyear_sync::prelude::LocalTimelineSync;
     use lightyear_sync::timeline::input::InputDelayConfig;
     use serde::{Deserialize, Serialize};
@@ -614,7 +754,28 @@ mod tests {
         metadata.set_last_processed_confirmed_tick(Tick(16));
         app.insert_resource(metadata);
         app.insert_resource(ReplicationStorage::default());
-        app.add_systems(Update, prune_history_diff_receiver::<TestDiffValue>);
+        app.init_resource::<PredictionRegistry>();
+        app.init_resource::<ComponentRegistry>();
+        app.world_mut().register_component::<TestDiffValue>();
+        let prediction_history_id = app
+            .world_mut()
+            .register_component::<PredictionHistory<TestDiffValue>>();
+        let confirmed_history_id = app
+            .world_mut()
+            .register_component::<ConfirmedHistory<TestDiffValue>>();
+        let frame_interpolation_history_id = app
+            .world_mut()
+            .register_component::<FrameInterpolationHistory<TestDiffValue>>();
+        let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
+        registry.register_rollback::<TestDiffValue>(
+            prediction_history_id,
+            confirmed_history_id,
+            frame_interpolation_history_id,
+        );
+        registry.register::<TestDiffValue>();
+        registry.set_pending_diff_tick::<TestDiffValue>();
+        drop(registry);
+        app.add_systems(Update, prune_history_diff_receiver);
 
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(2), TestDiffValue(2));
@@ -640,5 +801,121 @@ mod tests {
         assert_eq!(receiver.tick_for_cursor(Some(idx(2))), None);
         assert_eq!(receiver.tick_for_cursor(Some(idx(4))), Some(Tick(4)));
         assert_eq!(receiver.tick_for_cursor(Some(idx(8))), Some(Tick(8)));
+    }
+
+    #[test]
+    fn snap_to_confirmed_matches_typed_query_behavior() {
+        const TICK: Tick = Tick(10);
+
+        let mut app = App::new();
+        app.init_resource::<PredictionRegistry>();
+        app.init_resource::<ComponentRegistry>();
+        let prediction_history_id = app
+            .world_mut()
+            .register_component::<PredictionHistory<TestValue>>();
+        let confirmed_history_id = app
+            .world_mut()
+            .register_component::<ConfirmedHistory<TestValue>>();
+        let frame_interpolation_history_id = app
+            .world_mut()
+            .register_component::<FrameInterpolationHistory<TestValue>>();
+        let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
+        registry.register_rollback::<TestValue>(
+            prediction_history_id,
+            confirmed_history_id,
+            frame_interpolation_history_id,
+        );
+        registry.register::<TestValue>();
+        registry.set_snap_to_confirmed::<TestValue>();
+        drop(registry);
+
+        let mut timeline = LocalTimeline::default();
+        timeline.apply_delta(TICK.0 as i32);
+        app.insert_resource(timeline);
+
+        let present_history = |value| {
+            let mut history = ConfirmedHistory::default();
+            history.insert_present(TICK, TestValue(value));
+            history
+        };
+
+        let changed = app
+            .world_mut()
+            .spawn((Predicted, TestValue(1.0), present_history(2.0)))
+            .id();
+        let unchanged = app
+            .world_mut()
+            .spawn((Predicted, TestValue(3.0), present_history(3.0)))
+            .id();
+        let inserted = app
+            .world_mut()
+            .spawn((Predicted, present_history(4.0)))
+            .id();
+
+        let mut removed_history = ConfirmedHistory::<TestValue>::default();
+        removed_history.insert_removed(TICK);
+        let removed = app
+            .world_mut()
+            .spawn((Predicted, TestValue(5.0), removed_history))
+            .id();
+
+        // The old Query obeyed Bevy's default disabling filters. Cached
+        // archetypes must exclude the same entities.
+        let disabled = app
+            .world_mut()
+            .spawn((Predicted, Disabled, TestValue(6.0), present_history(7.0)))
+            .id();
+
+        app.world_mut().clear_trackers();
+        let changed_tick = app
+            .world()
+            .entity(changed)
+            .get_change_ticks::<TestValue>()
+            .unwrap()
+            .changed;
+        let unchanged_tick = app
+            .world()
+            .entity(unchanged)
+            .get_change_ticks::<TestValue>()
+            .unwrap()
+            .changed;
+
+        app.world_mut()
+            .run_system_once(snap_to_confirmed_during_rollback)
+            .unwrap();
+
+        assert_eq!(app.world().get::<TestValue>(changed), Some(&TestValue(2.0)));
+        assert_ne!(
+            app.world()
+                .entity(changed)
+                .get_change_ticks::<TestValue>()
+                .unwrap()
+                .changed,
+            changed_tick,
+            "a changed live value must retain Bevy change detection"
+        );
+        assert_eq!(
+            app.world().get::<TestValue>(unchanged),
+            Some(&TestValue(3.0))
+        );
+        assert_eq!(
+            app.world()
+                .entity(unchanged)
+                .get_change_ticks::<TestValue>()
+                .unwrap()
+                .changed,
+            unchanged_tick,
+            "an equal confirmed value must not spuriously mark the component changed"
+        );
+        assert_eq!(
+            app.world().get::<TestValue>(inserted),
+            Some(&TestValue(4.0))
+        );
+        assert!(app.world().get::<TestValue>(removed).is_none());
+        assert_eq!(
+            app.world().get::<TestValue>(disabled),
+            Some(&TestValue(6.0)),
+            "default-disabled entities must stay outside the cached query universe"
+        );
     }
 }
