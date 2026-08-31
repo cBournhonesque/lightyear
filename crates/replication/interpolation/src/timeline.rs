@@ -36,8 +36,10 @@ pub struct InterpolationConfig {
     /// to interpolate towards.
     /// Set to 0.0 if you want to only use the Ratio
     pub min_delay: Duration,
-    /// The interpolation delay is a ratio of the update-rate from the server
-    /// The higher the server update_rate (i.e. smaller send_interval), the smaller the interpolation delay
+    /// Base interpolation delay as a ratio of the server's replication interval.
+    ///
+    /// The effective delay also includes [`SyncConfig::jitter_multiple`] times the measured jitter
+    /// and [`SyncConfig::jitter_margin`] simulation ticks.
     /// Set to 0.0 if you want to only use the Delay
     pub send_interval_ratio: f32,
     pub sync: SyncConfig,
@@ -47,7 +49,7 @@ impl Default for InterpolationConfig {
     fn default() -> Self {
         Self {
             min_delay: Duration::from_millis(5),
-            send_interval_ratio: 1.7,
+            send_interval_ratio: 1.2,
             sync: SyncConfig::default(),
         }
     }
