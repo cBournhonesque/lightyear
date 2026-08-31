@@ -1,7 +1,7 @@
 use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 #[cfg(feature = "metrics")]
 use crate::registry::MessageMetricHandles;
-use crate::registry::{MessageError, MessageKind, MessageRegistry};
+use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::lifecycle::HookContext;
@@ -231,10 +231,14 @@ impl<M: Message> MessageSender<M> {
                     }
                 }
 
-                let receiver_metadata = registry
-                    .receive_metadata
-                    .get(&MessageKind::of::<M>())
-                    .ok_or(MessageError::UnrecognizedMessage(MessageKind::of::<M>()))?;
+                let metadata = registry.metadata(&MessageKind::of::<M>())?;
+                let MessageModeMetadata::Message {
+                    receive: receiver_metadata,
+                    ..
+                } = &metadata.mode
+                else {
+                    return Err(MessageError::UnrecognizedMessage(MessageKind::of::<M>()));
+                };
                 let mut message = Some(message);
                 let receiver_entity = message_receivers.id();
                 let receiver = message_receivers.get_mut_by_id(receiver_metadata.component_id);
@@ -302,20 +306,21 @@ impl MessagePlugin {
                         let message_sender = entity_mut
                             .get_mut_by_id(*sender_id)
                             .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        let send_metadata = registry
-                            .send_metadata
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        let serialize_fns = registry
-                            .serialize_fns_map
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        let metadata = registry.metadata(message_kind)?;
+                        let MessageModeMetadata::Message {
+                            send: send_metadata,
+                            ..
+                        } = &metadata.mode
+                        else {
+                            return Err(MessageError::UnrecognizedMessage(*message_kind));
+                        };
+                        let serialize_fns = &metadata.serialize_fns;
                         let message_id = registry
                             .kind_map
                             .net_id(message_kind)
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                         #[cfg(feature = "metrics")]
-                        let metric_handles = registry.metric_handles(message_kind)?;
+                        let metric_handles = &metadata.metrics;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
                             (send_metadata.send_message_fn)(
@@ -344,14 +349,15 @@ impl MessagePlugin {
                         let message_sender = entity_mut
                             .get_mut_by_id(*sender_id)
                             .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        let send_metadata = registry
-                            .send_trigger_metadata
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        let serialize_fns = registry
-                            .serialize_fns_map
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        let metadata = registry.metadata(message_kind)?;
+                        let MessageModeMetadata::Trigger {
+                            send: send_metadata,
+                            ..
+                        } = &metadata.mode
+                        else {
+                            return Err(MessageError::UnrecognizedMessage(*message_kind));
+                        };
+                        let serialize_fns = &metadata.serialize_fns;
                         let message_id = registry
                             .kind_map
                             .net_id(message_kind)
@@ -412,10 +418,14 @@ impl MessagePlugin {
                         .get_mut_by_id(*sender_id)
                         .ok_or(MessageError::MissingComponent(*sender_id))?;
                     let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
-                    let send_metadata = registry
-                        .send_metadata
-                        .get(message_kind)
-                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                    let metadata = registry.metadata(message_kind)?;
+                    let MessageModeMetadata::Message {
+                        send: send_metadata,
+                        ..
+                    } = &metadata.mode
+                    else {
+                        return Err(MessageError::UnrecognizedMessage(*message_kind));
+                    };
                     // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                     unsafe {
                         (send_metadata.send_local_message_fn)(
@@ -443,10 +453,14 @@ impl MessagePlugin {
                     let message_sender = entity_mut
                         .get_mut_by_id(*sender_id)
                         .ok_or(MessageError::MissingComponent(*sender_id))?;
-                    let send_metadata = registry
-                        .send_trigger_metadata
-                        .get(message_kind)
-                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                    let metadata = registry.metadata(message_kind)?;
+                    let MessageModeMetadata::Trigger {
+                        send: send_metadata,
+                        ..
+                    } = &metadata.mode
+                    else {
+                        return Err(MessageError::UnrecognizedMessage(*message_kind));
+                    };
                     let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
                     // SAFETY: sender and receiver callbacks come from the registry for this event type.
                     unsafe {

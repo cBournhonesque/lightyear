@@ -1,5 +1,5 @@
 use crate::MessageManager;
-use crate::registry::MessageRegistry;
+use crate::registry::{MessageModeMetadata, MessageRegistry};
 use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::{Add, On, With};
 use bevy_ecs::{
@@ -75,18 +75,11 @@ impl MessagePlugin {
             let Some(registry) = world.get_resource::<MessageRegistry>() else {
                 return;
             };
-            let mut receiver_components = registry
-                .receive_metadata
+            registry
+                .metadata
                 .values()
-                .map(|metadata| metadata.component_id)
-                .collect::<alloc::vec::Vec<_>>();
-            receiver_components.extend(
-                registry
-                    .receive_trigger
-                    .values()
-                    .map(|metadata| metadata.component_id),
-            );
-            receiver_components
+                .map(|metadata| metadata.receive_component_id())
+                .collect::<alloc::vec::Vec<_>>()
         };
 
         let entity = trigger.entity;
@@ -126,7 +119,13 @@ impl MessagePlugin {
 
                 for (kind, component_id) in &manager.receive_messages {
                     if let Some(receiver) = entity.get_mut_by_id(*component_id) {
-                        let Some(metadata) = registry.receive_metadata.get(kind) else {
+                        let Some(metadata) = registry.metadata.get(kind) else {
+                            continue;
+                        };
+                        let MessageModeMetadata::Message {
+                            receive: metadata, ..
+                        } = &metadata.mode
+                        else {
                             continue;
                         };
                         // SAFETY: the callback is registered for this receiver component id.
@@ -134,7 +133,15 @@ impl MessagePlugin {
                     }
                 }
 
-                for metadata in registry.receive_trigger.values() {
+                for metadata in
+                    registry
+                        .metadata
+                        .values()
+                        .filter_map(|metadata| match &metadata.mode {
+                            MessageModeMetadata::Trigger { receive, .. } => Some(receive),
+                            MessageModeMetadata::Message { .. } => None,
+                        })
+                {
                     if let Some(receiver) = entity.get_mut_by_id(metadata.component_id) {
                         // SAFETY: the callback is registered for this receiver component id.
                         unsafe { (metadata.release_fn)(receiver, &commands, *timeline_kind, tick) };
@@ -174,11 +181,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
-                    registry.receive_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
-                    });
-                    registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                    registry.metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.receive_component_id());
                     });
                     timeline_registry.values().for_each(|metadata| {
                         b.ref_id(metadata.component_id());
@@ -198,9 +202,16 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
-                    registry.receive_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
-                    });
+                    registry
+                        .metadata
+                        .values()
+                        .filter_map(|metadata| match &metadata.mode {
+                            MessageModeMetadata::Message { receive, .. } => Some(receive),
+                            MessageModeMetadata::Trigger { .. } => None,
+                        })
+                        .for_each(|receive| {
+                            b.mut_id(receive.component_id);
+                        });
                 });
             }),
             ParamBuilder,
@@ -213,15 +224,9 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
-                    registry.send_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                    registry.metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.send_component_id());
                     });
-                    registry
-                        .send_trigger_metadata
-                        .values()
-                        .for_each(|metadata| {
-                            b.mut_id(metadata.component_id);
-                        });
                 });
             }),
             ParamBuilder,
@@ -235,21 +240,10 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
-                    registry.send_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                    registry.metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.send_component_id());
+                        b.mut_id(metadata.receive_component_id());
                     });
-                    registry.receive_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
-                    });
-                    registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
-                    });
-                    registry
-                        .send_trigger_metadata
-                        .values()
-                        .for_each(|metadata| {
-                            b.mut_id(metadata.component_id);
-                        });
                     timeline_registry.values().for_each(|metadata| {
                         b.ref_id(metadata.component_id());
                     });
@@ -267,11 +261,8 @@ impl Plugin for MessagePlugin {
         let release_timeline = (
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
-                    registry.receive_metadata.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
-                    });
-                    registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                    registry.metadata.values().for_each(|metadata| {
+                        b.mut_id(metadata.receive_component_id());
                     });
                     timeline_registry.values().for_each(|metadata| {
                         b.ref_id(metadata.component_id());
