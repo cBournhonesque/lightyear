@@ -75,12 +75,11 @@ impl MessagePlugin {
             let Some(registry) = world.get_resource::<MessageRegistry>() else {
                 return;
             };
-            let receiver_components = registry
+            registry
                 .metadata
                 .values()
                 .map(|metadata| metadata.receive_component_id())
-                .collect::<alloc::vec::Vec<_>>();
-            receiver_components
+                .collect::<alloc::vec::Vec<_>>()
         };
 
         let entity = trigger.entity;
