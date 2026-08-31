@@ -5,7 +5,9 @@ use crate::receive_event::{
     PendingTimelineEvents, receive_event_typed, receive_local_event_typed,
     release_timeline_events_typed,
 };
-use crate::registry::{MessageKind, MessageRegistry, ReceiveTriggerMetadata, SendTriggerMetadata};
+use crate::registry::{
+    MessageModeMetadata, MessageRegistry, ReceiveTriggerMetadata, SendTriggerMetadata,
+};
 use crate::send_trigger::EventSender;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
@@ -92,28 +94,22 @@ impl AppTriggerExt for App {
             .register_component::<PendingTimelineEvents<M>>();
 
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
-        // Register M for serialization/deserialization
-        registry.register_message::<M, M>(
+        registry.register::<M, M>(
+            MessageModeMetadata::Trigger {
+                send: SendTriggerMetadata {
+                    component_id: sender_id,
+                    send_trigger_fn: EventSender::<M>::send_event_typed,
+                    send_local_trigger_fn: EventSender::<M>::send_local_trigger_typed,
+                },
+                receive: ReceiveTriggerMetadata {
+                    component_id: receiver_id,
+                    receive_trigger_fn: receive_event_typed::<M>,
+                    receive_local_trigger_fn: receive_local_event_typed::<M>,
+                    release_fn: release_timeline_events_typed::<M>,
+                },
+            },
             ContextSerializeFns::new(serialize_fns.serialize).with_context(trigger_serialize),
             ContextDeserializeFns::new(serialize_fns.deserialize).with_context(trigger_deserialize),
-        );
-
-        registry.send_trigger_metadata.insert(
-            MessageKind::of::<M>(),
-            SendTriggerMetadata {
-                component_id: sender_id,
-                send_trigger_fn: EventSender::<M>::send_event_typed,
-                send_local_trigger_fn: EventSender::<M>::send_local_trigger_typed,
-            },
-        );
-        registry.receive_trigger.insert(
-            MessageKind::of::<M>(),
-            ReceiveTriggerMetadata {
-                component_id: receiver_id,
-                receive_trigger_fn: receive_event_typed::<M>,
-                receive_local_trigger_fn: receive_local_event_typed::<M>,
-                release_fn: release_timeline_events_typed::<M>,
-            },
         );
         TriggerRegistration {
             app: self,
