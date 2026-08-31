@@ -229,7 +229,7 @@ bevy_utils = { version = "0.19", default-features = false, features = [
   "debug",
 ] }
 bevy_winit = { version = "0.19", default-features = false }
-tracy-client = { version = "0.18" }
+tracy-client = { version = "0.19" }
 
 # input
 bevy_enhanced_input = { version = "0.26", default-features = false, features = [
