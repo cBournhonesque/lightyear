@@ -320,7 +320,7 @@ impl MessagePlugin {
                             .net_id(message_kind)
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                         #[cfg(feature = "metrics")]
-                        let metric_handles = registry.metric_handles(message_kind)?;
+                        let metric_handles = &metadata.metrics;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
                             (send_metadata.send_message_fn)(
