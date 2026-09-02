@@ -26,15 +26,6 @@ use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
-/// Number of ticks retained before the latest processed confirmed tick when pruning
-/// [`HistoryDiffReceiver`].
-///
-/// Diff messages can arrive out of order and can span from an older base to a
-/// newer final state, e.g. `S4 -> S8` after tick 6 has already been processed.
-/// Keeping this margin gives late diff messages a chance to find their
-/// historical base in [`ConfirmedHistory`] instead of forcing a snapshot.
-pub(crate) const DIFF_HISTORY_TICK_MARGIN: u32 = 12;
-
 /// Holds the history of locally predicted component states.
 ///
 /// This stores only local prediction samples. Authoritative samples from the
@@ -135,6 +126,25 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
     }
 }
 
+/// Prune authoritative history on predicted entities to the rollback horizon.
+pub(crate) fn prune_confirmed_history<T: Component + Clone>(
+    manager: Res<PredictionManager>,
+    input_config: Res<InputTimelineConfig>,
+    mut query: Query<&mut ConfirmedHistory<T>, With<PredictionHistory<T>>>,
+    timeline: SyncedLocalTimeline,
+) {
+    let oldest_rollback_tick = timeline.tick()
+        - u32::from(
+            manager
+                .rollback_policy
+                .effective_max_rollback_ticks(&input_config),
+        );
+
+    for mut history in query.iter_mut() {
+        history.clear_until_tick(oldest_rollback_tick);
+    }
+}
+
 /// Shift locally indexed prediction history when the local simulation clock jumps.
 pub(crate) fn handle_local_timeline_shift_prediction_history<C: Component>(
     trigger: On<LocalTimelineShift>,
@@ -177,31 +187,6 @@ pub(crate) fn handle_local_timeline_shift_history_diff_receiver<C: RepliconDiffa
     }
 }
 
-/// Prune historical diff cursor state that is no longer needed for rollback.
-///
-/// This promotes the newest cursor at or before `last_processed_confirmed_tick -
-/// DIFF_HISTORY_TICK_MARGIN` to the receiver's retained base. The margin keeps
-/// older confirmed values available for late diff messages whose base is
-/// before the latest processed tick but whose target tick has not been received
-/// yet.
-pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
-    state_metadata: Res<crate::manager::StateRollbackMetadata>,
-    mut storage: ResMut<ReplicationStorage>,
-    query: Query<(Entity, &ConfirmedHistory<C>)>,
-) {
-    let Some(last_processed_confirmed_tick) = state_metadata.last_processed_confirmed_tick() else {
-        return;
-    };
-    let prune_tick = last_processed_confirmed_tick - DIFF_HISTORY_TICK_MARGIN;
-    for (entity, history) in query.iter() {
-        let Some(receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity) else {
-            continue;
-        };
-        if !receiver.has_pending_diffs() {
-            receiver.clear_before_tick(prune_tick, history);
-        }
-    }
-}
 /// If a predicted component is removed on the [`Predicted`] entity, add the removal to the history.
 /// [`SyncedLocalTimeline`] skips this observer before timeline synchronization has completed.
 pub(crate) fn apply_component_removal_predicted<C: Component>(
@@ -468,31 +453,13 @@ pub(crate) fn snap_to_confirmed_during_rollback<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::{RollbackPolicy, StateRollbackMetadata};
+    use crate::manager::RollbackPolicy;
     use bevy_app::{App, Update};
-    use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use lightyear_sync::prelude::LocalTimelineSync;
     use lightyear_sync::timeline::input::InputDelayConfig;
-    use serde::{Deserialize, Serialize};
 
     #[derive(Component, Clone, PartialEq, Debug)]
     struct TestValue(f32);
-
-    #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
-    struct TestDiffValue(u32);
-
-    impl RepliconDiffable for TestDiffValue {
-        type Diff = u32;
-
-        fn apply_diff(&mut self, diff: &Self::Diff) -> bevy_ecs::error::Result<()> {
-            self.0 = *diff;
-            Ok(())
-        }
-    }
-
-    fn idx(value: u16) -> DiffIndex {
-        DiffIndex::new(value)
-    }
 
     #[test]
     fn test_clear_after_tick_removes_newer_predictions() {
@@ -585,13 +552,26 @@ mod tests {
     #[test]
     fn prediction_history_is_pruned_to_effective_rollback_horizon() {
         let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 100);
-        app.add_systems(Update, update_prediction_history::<TestValue>);
+        app.add_systems(
+            Update,
+            (
+                update_prediction_history::<TestValue>,
+                prune_confirmed_history::<TestValue>,
+            ),
+        );
 
         let mut history = PredictionHistory::default();
-        for tick in [90, 95, 100] {
+        for tick in [80, 90, 95, 100] {
             history.add_predicted(Tick(tick), Some(TestValue(tick as f32)));
         }
-        let entity = app.world_mut().spawn((TestValue(100.0), history)).id();
+        let mut confirmed_history = ConfirmedHistory::default();
+        for tick in [80, 90, 95, 100] {
+            confirmed_history.insert_present(Tick(tick), TestValue(tick as f32));
+        }
+        let entity = app
+            .world_mut()
+            .spawn((TestValue(100.0), history, confirmed_history))
+            .id();
 
         app.update();
 
@@ -605,40 +585,10 @@ mod tests {
             Some(&TestValue(90.0)),
             "balanced input delay should cap the 20-tick policy at 7 ticks"
         );
-    }
-
-    #[test]
-    fn diff_receiver_pruning_keeps_margin_before_last_processed_confirmed_tick() {
-        let mut app = App::new();
-        let mut metadata = StateRollbackMetadata::default();
-        metadata.set_last_processed_confirmed_tick(Tick(16));
-        app.insert_resource(metadata);
-        app.insert_resource(ReplicationStorage::default());
-        app.add_systems(Update, prune_history_diff_receiver::<TestDiffValue>);
-
-        let mut history = ConfirmedHistory::<TestDiffValue>::default();
-        history.insert_present(Tick(2), TestDiffValue(2));
-        history.insert_present(Tick(4), TestDiffValue(4));
-        history.insert_present(Tick(8), TestDiffValue(8));
-
-        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
-        receiver.record_cursor(Tick(2), Some(idx(2)));
-        receiver.record_cursor(Tick(4), Some(idx(4)));
-        receiver.record_cursor(Tick(8), Some(idx(8)));
-
-        let entity = app.world_mut().spawn(history).id();
-        app.world_mut()
-            .resource_mut::<ReplicationStorage>()
-            .insert(entity, receiver);
-        app.update();
-
-        let receiver = app
+        let confirmed_history = app
             .world()
-            .resource::<ReplicationStorage>()
-            .get::<HistoryDiffReceiver<TestDiffValue>>(entity)
+            .get::<ConfirmedHistory<TestValue>>(entity)
             .unwrap();
-        assert_eq!(receiver.tick_for_cursor(Some(idx(2))), None);
-        assert_eq!(receiver.tick_for_cursor(Some(idx(4))), Some(Tick(4)));
-        assert_eq!(receiver.tick_for_cursor(Some(idx(8))), Some(Tick(8)));
+        assert_eq!(confirmed_history.len(), 3);
     }
 }

@@ -1,5 +1,5 @@
 use crate::registry::ComponentRegistry;
-use bevy_app::App;
+use bevy_app::{App, PostUpdate};
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
 use bevy_ecs::resource::Resource;
@@ -222,6 +222,10 @@ impl<C> ComponentRegistration<'_, C> {
         C: RepliconDiffable,
     {
         self.app.replicate_diff::<C>();
+        self.app.add_systems(
+            PostUpdate,
+            crate::diff_history::prune_history_diff_receiver::<C>,
+        );
         self
     }
 

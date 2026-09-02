@@ -9,7 +9,7 @@ use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
     apply_component_removal_predicted, backfill_confirmed_history_on_predicted,
     handle_local_timeline_shift_history_diff_receiver,
-    handle_local_timeline_shift_prediction_history, prune_history_diff_receiver,
+    handle_local_timeline_shift_prediction_history, prune_confirmed_history,
     snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
@@ -148,6 +148,10 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     app.add_systems(
         PreUpdate,
         (
+            prune_confirmed_history::<C>
+                .in_set(PredictionSystems::All)
+                .after(ReplicationSystems::Receive)
+                .before(RollbackSystems::Check),
             prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
             repair_frame_interpolation_history::<C>
                 .in_set(RollbackSystems::EndRollback)
@@ -202,6 +206,10 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.add_systems(
         PreUpdate,
         (
+            prune_confirmed_history::<C>
+                .in_set(PredictionSystems::All)
+                .after(ReplicationSystems::Receive)
+                .before(RollbackSystems::Check),
             // for SyncMode::Full, we need to check if we need to rollback.
             // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
             // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
@@ -227,10 +235,6 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
 pub(crate) fn add_prediction_diff_systems<C: SyncComponent + RepliconDiffable>(app: &mut App) {
     app.add_observer(add_history_diff_receiver::<C>);
     app.add_observer(handle_local_timeline_shift_history_diff_receiver::<C>);
-    app.add_systems(
-        PreUpdate,
-        prune_history_diff_receiver::<C>.in_set(RollbackSystems::Prepare),
-    );
 }
 
 impl Plugin for PredictionPlugin {
