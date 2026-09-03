@@ -1,5 +1,5 @@
 use crate::plugin::MAX_TIMELINE_LAG_TICKS;
-use crate::registry::{MessageError, MessageKind, MessageRegistry};
+use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
 use crate::send::Priority;
 use crate::{MessageManager, MessageNetId};
 use alloc::vec::Vec;
@@ -126,10 +126,13 @@ impl<M: Event> EventSender<M> {
                 }
             }
 
-            let metadata = registry
-                .receive_trigger
-                .get(&MessageKind::of::<M>())
-                .ok_or(MessageError::UnrecognizedMessage(MessageKind::of::<M>()))?;
+            let metadata = registry.metadata(&MessageKind::of::<M>())?;
+            let MessageModeMetadata::Trigger {
+                receive: metadata, ..
+            } = &metadata.mode
+            else {
+                return Err(MessageError::UnrecognizedMessage(MessageKind::of::<M>()));
+            };
             let PendingEvent {
                 event,
                 channel_kind,

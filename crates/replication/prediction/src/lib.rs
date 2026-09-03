@@ -8,7 +8,6 @@ extern crate std;
 
 use core::fmt::Debug;
 
-#[allow(unused)]
 pub(crate) mod archetypes;
 pub mod correction;
 pub mod despawn;

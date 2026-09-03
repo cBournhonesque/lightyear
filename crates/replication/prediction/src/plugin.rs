@@ -1,6 +1,6 @@
-use super::rollback::{CatchUpGated, RollbackPlugin, RollbackSystems, prepare_rollback};
+use super::rollback::{CatchUpGated, RollbackPlugin, RollbackSystems};
 use crate::correction::{
-    repair_frame_interpolation_history, update_frame_interpolation_post_rollback,
+    create_visual_corrections_post_rollback, update_frame_interpolation_post_rollback,
 };
 use crate::despawn::{PredictionDisable, finalize_deterministic_despawns};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
@@ -10,9 +10,9 @@ use crate::predicted_history::{
     apply_component_removal_predicted, backfill_confirmed_history_on_predicted,
     handle_local_timeline_shift_history_diff_receiver,
     handle_local_timeline_shift_prediction_history, prune_confirmed_history,
-    snap_to_confirmed_during_rollback, update_prediction_history,
+    prune_history_diff_receiver, snap_to_confirmed_during_rollback, update_prediction_history,
 };
-use crate::registry::PredictionRegistry;
+use crate::registry::{PredictionRegistry, register_rollback_metadata};
 use crate::rollback::DisabledDuringRollback;
 use crate::{Predicted, SyncComponent};
 use bevy_app::FixedPreUpdate;
@@ -135,8 +135,11 @@ pub(crate) fn should_run(
 pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + Clone>(
     app: &mut App,
 ) {
-    app.world_mut().register_component::<PredictionHistory<C>>();
-    app.world_mut().register_component::<ConfirmedHistory<C>>();
+    let prediction_history_id = app.world_mut().register_component::<PredictionHistory<C>>();
+    let confirmed_history_id = app.world_mut().register_component::<ConfirmedHistory<C>>();
+    if app.world().contains_resource::<PredictionRegistry>() {
+        register_rollback_metadata::<C>(app, prediction_history_id, confirmed_history_id);
+    }
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     // This also supports explicit resynchronization after prediction has begun. Do not shift
@@ -147,17 +150,10 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        (
-            prune_confirmed_history::<C>
-                .in_set(PredictionSystems::All)
-                .after(ReplicationSystems::Receive)
-                .before(RollbackSystems::Check),
-            prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
-            repair_frame_interpolation_history::<C>
-                .in_set(RollbackSystems::EndRollback)
-                .before(update_frame_interpolation_post_rollback)
-                .before(super::rollback::end_rollback),
-        ),
+        prune_confirmed_history::<C>
+            .in_set(PredictionSystems::All)
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -202,28 +198,15 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_observer(add_prediction_history::<C>);
     app.add_observer(backfill_confirmed_history_on_predicted::<C>);
-
+    app.world_mut()
+        .resource_mut::<PredictionRegistry>()
+        .set_snap_to_confirmed::<C>();
     app.add_systems(
         PreUpdate,
-        (
-            prune_confirmed_history::<C>
-                .in_set(PredictionSystems::All)
-                .after(ReplicationSystems::Receive)
-                .before(RollbackSystems::Check),
-            // for SyncMode::Full, we need to check if we need to rollback.
-            // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
-            // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
-            prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
-            repair_frame_interpolation_history::<C>
-                .in_set(RollbackSystems::EndRollback)
-                .before(update_frame_interpolation_post_rollback)
-                .before(super::rollback::end_rollback),
-        ),
-    );
-    app.add_systems(
-        FixedPreUpdate,
-        // During rollback re-simulation, snap to confirmed values if we have them
-        snap_to_confirmed_during_rollback::<C>.in_set(PredictionSystems::SnapToConfirmed),
+        prune_confirmed_history::<C>
+            .in_set(PredictionSystems::All)
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -274,6 +257,16 @@ impl Plugin for PredictionPlugin {
                 .chain(),
         );
         app.configure_sets(PreUpdate, PredictionSystems::All.run_if(should_run));
+        app.add_systems(
+            PreUpdate,
+            (
+                prune_history_diff_receiver.in_set(RollbackSystems::Prepare),
+                update_frame_interpolation_post_rollback
+                    .in_set(RollbackSystems::EndRollback)
+                    .before(create_visual_corrections_post_rollback)
+                    .before(super::rollback::end_rollback),
+            ),
+        );
 
         // FixedPreUpdate systems
         // - During rollback, snap components to confirmed values if we have them
@@ -284,6 +277,10 @@ impl Plugin for PredictionPlugin {
                 .run_if(is_in_rollback),
         );
         app.configure_sets(FixedPreUpdate, PredictionSystems::All.run_if(should_run));
+        app.add_systems(
+            FixedPreUpdate,
+            snap_to_confirmed_during_rollback.in_set(PredictionSystems::SnapToConfirmed),
+        );
 
         // FixedPostUpdate systems
         // 1. Update client tick (don't run in rollback)

@@ -1,6 +1,6 @@
 use crate::MessageManager;
 use crate::plugin::{MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessagePlugin};
-use crate::registry::{MessageError, MessageKind, MessageRegistry};
+use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
 use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -528,52 +528,56 @@ impl MessagePlugin {
             remote_peer = ?remote_peer_id,
             "received message bytes"
         );
-        let serialize_fns = registry
-            .serialize_fns_map
-            .get(message_kind)
-            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-        if let Some(recv_metadata) = registry.receive_metadata.get(message_kind) {
-            let component_id = recv_metadata.component_id;
-            let mut entity_mut = receiver_query.get_mut(entity).unwrap();
-            let receiver = entity_mut.get_mut_by_id(component_id);
-            // SAFETY: when present, the receiver corresponds to the callback's concrete type.
-            unsafe {
-                (recv_metadata.receive_message_fn)(
-                    receiver,
-                    commands,
-                    entity,
-                    &mut reader,
-                    channel_kind,
-                    channel_name,
-                    tick,
-                    message_id,
-                    target_timeline,
-                    serialize_fns,
-                    &mut message_manager.entity_mapper.remote_to_local,
-                )
+        let metadata = registry.metadata(message_kind)?;
+        let serialize_fns = &metadata.serialize_fns;
+        match &metadata.mode {
+            MessageModeMetadata::Message {
+                receive: recv_metadata,
+                ..
+            } => {
+                let component_id = recv_metadata.component_id;
+                let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+                let receiver = entity_mut.get_mut_by_id(component_id);
+                // SAFETY: when present, the receiver corresponds to the callback's concrete type.
+                unsafe {
+                    (recv_metadata.receive_message_fn)(
+                        receiver,
+                        commands,
+                        entity,
+                        &mut reader,
+                        channel_kind,
+                        channel_name,
+                        tick,
+                        message_id,
+                        target_timeline,
+                        serialize_fns,
+                        &mut message_manager.entity_mapper.remote_to_local,
+                    )
+                }
             }
-        } else if let Some(metadata) = registry.receive_trigger.get(message_kind) {
-            let mut entity_mut = receiver_query.get_mut(entity).unwrap();
-            let receiver = entity_mut.get_mut_by_id(metadata.component_id);
-            // SAFETY: when present, the receiver corresponds to this event's pending component.
-            unsafe {
-                (metadata.receive_trigger_fn)(
-                    receiver,
-                    commands,
-                    entity,
-                    &mut reader,
-                    channel_kind,
-                    channel_name,
-                    tick,
-                    message_id,
-                    target_timeline,
-                    serialize_fns,
-                    &mut message_manager.entity_mapper.remote_to_local,
-                    remote_peer_id,
-                )
+            MessageModeMetadata::Trigger {
+                receive: metadata, ..
+            } => {
+                let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+                let receiver = entity_mut.get_mut_by_id(metadata.component_id);
+                // SAFETY: when present, the receiver corresponds to this event's pending component.
+                unsafe {
+                    (metadata.receive_trigger_fn)(
+                        receiver,
+                        commands,
+                        entity,
+                        &mut reader,
+                        channel_kind,
+                        channel_name,
+                        tick,
+                        message_id,
+                        target_timeline,
+                        serialize_fns,
+                        &mut message_manager.entity_mapper.remote_to_local,
+                        remote_peer_id,
+                    )
+                }
             }
-        } else {
-            Err(MessageError::UnrecognizedMessageId(message_net_id))
         }
     }
 
@@ -700,11 +704,11 @@ impl MessagePlugin {
                 .for_each(|(kind, component_id)| {
                     let mut entity_mut = receiver_query.get_mut(entity).unwrap();
                     let receiver = entity_mut.get_mut_by_id(*component_id).unwrap();
-                    let clear_fn = registry
-                        .receive_metadata
-                        .get(kind)
-                        .unwrap()
-                        .message_clear_fn;
+                    let metadata = registry.metadata(kind).unwrap();
+                    let MessageModeMetadata::Message { receive, .. } = &metadata.mode else {
+                        unreachable!("receive_messages only contains regular messages");
+                    };
+                    let clear_fn = receive.message_clear_fn;
                     // SAFETY: we know that we are calling the function for the correct component_id
                     unsafe { clear_fn(receiver) };
                 })
