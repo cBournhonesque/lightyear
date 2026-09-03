@@ -4,9 +4,11 @@ use alloc::{format, vec::Vec};
 use core::marker::PhantomData;
 
 use bevy_ecs::error::Result;
+use bevy_ecs::prelude::{Entity, Query, ResMut};
 use bevy_replicon::shared::replication::diff::{
     Diffable as RepliconDiffable, diff_index::DiffIndex,
 };
+use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use lightyear_core::prelude::{ConfirmedHistory, HistoryState, Tick};
 
 #[derive(Debug, Clone)]
@@ -72,9 +74,9 @@ impl<Diff> PendingDiffMessage<Diff> {
 ///    message fetches its base value from [`ConfirmedHistory`], applies the
 ///    diffs, records the new cursor, and returns the materialized value
 ///    for insertion into [`ConfirmedHistory`].
-/// 5. After prediction/interpolation has processed a confirmed server tick,
-///    [`Self::clear_before_tick`] promotes the newest usable cursor at that tick
-///    to the retained base and drains older cursor/pending state.
+/// 5. After prediction/interpolation prunes [`ConfirmedHistory`],
+///    [`Self::clear_before_tick`] promotes the newest usable cursor at its
+///    retained floor and drains older cursor/pending state.
 #[derive(Debug, Clone)]
 pub struct HistoryDiffReceiver<C: RepliconDiffable> {
     base_cursor: Option<DiffIndex>,
@@ -221,8 +223,10 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
     ///
     /// The newest cursor at or before `tick` is promoted to the retained base.
     /// This keeps one usable base for future diff messages without storing
-    /// per-unchanged-tick cursor entries.
-    pub fn clear_before_tick(&mut self, tick: Tick, history: &ConfirmedHistory<C>) {
+    /// per-unchanged-tick cursor entries. When `base_is_present` is false, no
+    /// cursor is promoted because the component is removed at the retained
+    /// history floor.
+    pub fn clear_before_tick(&mut self, tick: Tick, base_is_present: bool) {
         if self.has_pending_diffs() {
             return;
         }
@@ -231,12 +235,7 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
         }
 
         let cursor_at_cut = self.cursor_at_or_before(tick).map(|(cursor, _)| cursor);
-        if history
-            .get_state_at_or_before(tick)
-            .and_then(HistoryState::value)
-            .is_some()
-            && let Some(cursor) = cursor_at_cut
-        {
+        if base_is_present && let Some(cursor) = cursor_at_cut {
             self.base_cursor = cursor;
             self.base_tick = Some(tick);
         } else {
@@ -421,6 +420,29 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
     }
 }
 
+/// Keep diff cursor history aligned with the oldest value retained in [`ConfirmedHistory`].
+///
+/// Prediction and interpolation own their value-retention policies. This system runs afterwards
+/// and promotes the matching cursor to the receiver's retained base. Pending diffs keep both their
+/// cursor state and historical base until they can be materialized or superseded.
+pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
+    storage: Option<ResMut<ReplicationStorage>>,
+    query: Query<(Entity, &ConfirmedHistory<C>)>,
+) {
+    let Some(mut storage) = storage else {
+        return;
+    };
+    for (entity, history) in query.iter() {
+        let Some((prune_tick, state)) = history.get_nth_state(0) else {
+            continue;
+        };
+        let Some(receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity) else {
+            continue;
+        };
+        receiver.clear_before_tick(prune_tick, state.value().is_some());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,7 +500,7 @@ mod tests {
         let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver.record_cursor(Tick(3), Some(idx(3)));
-        receiver.clear_before_tick(Tick(3), &history);
+        receiver.clear_before_tick(Tick(3), true);
 
         receiver
             .queue_diffs(Tick(3), idx(1), vec![1, 2, 3])
@@ -576,7 +598,7 @@ mod tests {
         receiver.record_cursor(Tick(0), Some(idx(0)));
 
         receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
-        receiver.clear_before_tick(Tick(6), &history);
+        receiver.clear_before_tick(Tick(6), true);
 
         assert_eq!(receiver.pending.len(), 1);
         assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
@@ -645,7 +667,7 @@ mod tests {
         let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver.record_cursor(Tick(3), Some(idx(3)));
-        receiver.clear_before_tick(Tick(3), &history);
+        receiver.clear_before_tick(Tick(3), true);
 
         receiver
             .queue_diffs(Tick(5), idx(1), vec![1, 2, 3, 4, 5])
@@ -686,17 +708,12 @@ mod tests {
     /// `diff_ticks` only keeps newer cursors that may still be useful.
     #[test]
     fn pruning_promotes_processed_tick_to_retained_base() {
-        let mut history = ConfirmedHistory::<TestDiffValue>::default();
-        history.insert_present(Tick(0), TestDiffValue(0));
-        history.insert_present(Tick(3), TestDiffValue(3));
-        history.insert_present(Tick(5), TestDiffValue(5));
-
         let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver.record_cursor(Tick(3), Some(idx(3)));
         receiver.record_cursor(Tick(5), Some(idx(5)));
 
-        receiver.clear_before_tick(Tick(3), &history);
+        receiver.clear_before_tick(Tick(3), true);
 
         assert_eq!(receiver.base_cursor, Some(idx(3)));
         assert_eq!(receiver.base_tick, Some(Tick(3)));
@@ -716,20 +733,16 @@ mod tests {
     /// base cursor, or the next diff range will be unable to find its base.
     #[test]
     fn pruning_older_than_retained_base_is_noop() {
-        let mut history = ConfirmedHistory::<TestDiffValue>::default();
-        history.insert_present(Tick(126), TestDiffValue(0));
-        history.insert_present(Tick(128), TestDiffValue(0));
-
         let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(128), Some(idx(0)));
-        receiver.clear_before_tick(Tick(128), &history);
+        receiver.clear_before_tick(Tick(128), true);
 
         assert_eq!(
             (receiver.base_cursor, receiver.base_tick),
             (Some(idx(0)), Some(Tick(128)))
         );
 
-        receiver.clear_before_tick(Tick(126), &history);
+        receiver.clear_before_tick(Tick(126), true);
 
         assert_eq!(
             (receiver.base_cursor, receiver.base_tick),

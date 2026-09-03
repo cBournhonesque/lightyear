@@ -9,8 +9,8 @@ use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
     apply_component_removal_predicted, backfill_confirmed_history_on_predicted,
     handle_local_timeline_shift_history_diff_receiver,
-    handle_local_timeline_shift_prediction_history, prune_history_diff_receiver,
-    snap_to_confirmed_during_rollback, update_prediction_history,
+    handle_local_timeline_shift_prediction_history, prune_confirmed_history,
+    prune_history_diff_receiver, snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::{PredictionRegistry, register_rollback_metadata};
 use crate::rollback::DisabledDuringRollback;
@@ -60,25 +60,33 @@ const PREDICTED_PRIORITY: usize = 90;
 
 impl Plugin for PredictionMarkerPlugin {
     fn build(&self, app: &mut App) {
+        // `CatchUpGated` is replicated (`replicate_once`), so it must take effect
+        // before other components from the same update are applied.
         app.register_marker_with::<CatchUpGated>(MarkerConfig {
             priority: CATCH_UP_GATED_PRIORITY,
             need_history: true,
+            affects_same_update: true,
         });
         // A matched prespawn must preserve its locally predicted live value
         // even when PredictedSend is included in the same authoritative update.
         app.register_marker_with::<PreSpawned>(MarkerConfig {
             priority: PRESPAWNED_PRIORITY,
             need_history: true,
+            affects_same_update: false,
         });
+        // `PredictedSend` is replicated; it must be applied first so the rest
+        // of the update uses the prediction receive functions.
         app.register_marker_with::<PredictedSend>(MarkerConfig {
             priority: PREDICTED_SEND_PRIORITY,
             need_history: true,
+            affects_same_update: true,
         });
         // Keep the receiver-local marker registered for users that opt an
         // already replicated entity into prediction manually.
         app.register_marker_with::<Predicted>(MarkerConfig {
             priority: PREDICTED_PRIORITY,
             need_history: true,
+            affects_same_update: false,
         });
     }
 }
@@ -149,6 +157,13 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // future and make rollback prefer it over later server updates.
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
+        PreUpdate,
+        prune_confirmed_history::<C>
+            .in_set(PredictionSystems::All)
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
+    );
+    app.add_systems(
         FixedPostUpdate,
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
     );
@@ -194,6 +209,13 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.world_mut()
         .resource_mut::<PredictionRegistry>()
         .set_snap_to_confirmed::<C>();
+    app.add_systems(
+        PreUpdate,
+        prune_confirmed_history::<C>
+            .in_set(PredictionSystems::All)
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
+    );
     app.add_systems(
         FixedPostUpdate,
         // we need to run this during fixed update to know accurately the history for each tick

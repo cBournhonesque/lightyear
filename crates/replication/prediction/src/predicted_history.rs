@@ -144,6 +144,25 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
     }
 }
 
+/// Prune authoritative history on predicted entities to the rollback horizon.
+pub(crate) fn prune_confirmed_history<T: Component + Clone>(
+    manager: Res<PredictionManager>,
+    input_config: Res<InputTimelineConfig>,
+    mut query: Query<&mut ConfirmedHistory<T>, With<PredictionHistory<T>>>,
+    timeline: SyncedLocalTimeline,
+) {
+    let oldest_rollback_tick = timeline.tick()
+        - u32::from(
+            manager
+                .rollback_policy
+                .effective_max_rollback_ticks(&input_config),
+        );
+
+    for mut history in query.iter_mut() {
+        history.clear_until_tick(oldest_rollback_tick);
+    }
+}
+
 /// Shift locally indexed prediction history when the local simulation clock jumps.
 pub(crate) fn handle_local_timeline_shift_prediction_history<C: Component>(
     trigger: On<LocalTimelineShift>,
@@ -261,7 +280,14 @@ pub(crate) unsafe fn prune_history_diff_receiver_component<C: RepliconDiffable>(
             continue;
         };
         if !receiver.has_pending_diffs() {
-            receiver.clear_before_tick(prune_tick, history);
+            // The receiver's retained base follows the oldest value retained in
+            // `ConfirmedHistory`. With no value at the retained floor (i.e. the
+            // component is removed there), no cursor is promoted.
+            let base_is_present = history
+                .get_state_at_or_before(prune_tick)
+                .and_then(HistoryState::value)
+                .is_some();
+            receiver.clear_before_tick(prune_tick, base_is_present);
         }
     }
 }
@@ -725,13 +751,26 @@ mod tests {
     #[test]
     fn prediction_history_is_pruned_to_effective_rollback_horizon() {
         let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 100);
-        app.add_systems(Update, update_prediction_history::<TestValue>);
+        app.add_systems(
+            Update,
+            (
+                update_prediction_history::<TestValue>,
+                prune_confirmed_history::<TestValue>,
+            ),
+        );
 
         let mut history = PredictionHistory::default();
-        for tick in [90, 95, 100] {
+        for tick in [80, 90, 95, 100] {
             history.add_predicted(Tick(tick), Some(TestValue(tick as f32)));
         }
-        let entity = app.world_mut().spawn((TestValue(100.0), history)).id();
+        let mut confirmed_history = ConfirmedHistory::default();
+        for tick in [80, 90, 95, 100] {
+            confirmed_history.insert_present(Tick(tick), TestValue(tick as f32));
+        }
+        let entity = app
+            .world_mut()
+            .spawn((TestValue(100.0), history, confirmed_history))
+            .id();
 
         app.update();
 
@@ -745,6 +784,11 @@ mod tests {
             Some(&TestValue(90.0)),
             "balanced input delay should cap the 20-tick policy at 7 ticks"
         );
+        let confirmed_history = app
+            .world()
+            .get::<ConfirmedHistory<TestValue>>(entity)
+            .unwrap();
+        assert_eq!(confirmed_history.len(), 3);
     }
 
     #[test]

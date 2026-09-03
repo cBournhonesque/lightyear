@@ -79,13 +79,17 @@ pub struct InterpolationMarkerPlugin;
 
 impl Plugin for InterpolationMarkerPlugin {
     fn build(&self, app: &mut App) {
+        // `InterpolatedSend` is replicated; it must be applied first so the rest
+        // of the update uses the interpolation receive functions.
         app.register_marker_with::<InterpolatedSend>(MarkerConfig {
             priority: 100,
             need_history: true,
+            affects_same_update: true,
         });
         app.register_marker_with::<Interpolated>(MarkerConfig {
             priority: 100,
             need_history: true,
+            affects_same_update: false,
         });
     }
 }
