@@ -60,25 +60,33 @@ const PREDICTED_PRIORITY: usize = 90;
 
 impl Plugin for PredictionMarkerPlugin {
     fn build(&self, app: &mut App) {
+        // `CatchUpGated` is replicated (`replicate_once`), so it must take effect
+        // before other components from the same update are applied.
         app.register_marker_with::<CatchUpGated>(MarkerConfig {
             priority: CATCH_UP_GATED_PRIORITY,
             need_history: true,
+            affects_same_update: true,
         });
         // A matched prespawn must preserve its locally predicted live value
         // even when PredictedSend is included in the same authoritative update.
         app.register_marker_with::<PreSpawned>(MarkerConfig {
             priority: PRESPAWNED_PRIORITY,
             need_history: true,
+            affects_same_update: false,
         });
+        // `PredictedSend` is replicated; it must be applied first so the rest
+        // of the update uses the prediction receive functions.
         app.register_marker_with::<PredictedSend>(MarkerConfig {
             priority: PREDICTED_SEND_PRIORITY,
             need_history: true,
+            affects_same_update: true,
         });
         // Keep the receiver-local marker registered for users that opt an
         // already replicated entity into prediction manually.
         app.register_marker_with::<Predicted>(MarkerConfig {
             priority: PREDICTED_PRIORITY,
             need_history: true,
+            affects_same_update: false,
         });
     }
 }

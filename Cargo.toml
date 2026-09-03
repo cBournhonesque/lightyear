@@ -239,7 +239,7 @@ leafwing-input-manager = { version = "0.21", default-features = false, features 
   "keyboard",
 ] }
 # replication
-bevy_replicon = { git = "https://github.com/simgine/bevy_replicon", default-features = false, features = [
+bevy_replicon = { version = "0.44.0", default-features = false, features = [
   "client",
   "server",
 ] }
