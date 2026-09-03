@@ -9,8 +9,8 @@ use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
     apply_component_removal_predicted, backfill_confirmed_history_on_predicted,
     handle_local_timeline_shift_history_diff_receiver,
-    handle_local_timeline_shift_prediction_history, prune_history_diff_receiver,
-    snap_to_confirmed_during_rollback, update_prediction_history,
+    handle_local_timeline_shift_prediction_history, prune_confirmed_history,
+    prune_history_diff_receiver, snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::{PredictionRegistry, register_rollback_metadata};
 use crate::rollback::DisabledDuringRollback;
@@ -149,6 +149,13 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // future and make rollback prefer it over later server updates.
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
+        PreUpdate,
+        prune_confirmed_history::<C>
+            .in_set(PredictionSystems::All)
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
+    );
+    app.add_systems(
         FixedPostUpdate,
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
     );
@@ -194,6 +201,13 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.world_mut()
         .resource_mut::<PredictionRegistry>()
         .set_snap_to_confirmed::<C>();
+    app.add_systems(
+        PreUpdate,
+        prune_confirmed_history::<C>
+            .in_set(PredictionSystems::All)
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
+    );
     app.add_systems(
         FixedPostUpdate,
         // we need to run this during fixed update to know accurately the history for each tick
