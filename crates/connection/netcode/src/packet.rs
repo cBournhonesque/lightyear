@@ -634,7 +634,7 @@ mod tests {
     use super::*;
 
     use alloc::vec::Vec;
-    use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::OsRng};
+    use chacha20poly1305::{XNonce, aead::Generate};
     use lightyear_link::recv_payload_from_bytes;
     use lightyear_serde::writer::Writer;
     use std::dbg;
@@ -672,7 +672,7 @@ mod tests {
         let packet_key = generate_key();
         let protocol_id = 0x1234_5678_9abc_def0;
         let expire_timestamp = u64::MAX;
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let nonce = XNonce::generate();
         let sequence = 0u64;
         let mut replay_protection = ReplayProtection::new();
         let token_data = ConnectTokenPrivate {
