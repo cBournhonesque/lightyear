@@ -11,29 +11,25 @@
 //! through that link.
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
-use bevy_derive::Deref;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
 use bevy_replicon::prelude::{
-    AppRuleExt, FilterScope, ScopeLifetime, SingleComponent, VisibilityFilter,
+    AppRuleExt, AppVisibilityExt, FilterScope, ScopeLifetime, SingleComponent, VisibilityFilter,
 };
 use bevy_replicon::server::ServerSystems;
 use bevy_replicon::server::server_tick::ServerTick;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
-use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_time::Time;
-use core::ops::Deref;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
-#[cfg(feature = "server")]
-use lightyear_connection::network_topology::NetworkingMetadata;
-#[cfg(feature = "server")]
+#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_core::id::PeerId;
+use lightyear_core::id::RemoteId;
 use serde::{Deserialize, Serialize};
 
 #[allow(unused_imports)]
@@ -77,6 +73,40 @@ pub enum ReplicationMode {
     Manual(Vec<Entity>),
 }
 
+impl ReplicationMode {
+    /// Pure visibility predicate behind the [`VisibilityFilter`] impls on
+    /// [`ReplicationTarget`].
+    ///
+    /// `client` is the link entity being evaluated and `remote` its [`RemoteId`]
+    /// (absent if the link has no id yet).
+    pub(crate) fn is_visible_for(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+        // Fail closed: links without a `RemoteId` receive nothing. Inserting
+        // `RemoteId` re-evaluates (via Replicon's client-insert observer, or
+        // via the new-client backfill when `RemoteId` was already present), so
+        // the hidden window is transient.
+        match self {
+            ReplicationMode::SingleSender => remote.is_some(),
+            #[cfg(feature = "client")]
+            ReplicationMode::SingleClient => {
+                remote.is_some_and(|remote| matches!(remote.0, PeerId::Local(_) | PeerId::Server))
+            }
+            #[cfg(feature = "server")]
+            ReplicationMode::SingleServer(target) => {
+                remote.is_some_and(|remote| target.targets(&remote.0))
+            }
+            ReplicationMode::Sender(sender) => remote.is_some_and(|_| client == *sender),
+            #[cfg(feature = "server")]
+            ReplicationMode::Server(_, _) => {
+                unimplemented!()
+            }
+            ReplicationMode::Target(_) => {
+                unimplemented!()
+            }
+            ReplicationMode::Manual(senders) => remote.is_some_and(|_| senders.contains(&client)),
+        }
+    }
+}
+
 /// Marker component added to a link entity to enable outgoing replication.
 ///
 /// A link entity represents a connection to a remote peer. Adding
@@ -98,6 +128,53 @@ pub struct ReplicationSender;
 /// Inserting this component also inserts the required [`Replicating`] marker. Removing it changes
 /// the entity's visibility and can despawn its remote copies; remove [`Replicating`] instead to
 /// pause replication without despawning them.
+///
+/// The target is evaluated as a Replicon [`VisibilityFilter`](bevy_replicon::prelude::VisibilityFilter):
+/// spawning (or replacing) it evaluates visibility against all connected links, and it composes
+/// (logical AND) with rooms and manual visibility. The component is immutable, so retarget with
+/// `insert`, not mutation.
+///
+/// # Example
+///
+/// ```rust
+/// # #[cfg(feature = "server")]
+/// # {
+/// use bevy_app::App;
+/// use bevy_ecs::prelude::Entity;
+/// use bevy_replicon::prelude::VisibilityFilter;
+/// use lightyear_connection::network_target::NetworkTarget;
+/// use lightyear_core::id::{PeerId, RemoteId};
+/// use lightyear_replication::prelude::*;
+/// use lightyear_replication::send::SendPlugin;
+///
+/// let mut app = App::new();
+/// app.add_plugins(SendPlugin);
+///
+/// let alice = PeerId::Netcode(1);
+/// let bob = PeerId::Netcode(2);
+///
+/// // Spawn an entity replicated to Alice only, and `Replicating` is added
+/// // automatically as a required component.
+/// let entity = app
+///     .world_mut()
+///     .spawn(Replicate::to_clients(NetworkTarget::Single(alice)))
+///     .id();
+/// assert!(app.world().get::<Replicating>(entity).is_some());
+///
+/// // Replacing the target re-evaluates visibility against all links.
+/// app.world_mut()
+///     .entity_mut(entity)
+///     .insert(Replicate::to_clients(NetworkTarget::All));
+///
+/// // The same predicate Replicon evaluates per link. Only the link's
+/// // `RemoteId` matters, and links without one receive nothing.
+/// let link = Entity::PLACEHOLDER;
+/// let target = Replicate::to_clients(NetworkTarget::Single(alice));
+/// assert!(target.is_visible(link, Some(&RemoteId(alice))));
+/// assert!(!target.is_visible(link, Some(&RemoteId(bob))));
+/// assert!(!target.is_visible(link, None));
+/// # }
+/// ```
 pub type Replicate = ReplicationTarget<()>;
 
 /// Marker component that enables replication for a sender-side entity.
@@ -110,9 +187,14 @@ pub type Replicate = ReplicationTarget<()>;
 /// replication resumes.
 pub use bevy_replicon::prelude::Replicated as Replicating;
 
+/// Replication target configuration, evaluated as a Replicon [`VisibilityFilter`].
+///
+/// The component is immutable: replace it (via `insert`) to retarget, which
+/// re-evaluates visibility against all links while preserving manual visibility
+/// overrides. It composes (logical AND) with rooms and manual visibility.
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
-#[component(on_insert = ReplicationTarget::<T>::on_insert)]
-#[component(on_discard = ReplicationTarget::<T>::on_discard)]
+#[component(immutable, on_insert = ReplicationTarget::<T>::on_insert)]
+#[component(on_remove = ReplicationTarget::<T>::on_remove)]
 pub struct ReplicationTarget<T: ReplicationTargetT> {
     mode: ReplicationMode,
     #[reflect(ignore)]
@@ -130,13 +212,12 @@ mod private {
 
 #[doc(hidden)]
 pub trait ReplicationTargetT: private::Sealed + Send + Sync + 'static {
-    type VisibilityBit: Resource + Deref<Target = FilterBit>;
     type Context: Default + Send;
 
     fn post_insert(context: &Self::Context, entity_mut: &mut EntityWorldMut);
     fn update_context(context: &mut Self::Context, sender_entity: Entity, host_client: bool);
 
-    fn on_discard(world: DeferredWorld, context: HookContext);
+    fn on_remove(world: DeferredWorld, context: HookContext);
 }
 
 /// Marker component that indicates that the entity was replicated
@@ -148,8 +229,22 @@ pub struct ReplicatedFrom {
     pub receiver: Entity,
 }
 
+/// Entity-level replication target: visible (spawned) exactly on the links in the target.
+///
+/// `RemoteId` is inserted on a link before its `ClientVisibility`, so links that
+/// join after the entity was spawned are covered by
+/// [`handle_new_client_visibility`] instead of Replicon's new-client backfill.
+impl VisibilityFilter for ReplicationTarget<()> {
+    type ClientComponent = RemoteId;
+    type Scope = Entity;
+    const LIFETIME: ScopeLifetime = ScopeLifetime::WhileVisible;
+
+    fn is_visible(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+        self.is_visible_for(client, remote)
+    }
+}
+
 impl ReplicationTargetT for () {
-    type VisibilityBit = ReplicateBit;
     // Context = the host-sender entity.
     type Context = Option<Entity>;
 
@@ -167,56 +262,37 @@ impl ReplicationTargetT for () {
         }
     }
 
-    fn on_discard(_: DeferredWorld, _: HookContext) {}
+    fn on_remove(_: DeferredWorld, _: HookContext) {}
 }
 
-/// Clear the replication visibility only when `Replicate` is replaced or removed.
+/// Clear the replication visibility only when `Replicate` is removed.
 ///
-/// A component hook cannot distinguish those operations from an entity despawn. Marking an entity
-/// hidden while it is being despawned makes Replicon suppress the actual despawn message.
-fn on_replicate_discard(
-    trigger: On<Discard, Replicate>,
-    replicate_bit: Res<ReplicateBit>,
-    mut senders: Query<&mut ClientVisibility>,
-    mut commands: Commands,
-) {
+/// `On<Remove>` does not fire on replace (only `On<Discard>` does), so a
+/// retarget runs just the filter's re-evaluation, preserving manual visibility
+/// overrides. A despawn (`new_archetype` of `None`) is skipped: marking an
+/// entity hidden while it is being despawned makes Replicon suppress the
+/// actual despawn message.
+///
+/// The hide runs deferred (after Replicon's own `on_remove`, which releases the
+/// filter bit) so removing `Replicate` deterministically despawns the remote
+/// entity instead of leaving it retained.
+fn on_replicate_remove(trigger: On<Remove, Replicate>, mut commands: Commands) {
     if trigger.trigger().new_archetype.is_none() {
         return;
     }
     let entity = trigger.entity;
 
-    for mut visibility in &mut senders {
-        visibility.set(entity, replicate_bit.0, false);
-    }
-
     commands.queue(move |world: &mut World| {
-        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
-            return;
-        };
-        if !entity_mut.contains::<Replicate>() {
+        if let Some(bit) = world.resource::<FilterRegistry>().get_bit::<Replicate>() {
+            let mut senders = world.query::<&mut ClientVisibility>();
+            for mut visibility in senders.iter_mut(world) {
+                visibility.set(entity, bit, false);
+            }
+        }
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<Replicating>();
         }
     });
-}
-
-/// Entity-level visibility for [`Replicate`]
-#[doc(hidden)]
-#[derive(Resource, Deref)]
-pub struct ReplicateBit(FilterBit);
-
-impl FromWorld for ReplicateBit {
-    fn from_world(world: &mut World) -> Self {
-        let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
-            world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<Entity>(
-                    world,
-                    &mut registry,
-                    ScopeLifetime::WhileVisible,
-                )
-            })
-        });
-        Self(bit)
-    }
 }
 
 #[cfg(feature = "prediction")]
@@ -255,9 +331,19 @@ mod prediction {
     /// ));
     /// ```
     pub type PredictionTarget = ReplicationTarget<PredictedSend>;
-    impl ReplicationTargetT for PredictedSend {
-        type VisibilityBit = PredictedBit;
 
+    /// Component-level replication target: `PredictedSend` is visible exactly on the links in the target.
+    impl VisibilityFilter for PredictionTarget {
+        type ClientComponent = RemoteId;
+        type Scope = SingleComponent<PredictedSend>;
+        const LIFETIME: ScopeLifetime = ScopeLifetime::WhileVisible;
+
+        fn is_visible(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+            self.is_visible_for(client, remote)
+        }
+    }
+
+    impl ReplicationTargetT for PredictedSend {
         // Context = the host-sender entity
         type Context = bool;
 
@@ -271,17 +357,26 @@ mod prediction {
             *context |= host_client;
         }
 
-        fn on_discard(mut world: DeferredWorld, context: HookContext) {
-            let visibility_bit = *world.resource::<PredictedBit>().deref();
+        fn on_remove(mut world: DeferredWorld, context: HookContext) {
             if world.get_entity(context.entity).is_err() {
                 return;
             }
-            let unsafe_world = world.as_unsafe_world_cell();
-            let world = unsafe { unsafe_world.world_mut() };
-            let mut senders = world.query::<&mut ClientVisibility>();
-            for mut visibility in senders.iter_mut(world) {
-                visibility.set(context.entity, visibility_bit, false);
-            }
+            // Deferred so it runs after Replicon's own `on_remove` releases the
+            // filter bit; see `on_replicate_remove`. This hook does not run on
+            // replace, so no replace guard is needed.
+            let entity = context.entity;
+            world.commands().queue(move |world: &mut World| {
+                let Some(bit) = world
+                    .resource::<FilterRegistry>()
+                    .get_bit::<PredictionTarget>()
+                else {
+                    return;
+                };
+                let mut senders = world.query::<&mut ClientVisibility>();
+                for mut visibility in senders.iter_mut(world) {
+                    visibility.set(entity, bit, false);
+                }
+            });
         }
     }
 
@@ -298,26 +393,6 @@ mod prediction {
 
     pub(crate) fn remove_predicted(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
         entity.remove::<Predicted>();
-    }
-
-    /// Component-level visibility for [`PredictedSend`].
-    #[doc(hidden)]
-    #[derive(Resource, Deref)]
-    pub struct PredictedBit(FilterBit);
-
-    impl FromWorld for PredictedBit {
-        fn from_world(world: &mut World) -> Self {
-            let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
-                world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<SingleComponent<PredictedSend>>(
-                        world,
-                        &mut registry,
-                        ScopeLifetime::WhileVisible,
-                    )
-                })
-            });
-            Self(bit)
-        }
     }
 }
 
@@ -347,8 +422,19 @@ mod interpolation {
     ///
     /// See [`PredictionTarget`] for the complementary prediction setting.
     pub type InterpolationTarget = ReplicationTarget<InterpolatedSend>;
+
+    /// Component-level replication target: `InterpolatedSend` is visible exactly on the links in the target.
+    impl VisibilityFilter for InterpolationTarget {
+        type ClientComponent = RemoteId;
+        type Scope = SingleComponent<InterpolatedSend>;
+        const LIFETIME: ScopeLifetime = ScopeLifetime::WhileVisible;
+
+        fn is_visible(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+            self.is_visible_for(client, remote)
+        }
+    }
+
     impl ReplicationTargetT for InterpolatedSend {
-        type VisibilityBit = InterpolatedBit;
         // Context = the host-sender entity
         type Context = bool;
 
@@ -362,17 +448,26 @@ mod interpolation {
             *context |= host_client;
         }
 
-        fn on_discard(mut world: DeferredWorld, context: HookContext) {
-            let visibility_bit = *world.resource::<InterpolatedBit>().deref();
+        fn on_remove(mut world: DeferredWorld, context: HookContext) {
             if world.get_entity(context.entity).is_err() {
                 return;
             }
-            let unsafe_world = world.as_unsafe_world_cell();
-            let world = unsafe { unsafe_world.world_mut() };
-            let mut senders = world.query::<&mut ClientVisibility>();
-            for mut visibility in senders.iter_mut(world) {
-                visibility.set(context.entity, visibility_bit, false);
-            }
+            // Deferred so it runs after Replicon's own `on_remove` releases the
+            // filter bit; see `on_replicate_remove`. This hook does not run on
+            // replace, so no replace guard is needed.
+            let entity = context.entity;
+            world.commands().queue(move |world: &mut World| {
+                let Some(bit) = world
+                    .resource::<FilterRegistry>()
+                    .get_bit::<InterpolationTarget>()
+                else {
+                    return;
+                };
+                let mut senders = world.query::<&mut ClientVisibility>();
+                for mut visibility in senders.iter_mut(world) {
+                    visibility.set(entity, bit, false);
+                }
+            });
         }
     }
 
@@ -389,26 +484,6 @@ mod interpolation {
 
     pub(crate) fn remove_interpolated(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
         entity.remove::<Interpolated>();
-    }
-
-    /// Component-level visibility for [`InterpolatedSend`].
-    #[doc(hidden)]
-    #[derive(Resource, Deref)]
-    pub struct InterpolatedBit(FilterBit);
-
-    impl FromWorld for InterpolatedBit {
-        fn from_world(world: &mut World) -> Self {
-            let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
-                world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<SingleComponent<InterpolatedSend>>(
-                        world,
-                        &mut registry,
-                        ScopeLifetime::WhileVisible,
-                    )
-                })
-            });
-            Self(bit)
-        }
     }
 }
 
@@ -434,23 +509,18 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
     pub fn manual(senders: Vec<Entity>) -> Self {
         Self::new(ReplicationMode::Manual(senders))
     }
+    /// Pure visibility predicate behind the [`VisibilityFilter`] impls.
+    ///
+    /// Also reused by this hook (host-local markers) and
+    /// [`handle_new_client_visibility`] (links that already have a `RemoteId`
+    /// when their `ClientVisibility` is inserted) so all three agree.
+    pub(crate) fn is_visible_for(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+        self.mode.is_visible_for(client, remote)
+    }
+
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
-        let Some(visibility_bit) = world
-            .get_resource::<T::VisibilityBit>()
-            .map(|bit| *bit.deref())
-        else {
-            warn!(
-                ?entity,
-                "Skipping replication target insertion because the visibility resource is missing"
-            );
-            return;
-        };
-
-        let mut post_insert_context = T::Context::default();
-
         let unsafe_world = world.as_unsafe_world_cell();
-        let world = unsafe { unsafe_world.world_mut() };
         let Some(mode) = (unsafe { unsafe_world.world() })
             .get::<Self>(entity)
             .map(|target| target.mode.clone())
@@ -458,149 +528,17 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
             return;
         };
 
-        match &mode {
-            ReplicationMode::SingleSender => {
-                let Ok((sender_entity, mut visibility, host_client)) = world
-                    .query_filtered::<(Entity, &mut ClientVisibility, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
-                    .single_mut(world)
-                else {
-                    return;
-                };
-
-                T::update_context(&mut post_insert_context, sender_entity, host_client);
-                visibility.set(entity, visibility_bit, true);
-            }
-            #[cfg(feature = "client")]
-            ReplicationMode::SingleClient => {
-                use bevy_replicon::prelude::ConnectedClient;
-
-                let (sender_entity, host_client) = if let Ok((sender_entity, mut visibility)) =
-                    world
-                        .query_filtered::<(Entity, &mut ClientVisibility), With<HostClient>>()
-                        .single_mut(world)
-                {
-                    visibility.set(entity, visibility_bit, true);
-                    (sender_entity, true)
-                } else if let Ok((sender_entity, mut visibility)) = world
-                    .query_filtered::<(Entity, &mut ClientVisibility), With<ConnectedClient>>()
-                    .single_mut(world)
-                {
-                    visibility.set(entity, visibility_bit, true);
-                    (sender_entity, false)
-                } else {
-                    return;
-                };
-
-                if host_client {
-                    let mut endpoints =
-                        world.query_filtered::<&mut ClientVisibility, With<ConnectedClient>>();
-                    for mut visibility in endpoints.iter_mut(world) {
-                        visibility.set(entity, visibility_bit, false);
-                    }
-                }
-
-                T::update_context(&mut post_insert_context, sender_entity, host_client);
-            }
-            #[cfg(feature = "server")]
-            ReplicationMode::SingleServer(target) => {
-                use lightyear_connection::client_of::ClientOf;
-                use lightyear_connection::server::Started;
-                use lightyear_link::server::Server;
-                use tracing::debug;
-
-                let Ok(server) = world
-                    .query_filtered::<&Server, With<Started>>()
-                    .single(world)
-                else {
-                    debug!(
-                        "Replicated before server actually existed, dont worry this case scenario is handled!"
-                    );
-                    return;
-                };
-                let metadata = unsafe { unsafe_world.world() }.resource::<NetworkingMetadata>();
-                let all_clients: alloc::vec::Vec<Entity> = server.collection().to_vec();
-                trace!(
-                    ?entity,
-                    ?visibility_bit,
-                    num_clients = all_clients.len(),
-                    ?target,
-                    "SingleServer on_insert: setting visibility"
-                );
-                for &sender_entity in &all_clients {
-                    if let Ok((mut visibility, _)) = world
-                        .query_filtered::<(&mut ClientVisibility, Has<HostClient>), (
-                            With<ClientOf>,
-                            Or<(With<ReplicationSender>, With<HostClient>)>,
-                        )>()
-                        .get_mut(world, sender_entity)
-                    {
-                        trace!(?entity, ?sender_entity, "  hiding bit for client");
-                        visibility.set(entity, visibility_bit, false);
-                    }
-                }
-                target.apply_targets(
-                    all_clients.into_iter(),
-                    &metadata.peer_map,
-                    &mut |sender_entity: Entity| {
-                        let Ok((mut visibility, host_client)) = world
-                            .query_filtered::<(&mut ClientVisibility, Has<HostClient>), (
-                                With<ClientOf>,
-                                Or<(With<ReplicationSender>, With<HostClient>)>,
-                            )>()
-                            .get_mut(world, sender_entity)
-                        else {
-                            return;
-                        };
-                        trace!(?entity, ?sender_entity, "  showing bit for target client");
-                        T::update_context(&mut post_insert_context, sender_entity, host_client);
-                        visibility.set(entity, visibility_bit, true);
-                    },
-                );
-            }
-            ReplicationMode::Sender(sender_entity) => {
-                let sender_entity = *sender_entity;
-                let Ok((mut visibility, host_client)) = world
-                    .query_filtered::<(&mut ClientVisibility, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
-                    .get_mut(world, sender_entity)
-                else {
-                    return;
-                };
-                T::update_context(&mut post_insert_context, sender_entity, host_client);
-                visibility.set(entity, visibility_bit, true);
-            }
-            #[cfg(feature = "server")]
-            ReplicationMode::Server(_, _) => {
-                unimplemented!()
-            }
-            ReplicationMode::Target(_) => {
-                unimplemented!()
-            }
-            ReplicationMode::Manual(entities) => {
-                let all_senders: alloc::vec::Vec<Entity> = world
-                    .query_filtered::<Entity, Or<(With<ReplicationSender>, With<HostClient>)>>()
-                    .iter(world)
-                    .collect();
-                for sender_entity in all_senders {
-                    if let Ok(mut visibility) = world
-                        .query_filtered::<
-                            &mut ClientVisibility,
-                            Or<(With<ReplicationSender>, With<HostClient>)>,
-                        >()
-                        .get_mut(world, sender_entity)
-                    {
-                        visibility.set(entity, visibility_bit, false);
-                    }
-                }
-                for &sender_entity in entities.iter() {
-                    let Ok((mut visibility, host_client)) = world
-                        .query_filtered::<(&mut ClientVisibility, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
-                        .get_mut(world, sender_entity)
-                    else {
-                        continue;
-                    };
-                    T::update_context(&mut post_insert_context, sender_entity, host_client);
-                    visibility.set(entity, visibility_bit, true);
-                }
+        // Network visibility is owned by the `VisibilityFilter` impl: Replicon
+        // evaluates `is_visible` when this component is inserted and whenever a
+        // link's `RemoteId` changes. This hook only maintains the host-local
+        // receiver markers (`ReplicatedFrom`, `Predicted`, `Interpolated`),
+        // which a filter cannot insert.
+        let mut post_insert_context = T::Context::default();
+        let world = unsafe { unsafe_world.world_mut() };
+        let mut hosts = world.query_filtered::<(Entity, Option<&RemoteId>), With<HostClient>>();
+        for (sender_entity, remote) in hosts.iter(world) {
+            if mode.is_visible_for(sender_entity, remote) {
+                T::update_context(&mut post_insert_context, sender_entity, true);
             }
         }
 
@@ -612,8 +550,8 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
         });
     }
 
-    fn on_discard(world: DeferredWorld, context: HookContext) {
-        T::on_discard(world, context)
+    fn on_remove(world: DeferredWorld, context: HookContext) {
+        T::on_remove(world, context)
     }
 }
 
@@ -814,18 +752,17 @@ fn target_includes_host<T: ReplicationTargetT>(
 
 /// When a client becomes a host client after replicated entities already exist, backfill the
 /// host-local receiver state that target insertion would normally have added at spawn time.
+///
+/// Network visibility itself is owned by the [`VisibilityFilter`] impls (plus
+/// [`handle_new_client_visibility`] for the `ClientVisibility` inserted below);
+/// this observer only backfills the local markers.
 #[cfg(feature = "server")]
 fn emulate_replicate_on_host_client_added(
     trigger: On<Add, HostClient>,
-    remote_ids: Query<&lightyear_core::id::RemoteId>,
-    replicate_bit: Res<ReplicateBit>,
+    remote_ids: Query<&RemoteId>,
     mut host_visibilities: Query<
         &mut ClientVisibility,
         Without<bevy_replicon::prelude::ConnectedClient>,
-    >,
-    #[cfg(feature = "client")] mut remote_visibilities: Query<
-        &mut ClientVisibility,
-        With<bevy_replicon::prelude::ConnectedClient>,
     >,
     replicates: Query<(Entity, &Replicate, Has<ReplicatedFrom>)>,
     #[cfg(feature = "prediction")] prediction_targets: Query<(
@@ -833,13 +770,11 @@ fn emulate_replicate_on_host_client_added(
         &PredictionTarget,
         Has<lightyear_core::prediction::Predicted>,
     )>,
-    #[cfg(feature = "prediction")] predicted_bit: Res<PredictedBit>,
     #[cfg(feature = "interpolation")] interpolation_targets: Query<(
         Entity,
         &InterpolationTarget,
         Has<lightyear_core::interpolation::Interpolated>,
     )>,
-    #[cfg(feature = "interpolation")] interpolated_bit: Res<InterpolatedBit>,
     mut commands: Commands,
 ) {
     let host_entity = trigger.entity;
@@ -847,30 +782,16 @@ fn emulate_replicate_on_host_client_added(
         .get(host_entity)
         .ok()
         .map(|remote_id| remote_id.0);
-    let mut host_visibility = match host_visibilities.get_mut(host_entity) {
-        Ok(visibility) => Some(visibility),
-        Err(_) => {
-            commands
-                .entity(host_entity)
-                .insert(ClientVisibility::default());
-            None
-        }
-    };
+    if host_visibilities.get_mut(host_entity).is_err() {
+        commands
+            .entity(host_entity)
+            .insert(ClientVisibility::default());
+    }
 
     for (entity, replicate, has_replicated_from) in &replicates {
         let mut post_insert_context = <() as ReplicationTargetT>::Context::default();
         let targeted = target_includes_host(replicate, host_entity, host_peer_id);
 
-        #[cfg(feature = "client")]
-        if matches!(replicate.mode, ReplicationMode::SingleClient) {
-            for mut visibility in remote_visibilities.iter_mut() {
-                visibility.set(entity, **replicate_bit, false);
-            }
-        }
-
-        if let Some(host_visibility) = host_visibility.as_deref_mut() {
-            host_visibility.set(entity, **replicate_bit, targeted);
-        }
         if !targeted {
             continue;
         }
@@ -888,9 +809,6 @@ fn emulate_replicate_on_host_client_added(
     #[cfg(feature = "prediction")]
     for (entity, target, predicted) in &prediction_targets {
         let targeted = target_includes_host(target, host_entity, host_peer_id);
-        if let Some(host_visibility) = host_visibility.as_deref_mut() {
-            host_visibility.set(entity, **predicted_bit, targeted);
-        }
         if targeted && !predicted {
             commands
                 .entity(entity)
@@ -901,9 +819,6 @@ fn emulate_replicate_on_host_client_added(
     #[cfg(feature = "interpolation")]
     for (entity, target, interpolated) in &interpolation_targets {
         let targeted = target_includes_host(target, host_entity, host_peer_id);
-        if let Some(host_visibility) = host_visibility.as_deref_mut() {
-            host_visibility.set(entity, **interpolated_bit, targeted);
-        }
         if targeted && !interpolated {
             commands
                 .entity(entity)
@@ -915,57 +830,48 @@ fn emulate_replicate_on_host_client_added(
 /// When a new client gets `ClientVisibility`, set the correct visibility bits for all existing
 /// replication targets.
 ///
-/// [`ClientVisibility::default`] treats entities and components as visible. Without this backfill,
-/// a late-joining client would receive pre-existing entities and prediction/interpolation markers
-/// even when their [`NetworkTarget`] excludes that client.
+/// [`ClientVisibility::default`] treats entities and components as visible. Replicon's own
+/// new-client backfill skips links that already have the filter's client component, and
+/// `RemoteId` is always inserted before `ClientVisibility` on lightyear links — so without
+/// this backfill a late-joining client would receive pre-existing entities and
+/// prediction/interpolation markers even when their [`NetworkTarget`] excludes that client.
 #[cfg(feature = "server")]
 pub(crate) fn handle_new_client_visibility(
     trigger: On<Add, ClientVisibility>,
-    remote_id_query: Query<&lightyear_core::id::RemoteId>,
+    remote_id_query: Query<&RemoteId>,
+    registry: Res<FilterRegistry>,
     replication_targets: Query<(Entity, &Replicate)>,
-    replicate_bit: Res<ReplicateBit>,
     #[cfg(feature = "prediction")] prediction_targets: Query<(Entity, &PredictionTarget)>,
-    #[cfg(feature = "prediction")] predicted_bit: Res<PredictedBit>,
     #[cfg(feature = "interpolation")] interpolation_targets: Query<(Entity, &InterpolationTarget)>,
-    #[cfg(feature = "interpolation")] interpolated_bit: Res<InterpolatedBit>,
     controlled_entities: Query<(Entity, &crate::control::ControlledBy)>,
     controlled_bit: Res<crate::control::ControlBit>,
     mut visibilities: Query<&mut ClientVisibility>,
 ) {
     let sender_entity = trigger.entity;
-    let Ok(remote_id) = remote_id_query.get(sender_entity) else {
-        return;
-    };
-    let peer_id = remote_id.0;
-    trace!(?sender_entity, ?peer_id, "handle_new_client_visibility");
+    let remote = remote_id_query.get(sender_entity).ok();
+    trace!(?sender_entity, ?remote, "handle_new_client_visibility");
 
     let Ok(mut visibility) = visibilities.get_mut(sender_entity) else {
         return;
     };
 
-    for (entity, target) in replication_targets.iter() {
-        if let ReplicationMode::SingleServer(ref net_target) = target.mode
-            && !net_target.targets(&peer_id)
-        {
-            visibility.set(entity, **replicate_bit, false);
+    if let Some(bit) = registry.get_bit::<Replicate>() {
+        for (entity, target) in replication_targets.iter() {
+            visibility.set(entity, bit, target.is_visible_for(sender_entity, remote));
         }
     }
 
     #[cfg(feature = "prediction")]
-    for (entity, target) in prediction_targets.iter() {
-        if let ReplicationMode::SingleServer(ref net_target) = target.mode
-            && !net_target.targets(&peer_id)
-        {
-            visibility.set(entity, **predicted_bit, false);
+    if let Some(bit) = registry.get_bit::<PredictionTarget>() {
+        for (entity, target) in prediction_targets.iter() {
+            visibility.set(entity, bit, target.is_visible_for(sender_entity, remote));
         }
     }
 
     #[cfg(feature = "interpolation")]
-    for (entity, target) in interpolation_targets.iter() {
-        if let ReplicationMode::SingleServer(ref net_target) = target.mode
-            && !net_target.targets(&peer_id)
-        {
-            visibility.set(entity, **interpolated_bit, false);
+    if let Some(bit) = registry.get_bit::<InterpolationTarget>() {
+        for (entity, target) in interpolation_targets.iter() {
+            visibility.set(entity, bit, target.is_visible_for(sender_entity, remote));
         }
     }
 
@@ -999,7 +905,7 @@ impl Plugin for SendPlugin {
         );
         #[cfg(feature = "server")]
         app.add_observer(emulate_replicate_on_host_client_added);
-        app.add_observer(on_replicate_discard);
+        app.add_observer(on_replicate_remove);
 
         // make sure that any ordering relative to ReplicationSystems is also applied to ServerSystems
         app.configure_sets(
@@ -1008,17 +914,19 @@ impl Plugin for SendPlugin {
         );
 
         app.register_required_components::<Replicate, Replicating>();
-        app.init_resource::<ReplicateBit>();
+        // Replication targets are `VisibilityFilter`s: Replicon evaluates them on
+        // insertion and on link changes, replacing the previous manual bit writes.
+        app.add_visibility_filter::<Replicate>();
         app.init_resource::<VisibilityBits>();
         #[cfg(feature = "prediction")]
         {
             app.register_required_components::<PredictionTarget, PredictedSend>();
-            app.init_resource::<PredictedBit>();
+            app.add_visibility_filter::<PredictionTarget>();
         }
         #[cfg(feature = "interpolation")]
         {
             app.register_required_components::<InterpolationTarget, InterpolatedSend>();
-            app.init_resource::<InterpolatedBit>();
+            app.add_visibility_filter::<InterpolationTarget>();
         }
     }
 }
