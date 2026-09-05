@@ -4,6 +4,8 @@ use crate::protocol::{
     CompMixedCorrectionBundleB, CompPredictionOnly,
 };
 use crate::stepper::{ClientServerStepper, StepperConfig};
+use avian2d::math::Vector;
+use avian2d::prelude::{AngularVelocity, LinearVelocity, Position, Rotation};
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::frame_interpolation::FrameInterpolationHistory;
@@ -43,6 +45,25 @@ fn replay_mixed_correction_bundle(
     for (mut a, mut b) in &mut components {
         *a = CompMixedCorrectionBundleA(10.0);
         *b = CompMixedCorrectionBundleB(20.0);
+    }
+}
+
+fn replay_avian_pose(
+    mut components: Query<
+        (
+            &mut Position,
+            &mut Rotation,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+        ),
+        With<Predicted>,
+    >,
+) {
+    for (mut position, mut rotation, mut linear, mut angular) in &mut components {
+        *position = Position::default();
+        *rotation = Rotation::default();
+        *linear = LinearVelocity::default();
+        *angular = AngularVelocity::default();
     }
 }
 
@@ -217,6 +238,77 @@ fn post_rollback_bundle_uses_member_without_previous_visual() {
     assert!(
         world
             .get::<PreviousVisual<CompMixedCorrectionBundleB>>(entity)
+            .is_none()
+    );
+}
+
+/// Rollback captures stale Avian velocities as decaying visual-correction
+/// errors instead of snapping them while the pose glides.
+#[test]
+fn post_rollback_correction_smooths_velocities() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    set_correction_sampling_time(&mut stepper);
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, replay_avian_pose);
+
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 1;
+    let entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            Predicted,
+            Position::default(),
+            Rotation::default(),
+            // Stale pre-rollback visual velocities; replay corrects them to rest.
+            LinearVelocity(Vector::new(10.0, 0.0)),
+            AngularVelocity(5.0),
+            history(rollback_tick, Position::default()),
+            history(rollback_tick, Rotation::default()),
+            history(rollback_tick, LinearVelocity::default()),
+            history(rollback_tick, AngularVelocity::default()),
+            FrameInterpolationHistory::<Position>::default(),
+            FrameInterpolationHistory::<Rotation>::default(),
+            FrameInterpolationHistory::<LinearVelocity>::default(),
+            FrameInterpolationHistory::<AngularVelocity>::default(),
+        ))
+        .id();
+
+    trigger_state_rollback(&mut stepper, rollback_tick);
+    stepper.client_app().world_mut().run_schedule(PreUpdate);
+
+    let world = stepper.client_app().world();
+    // Live components are restored to the replayed (corrected) values.
+    assert_eq!(
+        world.get::<LinearVelocity>(entity),
+        Some(&LinearVelocity::default())
+    );
+    assert_eq!(
+        world.get::<AngularVelocity>(entity),
+        Some(&AngularVelocity::default())
+    );
+    // The stale velocities are kept as decaying visual errors.
+    assert_eq!(
+        world
+            .get::<VisualCorrection<LinearVelocity>>(entity)
+            .map(|correction| &correction.error),
+        Some(&LinearVelocity(Vector::new(10.0, 0.0)))
+    );
+    assert_eq!(
+        world
+            .get::<VisualCorrection<AngularVelocity>>(entity)
+            .map(|correction| &correction.error),
+        Some(&AngularVelocity(5.0))
+    );
+    assert!(
+        world
+            .get::<PreviousVisual<LinearVelocity>>(entity)
+            .is_none()
+    );
+    assert!(
+        world
+            .get::<PreviousVisual<AngularVelocity>>(entity)
             .is_none()
     );
 }

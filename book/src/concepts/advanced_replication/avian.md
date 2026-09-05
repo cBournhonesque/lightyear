@@ -15,11 +15,11 @@ Use `AvianReplicationMode::Position { sync_to_transform: false }` unless the app
 
 | Mode | Replicated and predicted | Frame interpolation and correction | Physics authority | Recommendation |
 |---|---|---|---|---|
-| `Position { sync_to_transform: false }` | `Position`, `Rotation` | `Position`, `Rotation` | `Position`, `Rotation` | Preferred |
-| `Position { sync_to_transform: true }` | `Position`, `Rotation` | `Position`, `Rotation` | Synchronizes the physics pose to `Transform` for fixed-tick authoring, then imports edits | Use for transform-driven fixed gameplay with compact physics replication |
+| `Position { sync_to_transform: false }` | `Position`, `Rotation` | `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity` | `Position`, `Rotation` | Preferred |
+| `Position { sync_to_transform: true }` | `Position`, `Rotation` | `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity` | Synchronizes the physics pose to `Transform` for fixed-tick authoring, then imports edits | Use for transform-driven fixed gameplay with compact physics replication |
 | `Transform` | `Transform` | `Transform` | `Transform` at the application boundary; Avian still uses `Position` and `Rotation` internally | Use for transform-driven applications |
 
-`FrameInterpolate` is type-erased: adding the one marker to an entity enables all applicable registered component or bundle rules, so correction and frame interpolation operate directly on Avian's canonical `Position` and `Rotation`.
+`FrameInterpolate` is type-erased: adding the one marker to an entity enables all applicable registered component or bundle rules, so correction and frame interpolation operate directly on Avian's canonical `Position` and `Rotation`, with `LinearVelocity` and `AngularVelocity` corrected alongside them using linear error decay.
 
 `Position` is not always the right choice. Prefer `Transform` when:
 
