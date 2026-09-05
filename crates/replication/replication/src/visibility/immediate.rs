@@ -53,7 +53,6 @@ world.lose_visibility(entity, client);
 ```
 */
 
-use alloc::collections::BTreeMap;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_replicon::prelude::ScopeLifetime;
@@ -208,18 +207,6 @@ impl VisibilityExt for Commands<'_, '_> {
     }
 }
 
-/// Last manual-visibility write per `(sender, target)`, so hierarchy pulls can
-/// replay a root's state.
-///
-/// Replicon's [`ClientVisibility`] masks are write-only from outside the
-/// crate, so pulls and re-inherits replay from this record instead of reading
-/// them back. The state space is tiny: every [`VisibilityExt`] call selects
-/// one hidden manual bit (`None` = fully visible).
-#[derive(Resource, Default, Debug)]
-struct ManualVisibilityRecord {
-    hidden: BTreeMap<(Entity, Entity), Option<FilterBit>>,
-}
-
 /// Marker for hierarchy members whose manual visibility is managed independently.
 ///
 /// Inserted automatically when visibility is explicitly set on an entity with
@@ -264,23 +251,22 @@ impl VisibilityExt for World {
     }
 }
 
-/// Applies one manual-visibility state to a sender's [`ClientVisibility`].
+/// Copies the manual visibility state for `from` onto `entity` within one
+/// sender's [`ClientVisibility`].
 ///
-/// Only [`VisibilityBits`] are written: every other filter bit (rooms,
+/// Only [`VisibilityBits`] are copied: every other filter bit (rooms,
 /// replication targets, …) is evaluated per-entity by replicon and must not
 /// leak across the hierarchy — overridden members especially rely on that.
-/// `set` takes `visible`, while the record stores the hidden bit.
-fn apply_bits(
+fn copy_manual_visibility(
     visibility: &mut ClientVisibility,
     entity: Entity,
+    from: Entity,
     bits: VisibilityBits,
-    hidden: Option<FilterBit>,
 ) {
+    let source = visibility.get(from);
     for bit in bits.iter() {
-        visibility.set(entity, bit, true);
-    }
-    if let Some(bit) = hidden {
-        visibility.set(entity, bit, false);
+        // `set` takes `visible`, while the mask stores hidden bits.
+        visibility.set(entity, bit, !source.contains(bit));
     }
 }
 
@@ -297,20 +283,15 @@ fn set_visibility(
     hidden_bit: Option<FilterBit>,
     direct: bool,
 ) {
-    // The bits represent alternative states of one logical visibility filter. Clear every
-    // previous state before selecting the new one so a shorter lifetime cannot remain active.
-    let applied = if let Some(mut visibility) = world.get_mut::<ClientVisibility>(sender) {
-        apply_bits(&mut visibility, entity, bits, hidden_bit);
-        true
-    } else {
-        false
-    };
-    // Record what was actually set so hierarchy pulls can replay the root's
-    // state without reading replicon's write-only masks. Unapplied writes
-    // leave no record: the pull default (fully visible) matches main's
-    // pre-override behavior.
-    if applied && let Some(mut record) = world.get_resource_mut::<ManualVisibilityRecord>() {
-        record.hidden.insert((sender, entity), hidden_bit);
+    if let Some(mut visibility) = world.get_mut::<ClientVisibility>(sender) {
+        // The bits represent alternative states of one logical visibility filter. Clear every
+        // previous state before selecting the new one so a shorter lifetime cannot remain active.
+        for bit in bits.iter() {
+            visibility.set(entity, bit, true);
+        }
+        if let Some(bit) = hidden_bit {
+            visibility.set(entity, bit, false);
+        }
     }
     // A direct write on a hierarchy member records an explicit override, so
     // later root changes no longer propagate to it. Direct writes on roots and
@@ -350,8 +331,7 @@ fn inherit_visibility_on_replicate_like_added(
     replicate_like: Query<&ReplicateLike>,
     children: Query<&ReplicateLikeChildren>,
     overridden: Query<Has<VisibilityOverridden>>,
-    mut senders: Query<(Entity, &mut ClientVisibility)>,
-    mut record: ResMut<ManualVisibilityRecord>,
+    mut senders: Query<&mut ClientVisibility>,
     bits: Res<VisibilityBits>,
 ) {
     let Ok(like) = replicate_like.get(trigger.entity) else {
@@ -373,15 +353,9 @@ fn inherit_visibility_on_replicate_like_added(
         }
     }
     let bits = *bits;
-    let root = like.root;
-    for (sender, mut visibility) in &mut senders {
-        // Replay the root's last manual write (fully visible by default).
-        // Member states are recorded too, so a member that later becomes a
-        // sub-root replays correctly.
-        let hidden = record.hidden.get(&(sender, root)).copied().flatten();
+    for mut visibility in &mut senders {
         for entity in &subtree {
-            apply_bits(&mut visibility, *entity, bits, hidden);
-            record.hidden.insert((sender, *entity), hidden);
+            copy_manual_visibility(&mut visibility, *entity, like.root, bits);
         }
     }
 }
@@ -391,23 +365,18 @@ fn inherit_visibility_on_replicate_like_added(
 fn reinherit_visibility_on_override_removed(
     trigger: On<Remove, VisibilityOverridden>,
     replicate_like: Query<&ReplicateLike>,
-    mut senders: Query<(Entity, &mut ClientVisibility)>,
-    mut record: ResMut<ManualVisibilityRecord>,
+    mut senders: Query<&mut ClientVisibility>,
     bits: Res<VisibilityBits>,
 ) {
     let Ok(like) = replicate_like.get(trigger.entity) else {
         return;
     };
     let bits = *bits;
-    let root = like.root;
-    let member = trigger.entity;
-    // Without an override the member follows the root again. Replaying (rather
+    // Without an override the member follows the root again. Copying (rather
     // than just clearing) also drops stale override bits the member may hold
     // for senders the root never mentions.
-    for (sender, mut visibility) in &mut senders {
-        let hidden = record.hidden.get(&(sender, root)).copied().flatten();
-        apply_bits(&mut visibility, member, bits, hidden);
-        record.hidden.insert((sender, member), hidden);
+    for mut visibility in &mut senders {
+        copy_manual_visibility(&mut visibility, trigger.entity, like.root, bits);
     }
 }
 
@@ -433,18 +402,6 @@ fn clear_retained_visibility_on_despawn(
     }
 }
 
-/// Drop manual-visibility records involving a despawned entity: entity IDs are
-/// recycled, so stale `(sender, target)` pairs must not outlive them.
-fn cleanup_manual_visibility_on_despawn(
-    trigger: On<Despawn>,
-    mut record: ResMut<ManualVisibilityRecord>,
-) {
-    let entity = trigger.entity;
-    record
-        .hidden
-        .retain(|(sender, target), _| *sender != entity && *target != entity);
-}
-
 /// Plugin that handles the visibility system
 #[derive(Default)]
 pub struct NetworkVisibilityPlugin;
@@ -452,11 +409,9 @@ pub struct NetworkVisibilityPlugin;
 impl Plugin for NetworkVisibilityPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VisibilityBits>();
-        app.init_resource::<ManualVisibilityRecord>();
         app.add_observer(clear_retained_visibility_on_despawn);
         app.add_observer(inherit_visibility_on_replicate_like_added);
         app.add_observer(reinherit_visibility_on_override_removed);
-        app.add_observer(cleanup_manual_visibility_on_despawn);
     }
 }
 
@@ -475,18 +430,12 @@ mod tests {
         (app, sender)
     }
 
-    /// Reads effective visibility from the recorded manual state (the masks
-    /// themselves are write-only): hidden iff the manual despawn-on-hide bit
-    /// is set. Faithful in tests: nothing else writes these bits here.
+    /// Reads effective visibility straight from the sender's
+    /// [`ClientVisibility`]: hidden iff the manual despawn-on-hide bit is set.
     fn hidden(app: &App, sender: Entity, entity: Entity) -> bool {
         let bits = app.world().resource::<VisibilityBits>();
-        app.world()
-            .resource::<ManualVisibilityRecord>()
-            .hidden
-            .get(&(sender, entity))
-            .copied()
-            .flatten()
-            == Some(bits.while_visible)
+        let visibility = app.world().get::<ClientVisibility>(sender).unwrap();
+        visibility.get(entity).contains(bits.while_visible)
     }
 
     fn is_overridden(app: &App, entity: Entity) -> bool {
