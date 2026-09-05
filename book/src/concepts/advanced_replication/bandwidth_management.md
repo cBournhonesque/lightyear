@@ -1,7 +1,6 @@
 # Bandwidth management
 
-By default, lightyear sends all messages (created by the user, or messages created from replication updates)
-every `send_interval` (this interval is configurable) without any regard for the bandwidth available to the client.
+By default, lightyear sends everything that's ready every time the replication timer fires, without any regard for the bandwidth available to the client.
 
 But in some situations you might want to limit the bandwidth used by the client or the server, for example to limit
 server traffic costs, or because the client's connection cannot handle a very high bandwidth.
@@ -18,41 +17,42 @@ This also saves CPU costs on the server.
 
 ## Updating the send interval
 
-Another thing you can do is to update the `send_interval` of the client or server. This will reduce the number of times
-the `SystemSet::Send` systems will run.
-This `SystemSet` is responsible for aggregating all the messages that were buffered and are ready to send, as well as generating all the
-replication-messages (entity-actions, entity-updates) that should be sent.
+Another thing you can do is to update the replication interval. The `ReplicationMetadata` resource controls how often replication updates go out:
 
-NOTE: Currently `lightyear` expects `send_interval` to be 0 on the client (i.e. the client sends all updates immediately) to manage client inputs properly.
+```rust,ignore
+app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
+```
 
-This will also reduce the CPU usage of the server as it runs the replication-send logic less often.
+A longer interval means the `Send` systems run less often, which saves both bandwidth and server CPU. The tradeoff is that clients see updates less frequently (which is exactly what prediction and interpolation are for).
 
+## Capping bandwidth per link
 
-## TODO: Updating the replication rate per replication group
+You can put a hard cap on how many bytes go through a connection by adding a configured `Transport` to the link entity:
 
-You can also override the replication rate per replication group. 
-For some entities it might not be important to run replication at a very high rate, so you can reduce the rate for those entities.
+```rust,ignore
+commands.entity(client_link).insert((
+    ReplicationSender,
+    // limit to 3KB/s
+    Transport::new(PriorityConfig::new(3000)),
+));
+```
 
-NOTE: this is currently not possible
+Once the cap is hit, something has to give. That's where priorities come in.
 
+## Prioritizing entities and components
 
-## Prioritizing replication groups
+When there are more updates ready than fit in the budget, lightyear sends the most important ones first and defers the rest. Importance comes from two places:
 
-Even so, there might be situations where you have more messages to send than the bandwidth available to you.
-In that case you can set a **priority** to indicate which messages are important and should be sent first.
+- per entity, with the `ReplicatePriority` component (see the [priority example](https://github.com/cBournhonesque/lightyear/tree/main/examples/priority), where the middle row updates less often than the edges):
 
-Every time the server (or client) is ready to send messages, it will first:
-- aggregate the list of messages that should be sent
-- then sort them by priority. The priority is computed with the formula `channel_priority * message_priority`.
-- it will send messages in order of priority until all the bandwidth is used
-- it will then discard the remaining messages
-  - note that this means that discarded messages via an unreliable channel will simply **not be sent**
-  - for entity updates, we still try to send an update until the remote world is consistent with the local world, so we will keep trying sending updates until we receive an ack from the remote that
-    it received the updates.
+```rust,ignore
+commands.spawn((
+    position,
+    ReplicatePriority(priority),
+    Replicate::to_clients(NetworkTarget::All),
+));
+```
 
-Only the relative priority values matter, not their absolute value: an entity with priority 10 will be replicated twice as often as an entity with priority 5.
+- per component type, at registration: `app.component::<C>().replicate_with_priority(n)`.
 
-To avoid having some replication groups entities be starved of updates (because their priority is always too low), we do **priority accumulation**:
-- every send_interval, we accumulate the priority of all messages: `accumulated_priority += priority`
-- if a replication groups successfully sends an update or an action, we reset the accumulated priority to 0. (note that it's not guaranteed that the message was received by the remote, just that the message was sent)
-- for reliable channels, we also keep accumulating the priority until we receive an ack from the remote that the message was successfully received
+Only the relative values matter: an entity with priority 10 is sent twice as often as one with priority 5. Deferred updates aren't dropped, they just wait for the next send (unlike unreliable messages, entity updates keep being retried until the remote world is consistent).

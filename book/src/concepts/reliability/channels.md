@@ -1,33 +1,36 @@
 # Channels
 
-
 Lightyear introduces the concept of a `Channel` to handle reliability.
 
 A `Channel` is a way to send packets with specific reliability, ordering and priority guarantees.
 
-You can add a channel to your protocol like so:
+You register a channel on the app like so (this must be shared between client and server, so it usually lives in the protocol plugin):
 ```rust,noplayground
-#[derive(Channel)]
-struct MyChannel;
+pub struct Channel1;
 
-pub fn protocol() -> MyProtocol {
-    let mut p = MyProtocol::default();
-    p.add_channel::<MyChannel>(ChannelSettings {
-        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-        direction: ChannelDirection::Bidirectional,
-    });
-    p
+pub(crate) struct ProtocolPlugin;
+
+impl Plugin for ProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        })
+        .add_direction(NetworkDirection::ServerToClient);
+    }
 }
-``` 
+```
+
+Any `Send + Sync + 'static` struct can be a channel; there is a blanket `Channel` impl, so no derive needed.
 
 ## Mode
 
 The `mode` field of `ChannelSettings` defines the reliability/ordering guarantees of the channel.
 
 Reliability:
-- `Unreliable`: packets are not guaranteed to arrive
+- `Unreliable`: packets are not guaranteed to arrive (`UnorderedUnreliable`, `UnorderedUnreliableWithAcks`, `SequencedUnreliable`)
 - `Reliable`: packets are guaranteed to arrive. We will resend the packet until we receive an acknowledgement from the remote.
-  You can define how often we resend the packet via the `ReliableSettings` field.
+  You can tune how often we resend via the `ReliableSettings` field (`rtt_resend_factor`, `rtt_resend_min_delay`).
 
 Ordering:
 - `Ordered`: packets are guaranteed to arrive in the order they were sent (*client sends 1,2,3,4,5, server receives 1,2,3,4,5*)
@@ -37,4 +40,4 @@ Ordering:
 
 ## Direction
 
-The `direction` field can be used to restrict a `Channel` from sending packets from client->server or server->client.
+The direction (`NetworkDirection::ClientToServer`, `ServerToClient` or `Bidirectional`) can be used to restrict a `Channel` (or a message) to one way of traffic.

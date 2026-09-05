@@ -8,22 +8,18 @@ Lightyear handles inputs for you by:
 
 ## Client-side
 
-Input handling is currently done in the FixedUpdate schedule.
+Input handling runs across several schedules. The `InputSystems` sets involved, in order:
 
-There are multiple `SystemSets` involved that should run in the following order:
-- `BufferInputs`: the user must add their inputs for the given tick in this system set
-- `WriteInputEvents`: we get the inputs for the current tick and return them as the bevy event `InputEvent<I>`
-  - notably, during rollback we get the inputs for the older rollback tick
-- `ClearInputEvents`: we clear the bevy events. 
-- `SendInputMessage`: we prepare a message with the last few inputs. For redundancy, we will send the inputs of the last few frames, so that the server
-  can still get the correct input for a given tick even if some packets are lost.
+- `ReceiveInputMessages` (in `PreUpdate`, before rollback): receive input messages from other clients (matters for P2P / predicting remote players)
+- `WriteClientInputs` (in `FixedPreUpdate`): **this is where you write**. Put your input-gathering system here; it updates the local `ActionState<I>` for the current tick
+- `BufferClientInputs` (in `FixedPreUpdate`, right after): lightyear moves the `ActionState` into the input buffer. During rollback, this set instead loads the historical input back into the `ActionState`, so your simulation re-runs with the right values
+- `PrepareInputMessage` / `SendInputMessage` (in `PostUpdate`): pack the last few ticks of inputs into a message (with redundancy, so lost packets don't lose inputs) and send it to the server
+- `RestoreInputs` (in `FixedPostUpdate`), `CleanUp` (in `PostUpdate`): housekeeping so buffers don't grow forever
 
 
 
 ## Server-side
 
-Input handling is also done in the FixedUpdate schedule.
-These are the relevant `SystemSets`:
-- `WriteInputEvents`: we receive the input message from the client, add the inputs into an internal buffer. Then in this 
-  SystemSet we retrieve the inputs for the current tick for the given client. The retrieved inputs will be returned as `InputEvent<I>`
-- `ClearInputEvents`: we clear the events
+On the server the inputs arrive as messages, get buffered per client, and are then served tick-by-tick: when the server simulates tick T, it hands your systems the inputs the client buffered for tick T. That's the tick-sync guarantee: your input for tick T runs on the server at tick T.
+
+The practical consequence is the same as before: read inputs from the `ActionState<I>` component, and run the simulation that consumes them in the `FixedUpdate` schedule.

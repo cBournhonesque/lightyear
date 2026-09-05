@@ -60,8 +60,8 @@ const PREDICTED_PRIORITY: usize = 90;
 
 impl Plugin for PredictionMarkerPlugin {
     fn build(&self, app: &mut App) {
-        // Receiver-local marker: never replicated, so same-update inclusion
-        // could never fire for it; keep it out of the protocol hash.
+        // `CatchUpGated` is replicated (`replicate_once`), so it must take effect
+        // before other components from the same update are applied.
         app.register_marker_with::<CatchUpGated>(MarkerConfig {
             priority: CATCH_UP_GATED_PRIORITY,
             need_history: true,
@@ -74,6 +74,8 @@ impl Plugin for PredictionMarkerPlugin {
             need_history: true,
             affects_same_update: false,
         });
+        // `PredictedSend` is replicated; it must be applied first so the rest
+        // of the update uses the prediction receive functions.
         app.register_marker_with::<PredictedSend>(MarkerConfig {
             priority: PREDICTED_SEND_PRIORITY,
             need_history: true,
@@ -156,15 +158,17 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // future and make rollback prefer it over later server updates.
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
-        PreUpdate,
-        prune_confirmed_history::<C>
-            .in_set(PredictionSystems::All)
-            .after(ReplicationSystems::Receive)
-            .before(RollbackSystems::Check),
-    );
-    app.add_systems(
         FixedPostUpdate,
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+    );
+    // Prune once per frame in PostUpdate (not before the rollback check): Check must
+    // see the full confirmed history for this frame's rollback decision, including
+    // catch-up snapshots received in PreUpdate. PostUpdate runs after the fixed loop,
+    // so this still bounds growth before the next frame's Check, without running
+    // inside rollback replay.
+    app.add_systems(
+        PostUpdate,
+        prune_confirmed_history::<C>.in_set(PredictionSystems::All),
     );
 }
 
@@ -209,16 +213,18 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         .resource_mut::<PredictionRegistry>()
         .set_snap_to_confirmed::<C>();
     app.add_systems(
-        PreUpdate,
-        prune_confirmed_history::<C>
-            .in_set(PredictionSystems::All)
-            .after(ReplicationSystems::Receive)
-            .before(RollbackSystems::Check),
-    );
-    app.add_systems(
         FixedPostUpdate,
         // we need to run this during fixed update to know accurately the history for each tick
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+    );
+    // Prune once per frame in PostUpdate (not before the rollback check): Check must
+    // see the full confirmed history for this frame's rollback decision, including
+    // catch-up snapshots received in PreUpdate. PostUpdate runs after the fixed loop,
+    // so this still bounds growth before the next frame's Check, without running
+    // inside rollback replay.
+    app.add_systems(
+        PostUpdate,
+        prune_confirmed_history::<C>.in_set(PredictionSystems::All),
     );
 }
 

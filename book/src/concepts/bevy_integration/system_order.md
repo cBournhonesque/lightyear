@@ -1,14 +1,14 @@
 # System order
 
-
 Lightyear provides several [`SystemSets`](bevy::prelude::SystemSet) that you can use to run your systems in the correct order.
 
 The main things to keep in mind are:
-- All packets are read during the `PreUpdate` schedule. This is also where all components that were received are replicated to the Client World.
-- All packets are sent during the `PostUpdate` schedule. All messages that were buffered are then sent to the remote, and all replication messages (entity spawn, component updated, etc.) are also sent
-- There are 2 [`SystemSets`](bevy::prelude::SystemSet) that you should interact with:
-  - [`BufferInputs`](crate::prelude::BufferInputs): this is where you should be running `client.add_inputs()` so that they are buffered and sent to the server correctly
-  - [`Main`](crate::prelude::Main): this is where all your [`FixedUpdate`](bevy::prelude::FixedUpdate) Schedule systems (physics, etc.) should be run, so that they interact correctly with client-side prediction, etc.
+- All packets are read during the `PreUpdate` schedule. This is also where replication updates are applied to the local world and where rollback happens.
+- Network interpolation runs in the `Update` schedule (`InterpolationSystems::Prepare`, then `Interpolate`).
+- All packets are sent during the `PostUpdate` schedule (`ReplicationSystems::Send`). All messages that were buffered are then sent to the remote, and all replication updates (entity spawn, component updated, etc.) are also sent.
+- There are 2 [`SystemSets`](bevy::prelude::SystemSet) that you will interact with most:
+  - [`InputSystems::WriteClientInputs`](crate::prelude::InputSystems): this is where you should write your inputs (in the `FixedPreUpdate` schedule) so that they are buffered and sent to the server correctly
+  - plain `FixedUpdate`: this is where all your simulation systems (physics, movement, etc.) should run, so that they interact correctly with client-side prediction, etc.
 
 Here is a simplified version of the system order:
 ```mermaid
@@ -17,29 +17,26 @@ title: Simplified SystemSet order
 ---
 stateDiagram-v2
 
-   classDef flush font-style:italic;
-   
-   ReceiveFlush: Flush
-
-   
-   PreUpdate --> FixedUpdate
-   FixedUpdate --> PostUpdate 
+   PreUpdate --> Update
+   Update --> FixedUpdate
+   FixedUpdate --> PostUpdate
    state PreUpdate {
-      Receive --> ReceiveFlush
-      ReceiveFlush --> Prediction
-      ReceiveFlush --> Interpolation
+      Receive --> Rollback
+   }
+   state Update {
+      PrepareInterpolation --> Interpolate
+   }
+   state FixedPreUpdate {
+      WriteClientInputs --> BufferClientInputs
    }
    state FixedUpdate {
-      TickUpdate --> BufferInputs
-      BufferInputs --> Main
+      Main: user simulation
    }
    state PostUpdate {
        Send
+       FrameInterpolation
    }
 ```
-
-
-
 
 ## Full system order
 
@@ -49,61 +46,36 @@ title: SystemSet order
 ---
 stateDiagram-v2
 
-   classDef flush font-style:italic;
-   
-   SpawnPredictionHistory : SpawnHistory
-   SpawnInterpolationHistory : SpawnHistory
-   SpawnPredictionHistoryFlush : Flush
-   SpawnInterpolationHistoryFlush : Flush
-   SpawnPredictionFlush : Flush
-   SpawnInterpolationFlush: Flush
-   CheckRollbackFlush: Flush
-   DespawnFlush: Flush
-   ReceiveFlush: Flush
-   FixedUpdatePrediction: Prediction
-   
-   PreUpdate --> FixedUpdate
-   FixedUpdate --> PostUpdate 
+   PreUpdate --> Update
+   Update --> FixedUpdate
+   FixedUpdate --> PostUpdate
    state PreUpdate {
-      Receive --> ReceiveFlush
-      ReceiveFlush --> Prediction
-      ReceiveFlush --> Interpolation
+      Receive --> ReceiveInputMessages
+      ReceiveInputMessages --> Rollback
    }
-   state Prediction {
-      SpawnPrediction --> SpawnPredictionFlush
-      SpawnPredictionFlush --> SpawnPredictionHistory
-      SpawnPredictionHistory --> SpawnPredictionHistoryFlush
-      SpawnPredictionHistoryFlush --> CheckRollback
-      CheckRollback --> CheckRollbackFlush
-      CheckRollbackFlush --> Rollback
+   state Rollback {
+       Check --> RemoveDisable
+       RemoveDisable --> Prepare
+       Prepare --> RollbackStep
+       RollbackStep --> EndRollback
    }
-   state Interpolation {
-       SpawnInterpolation --> SpawnInterpolationFlush
-       SpawnInterpolationFlush --> SpawnInterpolationHistory
-       SpawnInterpolationHistory --> SpawnInterpolationHistoryFlush
-       SpawnInterpolationHistoryFlush --> Despawn
-       Despawn --> DespawnFlush
-       DespawnFlush --> Interpolate
+   state Update {
+      PrepareInterpolation --> Interpolate
+   }
+   state FixedPreUpdate {
+      WriteClientInputs --> BufferClientInputs
+      BufferClientInputs --> SnapToConfirmed
    }
    state FixedUpdate {
-      TickUpdate --> BufferInputs
-      BufferInputs --> WriteInputEvent
-      WriteInputEvent --> Main
-      Main --> ClearInputEvent
-      Main --> FixedUpdatePrediction
+      Main: user simulation
    }
-   state FixedUpdatePrediction {
-      PredictionEntityDespawn --> PredictionEntityDespawnFlush
-      PredictionEntityDespawnFlush --> UpdatePredictionHistory
-      UpdatePredictionHistory --> IncrementRollbackTick : if rollback
+   state FixedPostUpdate {
+      RestoreInputs --> UpdateHistory
+      UpdateHistory --> EntityDespawn
    }
    state PostUpdate {
-        state Send {
-            SendEntityUpdates --> SendComponentUpdates
-            SendComponentUpdates --> SendInputMessage
-            SendInputMessage --> SendPackets
-        }
-        --
-        Sync
+        Send --> PrepareInputMessage
+        PrepareInputMessage --> SendInputMessage
+        FrameInterpolation
    }
 ```

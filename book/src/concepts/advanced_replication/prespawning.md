@@ -2,64 +2,52 @@
 
 ## Introduction
 
-There are several types of entities you might want to create on the client (predicted) timeline:
+There are two ways to get a predicted entity on the client:
 - normal ("delayed") predicted entities: they are spawned on the server and then replicated to the client.
-  The client creates a Confirmed entity, and performs a rollback to create a corresponding Predicted entity on the client timeline.
-- client-issued pre-predicted entities: the entity is first created on the client, and then replicated to the server.
-  The server then receives the entity, decides if it's valid, and if so, replicates back the original client.
-- prespawned entities: the entity is created on the client (in the predicted timeline) and the server using the same system. 
-  When the server replicates the entity back to the client, the client creates a Confirmed entity, but instead of 
-  creating a new Predicted entity, it re-uses the pre-spawned entity.
+  The client marks the received entity `Predicted` and starts simulating it ahead of the server.
+- prespawned entities: the entity is created on the client (in the predicted timeline) and on the server using the same system.
+  When the server replicates the entity back to the client, instead of treating it as a brand-new entity,
+  the client matches it (by hash) with the pre-spawned one and keeps simulating that one.
 
-This section focuses about the third type of predicted entity: prespawned entities.
+This section focuses on prespawned entities.
 
 ## How does it work
 
-You can find an example of prespawning in the [prespawned example](https://github.com/cBournhonesque/lightyear/tree/main/examples/bullet_prespawn).
+You can find an example of prespawning in the [fps example](https://github.com/cBournhonesque/lightyear/tree/main/examples/fps), where bullets are prespawned on the client.
 
 Let's say you want to spawn a bullet when the client shoots.
 You could just spawn the bullet on the server and wait for it to be replicated + predicted on the client.
 However that would introduce a delay between clicking on the 'shoot' button and seeing the bullet spawned.
 
 So instead you run the same system on the client to prespawn the bullet in the predicted timeline.
-The only thing you need to do is add the `PreSpawnedPlayerObject` component to the entity spawned (on both the client and server).
+The only thing you need to do is add the `PreSpawned` component to the entity spawned (on both the client and server).
 
 ```rust,noplayground
-commands.spawn((BulletBundle::default(), PreSpawnedPlayerObject));
+commands.spawn((BulletBundle::default(), PreSpawned::default()));
 ```
 
 That's it!
 - The client will assign a hash to the entity, based on its components and the tick at which it was spawned.
-  You can also override the hash to use a custom one.
-- When the client receives a server entity that has `PreSpawnedPlayerObject`, it will check if the hash matches any of its pre-spawned entities.
-  If it does, it will remove the `PreSpawnedPlayerObject` component and add the `Predicted` component.
-  If it doesn't, it will just spawn a normal predicted entity.
+  You can also override the hash (`PreSpawned::new(hash)`) or add a salt (`PreSpawned::default_with_salt(client_id)`) to tell apart entities spawned on the same tick by different players.
+- When the client receives the server entity, it matches the signature against its prespawned entities.
+  If it matches, it re-uses the prespawned entity as the `Predicted` entity instead of spawning a new one.
+  If nothing matches, it just spawns a normal predicted entity.
 
 
 ## In-depth
 
-The various system-sets for prespawning are:
+The various pieces for prespawning are:
 
-- PreSpawnedPlayerObject Component Hook, on_add:
-  - Unless a hash is provided, computes the hash of the prespawned entity based on its archetype (only the components that are present in the ComponentProtocol) + spawn tick.
+- `PreSpawned` component hook, on_add:
+  - Unless a hash is provided, computes the hash of the prespawned entity based on its archetype (only the replicated components) + spawn tick.
 
-- PreUpdate schedule:
-  - `PredictionSet::SpawnPrediction`: we first run the prespawn match system to match the pre-spawned entities with their corresponding server entity.
-    If there is a match, we remove the PreSpawnedPlayerObject component and add the Predicted/Confirmed components.
-    We then run an apply_deferred, and we run the normal predicted spawn system, which will skip all confirmed entities that 
-    already have a `predicted` counterpart (i.e. were matched)
+- Matching happens through Replicon's signature mechanism: the prespawned entity's signature is compared with incoming server entities.
+  If there is a match, the prespawned entity is kept as the predicted entity (marked `Predicted`) instead of spawning a fresh one.
 
-- FixedUpdate schedule:
-  - FixedUpdate::Main: prespawn the entity
-  - FixedUpdate::SetPreSpawnedHash: we store all new hashes and the spawn tick in the link's `PreSpawnedReceiver` (not in the `PreSpawnedPlayerObject` component).
-  - FixedUpdate::SpawnHistory: add a PredictionHistory for each component of the pre-spawned entity. We need this to:
-    - not rollback immediately when we get the corresponding server entity
-    - do rollbacks correctly for pre-spawned entities
+- `PreSpawnedReceiver` is an app-global resource (not on the link) that tracks locally prespawned entities: their hashes, spawn ticks, and lifecycle. It also shifts them along on `LocalTimelineShift` so they stay consistent with the timeline.
 
-- PostUpdate schedule:
-  - we cleanup any pre-spawned entity no the clients that were not matched with any server entity.
-    We do the cleanup when the `(spawn_tick - interpolation_tick) * 2` ticks have elapsed. Normally at interpolation tick we should have 
-    received all the matching replication messages, but it doesn't seem like it's the case for some reason.. To be investigated.
+- `PreSpawnedSystems::CleanUp`:
+  - removes prespawned entities on the client that never got matched with any server entity (they time out).
 
 
 One thing to note is that we updated the rollback logic for pre-spawned entities. The normal rollback logic is:
@@ -68,7 +56,7 @@ One thing to note is that we updated the rollback logic for pre-spawned entities
 - if not, we initiate a rollback, and restore the predicted history to the confirmed state. (Thanks to replication group, all components of all entities
   in the replication group are guaranteed to be on the same confirmed tick)
 
-However for pre-spawned entities, we do not have a confirmed entity yet! So instead we need to rollback to history of the pre-spawned entity.
+However for pre-spawned entities, we do not have any confirmed state yet! So instead we need to rollback to the history of the pre-spawned entity itself.
 - we compute the prediction history of all components during FixedUpdate
 - when we have a rollback, we also rollback all prespawned entities to their history
 - Edge cases:
@@ -82,7 +70,7 @@ However for pre-spawned entities, we do not have a confirmed entity yet! So inst
 ## Caveats
 
 There are some things to be careful of:
-- the entity must be spawned in a system that runs in the `FixedUpdate::Main` SystemSet, because only then are you guaranteed 
+- the entity must be spawned in a system that runs in the `FixedMain` schedule, because only then are you guaranteed
   to have exactly the same tick between client and server.
   - If you spawn the prespawned entity in the `Update` schedule, it won't be registered correctly for rollbacks, and also the tick associated
     with the entity spawn might be incorrect.
