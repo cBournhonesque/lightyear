@@ -145,6 +145,11 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 }
 
 /// Prune authoritative history on predicted entities to the rollback horizon.
+///
+/// Runs once per frame in `PostUpdate`: after the fixed loop has recorded history
+/// and after the rollback check for the current frame, so snapshots received in
+/// `PreUpdate` remain visible to the rollback decision, including forced
+/// catch-up rollbacks.
 pub(crate) fn prune_confirmed_history<T: Component + Clone>(
     manager: Res<PredictionManager>,
     input_config: Res<InputTimelineConfig>,

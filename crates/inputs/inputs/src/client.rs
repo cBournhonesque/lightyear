@@ -63,6 +63,10 @@ use bevy_ecs::prelude::*;
 use bevy_time::Fixed;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
+#[cfg(feature = "prediction")]
+use lightyear_connection::client::{Client, Connected};
+#[cfg(feature = "prediction")]
+use lightyear_connection::host::HostClient;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
@@ -885,13 +889,17 @@ fn prepare_input_message<S: ActionStateSequence>(
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     tick_duration: Res<TickDuration>,
-    timeline: SyncedLocalTimeline,
+    timeline: Res<LocalTimeline>,
+    timeline_sync: Res<LocalTimelineSync>,
     input_config: Res<InputConfig<S::Action>>,
     #[cfg(feature = "metrics")] mut input_metric_handles: ResMut<InputMetricHandles<S>>,
     metadata: Res<NetworkingMetadata>,
     last_confirmed_input: Res<LastConfirmedInput>,
     prediction_manager: Option<Res<PredictionManager>>,
-    mut receivers: Query<&mut MessageReceiver<InputMessage<S>>>,
+    mut receivers: Query<
+        &mut MessageReceiver<InputMessage<S>>,
+        (With<Client>, With<Connected>, Without<HostClient>),
+    >,
     mut predicted_query: Query<
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
         (Without<S::Marker>, Allow<PredictionDisable>),
@@ -899,9 +907,13 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     prespawned: Query<(Entity, &PreSpawned)>,
 ) {
     let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        // No active route yet; drain client-owned receivers so unread inputs don't accumulate.
+        for mut receiver in receivers.iter_mut() {
+            receiver.receive().for_each(drop);
+        }
         return;
     };
-    // The host-client receives authoritative input directly through the server-side pipeline.
+    // The host-client receiver is owned by the server-side pipeline. Never drain it here.
     if route.is_host_client() {
         return;
     }
@@ -911,8 +923,14 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         return;
     }
     let Some(prediction_manager) = prediction_manager else {
+        drain_owned_input_receivers::<S>(route, &mut receivers);
         return;
     };
+    if !timeline_sync.is_synced() {
+        // Pre-sync ticks are unfinalized; discard instead of applying.
+        drain_owned_input_receivers::<S>(route, &mut receivers);
+        return;
+    }
     let tick = timeline.tick();
     let mut received_relevant_input = false;
     match route {
@@ -957,6 +975,30 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         last_confirmed_input
             .received_any_messages
             .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(feature = "prediction")]
+fn drain_owned_input_receivers<S: ActionStateSequence>(
+    route: InputRoute<'_>,
+    receivers: &mut Query<
+        &mut MessageReceiver<InputMessage<S>>,
+        (With<Client>, With<Connected>, Without<HostClient>),
+    >,
+) {
+    match route {
+        InputRoute::ClientServer { link, .. } => {
+            if let Ok(mut receiver) = receivers.get_mut(link) {
+                receiver.receive().for_each(drop);
+            }
+        }
+        InputRoute::P2P(links) => {
+            for link in links {
+                if let Ok(mut receiver) = receivers.get_mut(*link) {
+                    receiver.receive().for_each(drop);
+                }
+            }
+        }
     }
 }
 

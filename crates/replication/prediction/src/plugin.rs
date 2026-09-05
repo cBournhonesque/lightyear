@@ -157,15 +157,17 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // future and make rollback prefer it over later server updates.
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
     app.add_systems(
-        PreUpdate,
-        prune_confirmed_history::<C>
-            .in_set(PredictionSystems::All)
-            .after(ReplicationSystems::Receive)
-            .before(RollbackSystems::Check),
-    );
-    app.add_systems(
         FixedPostUpdate,
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+    );
+    // Prune once per frame in PostUpdate (not before the rollback check): Check must
+    // see the full confirmed history for this frame's rollback decision, including
+    // catch-up snapshots received in PreUpdate. PostUpdate runs after the fixed loop,
+    // so this still bounds growth before the next frame's Check, without running
+    // inside rollback replay.
+    app.add_systems(
+        PostUpdate,
+        prune_confirmed_history::<C>.in_set(PredictionSystems::All),
     );
 }
 
@@ -210,16 +212,18 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         .resource_mut::<PredictionRegistry>()
         .set_snap_to_confirmed::<C>();
     app.add_systems(
-        PreUpdate,
-        prune_confirmed_history::<C>
-            .in_set(PredictionSystems::All)
-            .after(ReplicationSystems::Receive)
-            .before(RollbackSystems::Check),
-    );
-    app.add_systems(
         FixedPostUpdate,
         // we need to run this during fixed update to know accurately the history for each tick
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+    );
+    // Prune once per frame in PostUpdate (not before the rollback check): Check must
+    // see the full confirmed history for this frame's rollback decision, including
+    // catch-up snapshots received in PreUpdate. PostUpdate runs after the fixed loop,
+    // so this still bounds growth before the next frame's Check, without running
+    // inside rollback replay.
+    app.add_systems(
+        PostUpdate,
+        prune_confirmed_history::<C>.in_set(PredictionSystems::All),
     );
 }
 
