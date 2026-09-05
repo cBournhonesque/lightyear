@@ -95,12 +95,14 @@ impl ReplicationMode {
                 remote.is_some_and(|remote| target.targets(&remote.0))
             }
             ReplicationMode::Sender(sender) => remote.is_some_and(|_| client == *sender),
+            // Server-agnostic by definition: same predicate as `SingleServer`,
+            // valid in multi-server worlds where `SingleServer` doesn't apply.
+            ReplicationMode::Target(target) => {
+                remote.is_some_and(|remote| target.targets(&remote.0))
+            }
             #[cfg(feature = "server")]
             ReplicationMode::Server(_, _) => {
-                unimplemented!()
-            }
-            ReplicationMode::Target(_) => {
-                unimplemented!()
+                unimplemented!("use a link-side membership component to scope by server")
             }
             ReplicationMode::Manual(senders) => remote.is_some_and(|_| senders.contains(&client)),
         }
@@ -109,9 +111,10 @@ impl ReplicationMode {
 
 /// Marker component added to a link entity to enable outgoing replication.
 ///
-/// A link entity represents a connection to a remote peer. Adding
-/// `ReplicationSender` to it allows the replication systems to send
-/// entity data through that connection.
+/// A link entity represents a connection to a remote peer. Only connected links
+/// with this marker are admitted into replication (via `ClientVisibility`);
+/// links without it stay connected — messages still flow — but receive no
+/// replicated entities or components.
 ///
 /// On the server, this is typically added in the `On<Add, LinkOf>` observer:
 ///
@@ -731,23 +734,16 @@ mod tests {
 pub struct SendPlugin;
 
 #[cfg(feature = "server")]
+/// Whether a target includes a host link, using the same predicate as the
+/// [`VisibilityFilter`] impls so entities spawned before host promotion get the
+/// same markers as entities spawned after it.
 fn target_includes_host<T: ReplicationTargetT>(
     target: &ReplicationTarget<T>,
     host_entity: Entity,
     host_peer_id: Option<PeerId>,
 ) -> bool {
-    match &target.mode {
-        #[cfg(feature = "client")]
-        ReplicationMode::SingleClient => true,
-        ReplicationMode::SingleServer(network_target) => {
-            host_peer_id.is_some_and(|peer_id| network_target.targets(&peer_id))
-        }
-        ReplicationMode::Sender(sender_entity) => *sender_entity == host_entity,
-        ReplicationMode::Manual(senders) => senders.contains(&host_entity),
-        ReplicationMode::SingleSender
-        | ReplicationMode::Target(_)
-        | ReplicationMode::Server(_, _) => false,
-    }
+    let remote = host_peer_id.map(RemoteId);
+    target.is_visible_for(host_entity, remote.as_ref())
 }
 
 /// When a client becomes a host client after replicated entities already exist, backfill the
@@ -844,7 +840,6 @@ pub(crate) fn handle_new_client_visibility(
     #[cfg(feature = "prediction")] prediction_targets: Query<(Entity, &PredictionTarget)>,
     #[cfg(feature = "interpolation")] interpolation_targets: Query<(Entity, &InterpolationTarget)>,
     controlled_entities: Query<(Entity, &crate::control::ControlledBy)>,
-    controlled_bit: Res<crate::control::ControlBit>,
     mut visibilities: Query<&mut ClientVisibility>,
 ) {
     let sender_entity = trigger.entity;
@@ -875,11 +870,11 @@ pub(crate) fn handle_new_client_visibility(
         }
     }
 
-    // Hide ControlledSend for entities not owned by this client. Receivers
-    // materialize this marker as Controlled.
-    for (entity, controlled_by) in controlled_entities.iter() {
-        if controlled_by.owner != sender_entity {
-            visibility.set(entity, **controlled_bit, false);
+    // Show ControlledSend only to the owning client. Receivers materialize
+    // this marker as Controlled.
+    if let Some(bit) = registry.get_bit::<crate::control::ControlledBy>() {
+        for (entity, controlled_by) in controlled_entities.iter() {
+            visibility.set(entity, bit, controlled_by.is_visible(sender_entity, remote));
         }
     }
 }

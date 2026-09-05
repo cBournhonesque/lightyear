@@ -235,6 +235,108 @@ fn test_spawn_new_connection_respects_replication_target() {
 }
 
 #[test]
+fn test_no_replication_without_replication_sender() {
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    // Drop the marker from the second client's link: it stays connected
+    // (messages still flow) but must receive no replication.
+    let sender_1 = stepper.client_of_entities[1];
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(sender_1)
+        .remove::<ReplicationSender>();
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    stepper.frame_step(2);
+
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "entity is not present in sending client entity map"
+    );
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "entity is present in markerless client entity map"
+    );
+
+    // Re-adding the marker admits the link; pre-existing entities replicate.
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(sender_1)
+        .insert(ReplicationSender);
+    stepper.frame_step(2);
+
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "entity is not present in re-admitted client entity map"
+    );
+}
+
+#[test]
+fn test_target_mode_replicates_to_matching_links() {
+    use lightyear_core::id::RemoteId;
+    use lightyear_replication::send::ReplicationMode;
+
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+    let client_0_id = stepper.client_of(0).get::<RemoteId>().unwrap().0;
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::new(ReplicationMode::Target(
+            NetworkTarget::Single(client_0_id),
+        )))
+        .id();
+    stepper.frame_step(2);
+
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "entity is not present in target client entity map"
+    );
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "entity is present in non-target client entity map"
+    );
+}
+
+#[test]
 fn test_entity_despawn() {
     for direction in active_replication_directions() {
         let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
