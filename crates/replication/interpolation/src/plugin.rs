@@ -82,10 +82,12 @@ impl Plugin for InterpolationMarkerPlugin {
         app.register_marker_with::<InterpolatedSend>(MarkerConfig {
             priority: 100,
             need_history: true,
+            affects_same_update: true,
         });
         app.register_marker_with::<Interpolated>(MarkerConfig {
             priority: 100,
             need_history: true,
+            affects_same_update: false,
         });
     }
 }

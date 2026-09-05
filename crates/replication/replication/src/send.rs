@@ -110,9 +110,16 @@ pub type Replicate = ReplicationTarget<()>;
 /// replication resumes.
 pub use bevy_replicon::prelude::Replicated as Replicating;
 
+/// Replication configuration snapshot: this component is immutable, so change
+/// it by inserting a new value (or removing it) rather than mutating it in
+/// place. Replacement fires the insert/remove observers that hierarchy
+/// propagation relies on to keep members in sync with their root.
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
-#[component(on_insert = ReplicationTarget::<T>::on_insert)]
-#[component(on_discard = ReplicationTarget::<T>::on_discard)]
+#[component(
+    immutable,
+    on_insert = ReplicationTarget::<T>::on_insert,
+    on_discard = ReplicationTarget::<T>::on_discard
+)]
 pub struct ReplicationTarget<T: ReplicationTargetT> {
     mode: ReplicationMode,
     #[reflect(ignore)]
@@ -272,7 +279,10 @@ mod prediction {
         }
 
         fn on_discard(mut world: DeferredWorld, context: HookContext) {
-            let visibility_bit = *world.resource::<PredictedBit>().deref();
+            let Some(visibility_bit) = world.get_resource::<PredictedBit>().map(|bit| *bit.deref())
+            else {
+                return;
+            };
             if world.get_entity(context.entity).is_err() {
                 return;
             }
@@ -363,7 +373,12 @@ mod interpolation {
         }
 
         fn on_discard(mut world: DeferredWorld, context: HookContext) {
-            let visibility_bit = *world.resource::<InterpolatedBit>().deref();
+            let Some(visibility_bit) = world
+                .get_resource::<InterpolatedBit>()
+                .map(|bit| *bit.deref())
+            else {
+                return;
+            };
             if world.get_entity(context.entity).is_err() {
                 return;
             }
