@@ -5,12 +5,12 @@ Some messages or components contain references to other Entities.
 For example:
 
 ```rust,noplayground
-#[derive(Message)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct SpawnedEntity {
     entity: Entity,
 }
 
-#[derive(Component, Message)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct Parent {
     entity: Entity,
 }
@@ -21,53 +21,41 @@ So the Entity that the client would receive from the server would only be valid 
 
 We can solve this problem by mapping the server Entity to the corresponding client [`Entity`](bevy::prelude::Entity).
 
-The trait [`EntityMap`](crate::prelude::EntityMap) is used to do this mapping.
+Bevy's [`MapEntities`](bevy::prelude::MapEntities) trait does this mapping:
 
 ```rust,noplayground
 pub trait MapEntities {
     /// Map the entities inside the message or component from the remote World to the local World
-    fn map_entities(&mut self, entity_map: &EntityMap);
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M);
 }
 ```
 
-This is applied to every Message or Component received from the remote World.
+Messages and components implement it as a no-op by default (no mapping). If your type contains entities, implement it yourself:
 
-
-Messages or Components implement this trait by default like this:
 ```rust,noplayground
-pub trait MapEntities {
-    fn map_entities(&mut self, entity_map: &EntityMap) {}
-}
-```
-i.e. they don't do any mapping.
-
-If your Message or Component needs to perform some kind of mapping, you need to add the `#[message(custom_map)]` attribute,
-and then derive the `MapEntities` trait yourself.
-```rust,noplayground
-#[derive(Message)]
-#[message(custom_map)]
-struct SpawnedEntity {
-    entity: Entity,
-}
-
 impl MapEntities for SpawnedEntity {
-    fn map_entities(&mut self, entity_map: &EntityMap) {
-        self.entity.map_entities(entity_map);
+    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
+        self.entity = entity_mapper.get_mapped(self.entity);
     }
 }
 ```
 
-The [`MapEntities`](crate::prelude::MapEntities) trait is already implemented for [`Entity`](bevy::prelude::Entity).
+Then opt the type into mapping at registration. For messages, that's `.add_map_entities()` on the message registration:
 
+```rust,ignore
+app.register_message::<SpawnedEntity>()
+    .add_direction(NetworkDirection::ServerToClient)
+    .add_map_entities();
+```
 
-Note that the [`EntityMap`](crate::prelude::EntityMap) is only present on the client, not on the server; it is currently not possible
-for clients to send Messages or Components that contain mapped Entities to the server.
+For components, implementing bevy's `MapEntities` is enough; the mapping is applied when the component is received. Without mapping, the inner entities are sent raw and will be meaningless on the other side.
+
+The [`Entity`](bevy::prelude::Entity) type itself already implements `MapEntities`, and so do common containers of entities.
 
 
 ## TODOs
 
-- if we receive a mapped entity but the entity doesn't exist in the client's [`EntityMap`], we currently don't apply any mapping, but still receive the Message or Component.
+- if we receive a mapped entity but the entity doesn't exist in the client's entity map, we currently don't apply any mapping, but still receive the Message or Component.
   - that could be completely invalid, so we should probably not receive the Message or Component at all ?
-  - instead we might to wait for the MappingEntity to be created; as soon as it's present in [`EntityMap`] we can then apply the mapping and receive the Message or Component.
+  - instead we might to wait for the mapped entity to be created; as soon as it's present in the map we can then apply the mapping and receive the Message or Component.
     - therefore we need a waitlist of messages that are waiting for the mapped entity to be created
-

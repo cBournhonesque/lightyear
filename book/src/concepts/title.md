@@ -5,7 +5,7 @@ Let's list them from the bottom up (closer to the wire):
 
 - IO: how do we send raw bytes over the network between two peers?
   The `Link` component can be added to an entity to interact with the IO layer. Usually you will directly
-  add the io component itself (`WebTransportClientIO`, `UdpIO`, `CrossbeamIO`, etc.), which will add the `Link` component.
+  add the io component itself (`WebTransportClientIo`, `UdpIo`, `CrossbeamIo`, etc.), which will add the `Link` component.
 
 - Transport: how do provide reliability/ordering guarantees for the bytes we want to send over the `Link`?
 The `Transport` component can be added to provide `Channels`. These channels can be used to define the send_frequency,

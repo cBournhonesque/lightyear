@@ -10,16 +10,18 @@ What we want to achieve is this:
 As we saw earlier, the [`Server`] will spawn a new entity whenever a new client connects to it.
 That entity will have a [`Link`] component that represents the connection to the client, as well as the [`LinkOf`] component that links it to the [`Server`].
 
-However it is your responsibility to customize that connection with extra components, such as [`ReplicationSender`] or [`MessageManager`], to handle the replication and message sending/receiving.
-This can be done using triggers:
+However it is your responsibility to customize that connection with extra components, such as [`ReplicationSender`], to handle the replication and message sending/receiving.
+This can be done using observers:
 ```rust,ignore
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
+        ReplicationSender,
         Name::from("Client"),
     ));
 }
 ```
+
+How often replication updates go out is controlled separately, with a `ReplicationMetadata` resource (for example `app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL))`).
 
 When the [`Link`] is established (`Linked` is added) we are still not connected: we will send a few packets to authenticate the client according to the netcode protocol.
 Only after the authentication is successful will the [`Connected`] component be added to the client entity.
@@ -27,11 +29,11 @@ Only after the authentication is successful will the [`Connected`] component be 
 When that happens we can start adding game behaviour:
 ```rust,ignore
 pub(crate) fn handle_connected(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    let Ok(client_id) = query.get(trigger.target()) else {
+    let Ok(client_id) = query.get(trigger.entity) else {
         return;
     };
     let client_id = client_id.0;
@@ -78,28 +80,26 @@ In general it is a good idea (for reasons we will see later) to have a shared fu
 
 If we take our `Inputs` struct from earlier, it can look like this:
 
-```rust,noplayground 
+```rust,noplayground
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
-    match input {
-        Inputs::Direction(direction) => {
-            if direction.up {
-                position.y += MOVE_SPEED;
-            }
-            if direction.down {
-                position.y -= MOVE_SPEED;
-            }
-            if direction.left {
-                position.x -= MOVE_SPEED;
-            }
-            if direction.right {
-                position.x += MOVE_SPEED;
-            }
-        }
-        _ => {}
+    let Inputs::Direction(direction) = input;
+    if direction.up {
+        position.y += MOVE_SPEED;
+    }
+    if direction.down {
+        position.y -= MOVE_SPEED;
+    }
+    if direction.left {
+        position.x -= MOVE_SPEED;
+    }
+    if direction.right {
+        position.x += MOVE_SPEED;
     }
 }
 ```
+
+(`ActionState<Inputs>` derefs to `Inputs`, so both client and server can pass their `&ActionState<Inputs>` straight into this function.)
 
 ### Sending inputs
 
@@ -134,9 +134,7 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        // we always set the value. Setting it to None means that the input was missing, it's not the same
-        // as saying that the input was 'no keys pressed'
-        action_state.value = Some(Inputs::Direction(direction));
+        action_state.0 = Inputs::Direction(direction);
     }
 }
 ```
@@ -145,7 +143,13 @@ The `InputMarker<I>` component is used to identify the entity that the local cli
 (other clients might replicate to you an entity with the `ActionState<I>` component but no `InputMarker<I>` because it can be useful to have access to their inputs. Since the `InputMarker<I>` is 
 not present, your inputs won't modify their `ActionState<I>` component)
 
-On every tick, you can buffer the input for the local client by updating the `ActionState<I>` component. This has to be done in the `FixedPreUpdate` schedule and in the `WriteClientInputs` SystemSet.
+On every tick, you can buffer the input for the local client by updating the `ActionState<I>` component. This has to be done in the `FixedPreUpdate` schedule and in the `InputSystems::WriteClientInputs` system set:
+```rust,ignore
+app.add_systems(
+    FixedPreUpdate,
+    buffer_input.in_set(InputSystems::WriteClientInputs),
+);
+```
 
 
 ### Receiving inputs
@@ -157,12 +161,10 @@ As a rule of thumb, any simulation system (physics, etc.) must run in the `Fixed
 
 ```rust,ignore
 fn movement(
-    mut position_query: Query<&mut PlayerPosition, &ActionState<Inputs>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
 ) {
     for (position, inputs) in position_query.iter_mut() {
-        if let Some(inputs) = &inputs.value {
-            shared::shared_movement_behaviour(position, inputs);
-        }
+        shared::shared_movement_behaviour(position, inputs);
     }
 }
 ```

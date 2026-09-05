@@ -5,15 +5,12 @@
 Client-side prediction means that some entities are on the 'client' timeline instead of the 'server' timeline:
 they are updated instantly on the client.
 
-The way that it works in lightyear is that for each replicated entity from the server, the client can choose to spawn 2
-entities:
+The way it works in lightyear: a replicated entity that the client predicts gets a `Predicted` marker on the receiving side. There is only one entity. Its live components hold the predicted values, and each predicted component carries two history buffers on the same entity:
 
-- a `Confirmed` entity that simply replicates the server updates for that entity
-- a `Predicted` entity that is updated instantly on the client, and is then corrected by the server updates
+- `ConfirmedHistory<C>`: authoritative states received from the server
+- `PredictionHistory<C>`: what the client itself simulated
 
-The main difference between the two is that, if you do an action on the client (for example move a character),
-the action will be applied instantly on the Predicted entity, but will be applied on the Confirmed entity only after
-the server executed the action and replicated the result back to the client.
+If you do an action on the client (for example move a character), it applies instantly to the live components. Roughly 1 RTT later the server's authoritative state for that tick arrives in the `ConfirmedHistory`, and the two get compared.
 
 ## Wrong predictions and rollback
 
@@ -24,29 +21,43 @@ that the character was actually stunned by another player at that time and could
 
 In those cases the client will have to perform a rollback.
 Let's say the client entity is now at tick T', but the client is only receiving the server update for tick T. (T < T')
-Every time the client receives an update for the Confirmed entity at tick T, it will:
+Every time the client receives an update for tick T, it will:
 
-- check for each updated component if it matches what the predicted version for tick T was
-- if it doesn't, it will restore all the components to the confirmed version at tick T
-- then the client will replay all the systems for the predicted entity from tick T to T'
+- check for each updated component if the confirmed state matches what was predicted for tick T
+- if it doesn't, it will restore all the components to the confirmed state at tick T
+- then the client will replay all the systems for the entity from tick T to T'
 
-## Pre-predicted entities
+## State-based vs input-based rollback
 
-In some cases, you might want to spawn a player-controlled entity right away on the client, without waiting for it to be
-replicated from the server.
-In this case, you can spawn an entity directly on the client with the `PrePredicted` component. You also need to
-add `Replicate` on the client entity
-so that the entity gets replicated to the server.
+There are two things that can prove a prediction wrong, and they trigger different kinds of rollback:
 
-Then on the server, you can replicate back the entity to the original client. The client will receive the entity, but
-instead of spawning a new separate `Predicted` entity,
-it will re-use the existing entity that had the `PrePredicted` component!
+- **State rollback**: a newly received authoritative state doesn't match the predicted history. This is the case above: the server says "at tick T you were actually here".
+- **Input rollback**: a newly received *input* (from another player) doesn't match the input that was assumed when simulating. The client often simulates remote players by repeating their last known input; when the real input arrives and differs, everything simulated with the guessed input has to be re-done from the tick the input changed.
+
+How each kind behaves is controlled by the `RollbackPolicy` on the `PredictionManager`:
+
+```rust,ignore
+pub struct RollbackPolicy {
+    pub state: RollbackMode,
+    pub input: RollbackMode,
+    pub max_rollback_ticks: u16, // upper bound on how far back we go (default 20)
+}
+```
+
+Each mode is one of:
+- `Check` (the default): compare against history, only rollback on mismatch.
+- `Always`: rollback on every new state/input without comparing. This skips the check cost entirely (for states it also means no `PredictionHistory` needs storing). It's also a good stress test: if your game can't handle the CPU load of constant rollbacks, you'll find out fast.
+- `Disabled`: never rollback for that kind. Disable state rollback if you're doing deterministic replication (inputs only); disable input rollback if there are no remote inputs to receive.
+
+If both kinds mismatch at once, state takes precedence: we rollback from the state mismatch.
+
+One caveat of `Always`: your game logic has to *handle* being rolled back at any time. If it can't (e.g. it plays a sound or spawns an entity as a side effect every time it runs), constant rollbacks will expose that immediately. That's the point, but be ready for it.
 
 ## Which components should I predict?
 
-You want to predict components for entities that will live in the Predicted timeline, i.e. the timeline that will see changes immediately based on client inputs. However it doesn't mean that every component needs to be actively be predicted with `ComponentSyncMode::Full`, i.e. with rollbacks enabled. A lot of components can be computed from other components and don't need to be predicted or even sent through the network. Here is a quick explanation of which components should be predicted.
+You want to predict components for entities that will live in the Predicted timeline, i.e. the timeline that will see changes immediately based on client inputs. However it doesn't mean that every component needs to be actively predicted with `.predict()` (i.e. with rollbacks enabled). A lot of components can be computed from other components and don't need to be predicted or even sent through the network. Here is a quick explanation of which components should be predicted.
 
-As a rule of thumb, a component should be predicted with `ComponentSyncMode::Full` if it meets the following criteria:
+As a rule of thumb, a component should be predicted with `.predict()` if it meets the following criteria:
 
 1. Cannot be calculated using the **predicted** components available within the **current** tick.
 2. May be modified after creation.
@@ -87,49 +98,44 @@ Status: added unit test. Need to reconfirm that it works.
 
 ### Component removal on confirmed
 
-Server removes a component on the confirmed entity, but the Predicted entity had that component.
-There should be a rollback where the component gets removed from the Predicted entity.
+Server removes a component, but the predicted entity still had it.
+There should be a rollback where the component gets removed from the predicted entity.
 
 Status: added unit test. Need to reconfirm that it works.
 
 ### Component added on predicted
 
-The client adds a component on the Predicted entity, but the Confirmed entity doesn't add it.
-There should be a rollback and that component gets removed from the Predicted entity.
+The client adds a component on the predicted entity, but the server doesn't add it.
+There should be a rollback and that component gets removed from the predicted entity.
 
 Status: added unit test. Need to reconfirm that it works.
 
 ### Component added on confirmed
 
-The server receives an update where a new component gets added to the Confirmed entity.
-If it was not also added on the Predicted entity, there should be a rollback, where the component
-gets added to the Confirmed entity.
+The server adds a new component.
+If it was not also added on the predicted entity, there should be a rollback, where the component
+gets added to the predicted entity.
 
 Status: added unit test. Need to reconfirm that it works.
 
-### Pre-predicted entity gets spawned
+### Prespawned entity gets matched
 
-See more information in the [client-replication](./client_replication.md#pre-spawned-predicted-entities) section.
+See [prespawning](./prespawning.md). When the server entity arrives and matches a prespawned entity, the prespawned entity becomes the predicted entity.
 
 Status:
 
-- the pre-predicted entity get spawned. Upon server replication, we re-use it as Predicted entity: no unit tests but
+- the prespawned entity gets matched upon server replication: no unit tests but
   tested in an example that it works.
-- the pre-predicted entity gets spawned. The server doesn't agree that an entity should be spawned, the pre-spawned
-  entity should get despawned:
+- the prespawned entity gets spawned but the server never sends a match, the prespawned
+  entity should get despawned (timeout cleanup):
   **not handled currently.**
 
-### Confirmed entity gets despawned
+### Server despawns the entity
 
-We never want to directly modify the Confirmed entity on the client; the Confirmed entity will get despawned only when
-the server despawns the entity and the despawn is replicated.
+The client never despawns a replicated entity on its own; the entity gets despawned only when
+the server despawns it and the despawn is replicated.
 
-When that happens:
-
-- Then the predicted entity should get despawned as well.
-- Pre-predicted entities should still get attached to the confirmed entity on spawn, become Predicted entities and get
-  despawned
-  only when the confirmed entity gets despawned.
+When that happens, the predicted entity gets despawned as well.
 
 Status: no unit tests but tested in an example that it works.
 
@@ -141,19 +147,19 @@ OPTION A: Despawn predicted immediately but leave the possibility to rollback an
 
 We could despawn the predicted entity immediately on the client timeline. If it turns out that the server doesn't
 despawn
-the confirmed entity, we then have to rollback and re-spawn the predicted entity with all its components.
+the entity, we then have to rollback and re-spawn the predicted entity with all its components.
 We can achieve this by using the trait
 
 ```rust,noplayground
-pub trait PredictionCommandsExt {
-    fn prediction_despawn<P: Protocol>(&mut self);
+pub trait PredictionDespawnCommandsExt {
+    fn prediction_despawn(&mut self);
 }
 ```
 
 that is implemented for `EntityCommands`.
 Instead of actually despawning the entity, we will just remove all the synced components, but keep the entity and the
 components' histories.
-If it turns out that the confirmed entity was not despawned, we can then rollback and re-add all the components for that
+If it turns out that the server did not despawn the entity, we can then rollback and re-add all the components for that
 entity.
 
 The main benefit is that this is very responsive: the entity will get despawned immediately on the client timeline, but
@@ -169,22 +175,22 @@ Status:
       entity
       does not match the fact that the predicted entity was despawned). However we only initiate rollbacks on receiving
       server updates,
-      and it's possible that we are not receiving any updates because the confirmed entity is not changing, or because
+      and it's possible that we are not receiving any updates because the entity is not changing on the server, or because
       of packet loss!
       One option would be that `predicted_despawn` sends a message `Re-Replicate(Entity)` to the server, which will
       answer back by replicating the entity
       again. Let's wait to see how big of an issue this is first.
-- predicted despawn, server despawns, we should not rollback but instead despawn both confirmed/predicted when the
+- predicted despawn, server despawns, we should not rollback but instead despawn the entity when the
   server
   despawn gets replicated: no unit tests but tested in an example that it works
 
-OPTION B: despawn the confirmed entity and wait for that to be replicated
+OPTION B: wait for the server despawn to be replicated
 
 If we want to avoid the jarring effect of respawning the entity, we can instead wait for the server to confirm the
 despawn.
-In that case, we will just wait for the Confirmed entity to get despawned. When that despawn is propagated, the client
+In that case, we will just wait for the server despawn to arrive. When that despawn is propagated, the client
 entity will
-despawned as well.
+be despawned as well.
 
 Status: no unit tests but tested in example.
 
@@ -197,23 +203,23 @@ If you don't care about rollback and just want to get rid of the Predicted entit
 
 Status: no unit tests but tested in example.
 
-### Pre-predicted entity gets despawned
+### Prespawned entity gets despawned
 
-Same thing as Predicted entity getting despawned, but this time we are despawning the pre-predicted entity before
+Same thing as predicted entity getting despawned, but this time we are despawning the prespawned entity before
 we even received the server's confirmation. (this can happen if the entity is spawned and despawned soon after)
 
 Status:
 
-- pre-predicted despawn before we have received the server's replication, server doesn't despawn, rollback:
+- prespawned despawn before we have received the server's replication, server doesn't despawn, rollback:
     - no unit tests but tested in an example that it works
     - TODO: same problem as with normal predicted entities: only works if we get a rollback, which is not guaranteed
-- pre-predicted despawn before we have received the server's replication, server despawns, no rollback:
-    - the Predicted entity should visually get despawned (all components removed). When the server entity gets
-      replicated,
-      it should start re-using the Predicted entity, initiate a rollback, and see at the end of the rollback that the
+- prespawned despawn before we have received the server's replication, server despawns, no rollback:
+    - the predicted entity should visually get despawned (all components removed). When the server entity gets
+      replicated and matched,
+      it should initiate a rollback, and see at the end of the rollback that the
       entity should
       indeed be despawned.
     - no unit tests but tested in an example that it works
-  
+
 
 

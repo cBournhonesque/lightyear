@@ -4,42 +4,43 @@
 
 The Protocol module in this library is responsible for defining the communication protocol used to send messages between
 the client and server.
-The Protocol must be shared between client and server, so that the messages can be serialized and deserialized
-correctly.
 
 ## Key Concepts
 
-### Protocol Trait
+It must be shared between client and server (usually a single `ProtocolPlugin` added to both apps), so that messages can be serialized and deserialized correctly.
+And it must be added **after** the `ClientPlugins` or `ServerPlugins`.
 
-A `Protocol` contains multiple sub-parts:
+A protocol is composed of:
 
-- `Input`: Defines the user inputs, which is an enum of all the inputs that the client can send to the server.
-  Input handling can be added by adding the `InputPlugin` plugin: `app.add_plugins(InputPlugin::<I>::default());`
+- [Inputs](../advanced_replication/inputs.md): the client's input type, i.e. the different actions a user can perform (move, jump, shoot, etc).
+  Input handling is added with one of the input plugins, for example `app.add_plugins(input::native::InputPlugin::<Inputs>::default());`
+  (there are equivalents for leafwing inputs and bevy-enhanced-inputs).
 
-- `LeafwingInput`: (only if the feature `leafwing` is enabled) Defines the leafwing `ActionState` that the client can
-  send to the server.
-  Input handling can be added by adding the `LeafwingInputPlugin` plugin: `app.add_plugins(LeafwingInputPlugin::<I>::default());`
- 
-- `MessageRegistry`: Will hold metadata about the all the messages that can be sent over the network. Each message must be `Serializable + Deserializeable + Clone`.
- You can register a message with the command `app.add_message::<Message1>(ChannelDirection::Bidirectional);`
- 
-- `Components`: Defines the component protocol, which is an enum of all the components that can be replicated between
-  the client and server. Each component must be `Serializable + Clone + Component`.
-  You can register a component with:
+- Messages: the messages exchanged between client and server.
+  Any `Send + Sync + 'static` type works. You register one with:
+  ```rust,noplayground
+  app.register_message::<Message1>()
+      .add_direction(NetworkDirection::ServerToClient);
+  ```
+  The direction is only used to automatically add `MessageReceiver<M>`/`MessageSender<M>` on your Client/Sender entities,
+  but you can also add these components manually.
+
+- [Components](./title.md): the components that can be replicated from one `World` to the other.
+  You register a component with:
   ```rust,noplayground
   app.component::<PlayerId>()
-    .replicate()
-    .predict()
-    .add_linear_interpolation();
+      .replicate()
+      .predict()
+      .add_linear_interpolation();
   ```
-  (You can specify additional behaviour for the component, such as prediction or interpolation.)
+  (You specify additional behaviour per component: prediction, interpolation, correction...)
 
-- `Channels`: the protocol should also contain a list of channels to be used to send messages. A `Channel` defines
-  guarantees about how the packets will be sent over the network: reliably? in-order? etc.
-  You can register a channel with:
+- [Channels](../reliability/channels.md): the delivery guarantees used to send messages.
+  You register one with:
   ```rust,noplayground
   app.add_channel::<Channel1>(ChannelSettings {
       mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
       ..default()
-  });
+  })
+  .add_direction(NetworkDirection::ServerToClient);
   ```
