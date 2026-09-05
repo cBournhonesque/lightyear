@@ -1,7 +1,6 @@
 # Serialization
 
-We use the bitcode library to serialize and deserialize messages. Bitcode is a very compact serialization format that
-uses bit-packing (a bool will be serialized as a single bit).
+We use postcard to serialize and deserialize messages. It's a compact, `serde`-compatible binary format (a bool takes a single byte, integers use varint encoding).
 
 When sending messages, we start by serializing the message early into a `Bytes` structure.
 
@@ -15,6 +14,6 @@ This allows us to:
 
 ## Buffers
 
-We use a `Buffer` to serialize/deserialize messages in order to re-use memory allocations.
+We use a `Writer` (backed by a reusable `BytesMut` allocation) to serialize messages, so we don't allocate from scratch for every message.
 
-When we receive a packet (`&[u8]`), we create a `ReadBuffer` from it, which starts by copying the bytes into the buffer.
+When we receive a packet, we wrap the bytes in a `Reader` (a cursor over the shared `Bytes`, no copy) and deserialize messages from it in order.

@@ -14,82 +14,52 @@ There are two main advantages:
 
 ## Implementation
 
-### VisibilityMode
+Visibility is per (entity, client-link) pair: the server only replicates an entity through links it is currently visible to. Visibility is cached, so once you mark an entity visible to a client it stays relevant until you change it again.
 
-The first step is to think about the `NetworkRelevanceMode` of your entities. It is defined on the `Replicate` component.
+Note that `Replicate`'s target is still the outer gate: a client outside the target never receives the entity, no matter the visibility. Visibility only narrows things further.
+
+There are two ways to manage it.
+
+### Immediate visibility updates
+
+Use the `VisibilityExt` world methods directly. Here `client` is the link entity (the one with `ReplicationSender`):
 
 ```rust,noplayground
-#[derive(Default)]
-pub enum VisibilityMode {
-  /// We will replicate this entity to all clients that are present in the [`NetworkTarget`] AND use relevance on top of that
-  InterestManagement,
-  /// We will replicate this entity to all clients that are present in the [`NetworkTarget`]
-  #[default]
-  All
-}
+world.gain_visibility(entity, client);
+world.lose_visibility(entity, client);
 ```
 
-If `NetworkRelevanceMode::All`, you have a coarse way of doing interest management, which is to use the `replication_target` to 
-specify which clients will receive client updates. The `replication_target` is a `NetworkTarget` which is a list of clients 
-that we should replicate to.
+`lose_visibility` despawns the remote copy. If you'd rather keep the last-known state on the client without further updates, there are two retaining variants:
 
-In some cases, you might want to use `NetworkRelevanceMode::InterestManagement`, which is a more fine-grained way of doing interest management.
-This adds additional constraints on top of the `replication_target`, we will **never** send updates for a client that is not in the 
-`replication_target` of your entity.
+- `lose_visibility_retained`: only retains the entity if the client has seen it before; otherwise it was never spawned there. Good for last-known-state views or avoiding repeated spawn setup when things move in and out of interest.
+- `lose_visibility_always_present`: spawns the entity even while hidden, then pauses updates. Good for roster entries or placeholders that must exist before their live state matters. Don't use it for things that must stay secret, since it reveals existence.
 
+(These map to Replicon's `ScopeLifetime::WhileVisible`, `AfterFirstVisibility` and `AlwaysPresent`.)
 
-### Interest management
+### Rooms
 
-If you set `NetworkRelevanceMode::InterestManagement`, we will add a `ReplicateVisibility` component to your entity,
-which is a cached list of clients that should receive replication updates about this entity.
-
-There are several ways to update the relevance of an entity:
-- you can either update the relevance directly with the `RelevanceManager` resource
-- we also provide a more static way of updating the relevance with the concept of `Rooms` and the `RoomManager` resource.
-
-#### Immediate relevance update
-
-You can simply directly update the relevance of an entity/client pair with the `RelevanceManager` resource.
-
-```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
-
-fn my_system(
-    mut relevance_manager: ResMut<RelevanceManager>,
-) {
-    // you can update the relevance like so
-    relevance_manager.gain_relevance(ClientId::Netcode(1), Entity::PLACEHOLDER);
-    relevance_manager.lose_relevance(ClientId::Netcode(2), Entity::PLACEHOLDER);
-}
-```
-
-#### Rooms
-
-An entity can join one or more rooms, and clients can similarly join one or more rooms.
-
-We then compute which entities should be replicated to which clients by looking at which rooms they are both in.
-
-To summarize:
-- if a client is in a room but the entity is not (or vice-versa), we will not replicate that entity to that client
-- if the client and entity are both in the same room, we will replicate that entity to that client
-- if a client leaves a room that the entity is in (or an entity leaves a room that the client is in), we will despawn that entity for that client
-- if a client joins a room that the entity is in (or an entity joins a room that the client is in), we will spawn that entity for that client
+For semi-static layouts, rooms are easier than manual per-pair updates. An entity can join one or more rooms, and client links can similarly join one or more rooms. An entity is relevant to a client when they share a room.
 
 This can be useful for games where you have physical instances of rooms:
 - a RPG where you can have different rooms (tavern, cave, city, etc.)
 - a server could have multiple lobbies, and each lobby is in its own room
 - a map could be divided into a grid of 2D squares, where each square is its own room
 
-```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
+```rust,noplayground
+// setup (once)
+app.add_plugins(RoomPlugin);
 
-fn room_system(mut manager: ResMut<RoomManager>) {
-   // the entity will now be visible to the client
-   manager.add_client(ClientId::Netcode(0), RoomId(0));
-   manager.add_entity(Entity::PLACEHOLDER, RoomId(0));
-}
+// allocate rooms and assign them
+let room = app.world_mut().resource_mut::<RoomAllocator>().allocate();
+commands.spawn((Replicate::to_clients(NetworkTarget::All), Rooms::single(room)));
+// ...and put the client link in the same room:
+commands.entity(client_link).insert(Rooms::single(room));
 ```
+
+To summarize:
+- if a client is in a room but the entity is not (or vice-versa), we will not replicate that entity to that client
+- if the client and entity are both in the same room, we will replicate that entity to that client
+- if a client leaves a room that the entity is in (or an entity leaves a room that the client is in), the entity becomes hidden for that client
+- if a client joins a room that the entity is in (or an entity joins a room that the client is in), we will spawn that entity for that client
+
+You can see rooms in action in the [network_visibility example](https://github.com/cBournhonesque/lightyear/tree/main/examples/network_visibility).

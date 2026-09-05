@@ -11,74 +11,51 @@ or this one from Gabriel Gambetta: [link](https://www.gabrielgambetta.com/entity
 
 In lightyear, interpolation can be automatically managed for you.
 
-Every replicated entity can specify to which clients it should be interpolated to:
-```rust,noplayground
-Replicate {
-    interpolation_target: NetworkTarget::AllExcept(vec![id]),
-    ..default()
-},
+When you spawn the entity on the server, add an `InterpolationTarget` to say which clients should interpolate it:
+
+```rust,ignore
+commands.spawn((
+    Replicate::to_clients(NetworkTarget::All),
+    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+));
 ```
 
-This means that all clients except for the one with id `id` will interpolate this entity.
-In practice, it means that they will store in a buffer the history for all components that are enabled for Interpolation.
+This means that all clients except the one with id `client_id` will interpolate this entity.
+There is only one entity on the receiving side: it gets an `Interpolated` marker, its live components hold the interpolated values, and a `ConfirmedHistory<C>` on the same entity buffers the authoritative snapshots for every interpolated component. Every frame the live value is re-sampled from that buffer, slightly in the past.
+(The owning client usually gets a `Predicted` marker instead; see [prediction](./prediction.md).)
 
+## Which components get interpolated
 
-## Component Sync Mode
+Not every registered component is interpolated, only the ones you opt in at registration:
 
-Not all components in the protocol are necessarily interpolated.
-Each component can implement a `ComponentSyncMode` that defines how it gets handled for the `Predicted` and `Interpolated` entities.
-
-Only components that have `ComponentSyncMode::Full` will be interpolated.
-
-
-## Interpolation function
-
-By default, the implementation function for a given component will be linear interpolation.
-It is also possibly to override this behaviour by implementing a custom interpolation function.
-
-Here is an example:
-
-```rust,noplayground
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Component1(pub f32);
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Component2(pub f32);
-
-    #[component_protocol(protocol = "MyProtocol")]
-    pub enum MyComponentProtocol {
-        #[sync(full)]
-        Component1(Component1),
-        #[sync(full, lerp = "MyCustomInterpFn")]
-        Component2(Component2),
-    }
-
-    // custom interpolation logic
-    pub struct MyCustomInterpFn;
-    impl<C> InterpFn<C> for MyCustomInterpFn {
-        fn lerp(start: C, _other: C, _t: f32) -> C {
-            start
-        }
-    }
+```rust,ignore
+app.component::<PlayerPosition>()
+    .replicate()
+    .add_linear_interpolation();
 ```
 
-You will have to add the attribute `lerp = "TYPE_NAME"` to the component.
-The `TYPE_NAME` must be a type that implements the `InterpFn` trait.
-```rust,noplayground
-pub trait InterpFn<C> {
-    fn lerp(start: C, other: C, t: f32) -> C;
-}
+If your component implements bevy's `Ease` trait, `add_linear_interpolation` just works. For anything else, provide the interpolation function explicitly with `add_interpolation_with`:
+
+```rust,ignore
+app.component::<MyComponent>()
+    .replicate()
+    .add_interpolation_with(|start, end, t| {
+        // your blending logic here
+        start.lerp(end, t)
+    });
 ```
 
+The function signature is `LerpFn<C> = fn(start: C, other: C, t: f32) -> C`.
 
-## Complex interpolation
+## Interpolation delay
 
-In some cases, the interpolation logic can be more complex than a simple linear interpolation.
-For example, we might want to have different interpolation functions for different entities, even if they have the same component type.
-Or we might want to do interpolation based on multiple comments (applying some cubic spline interpolation that relies not only on the position,
-but also on the velocity and acceleration).
+Sampling "slightly in the past" is what makes interpolation robust to jitter: there are always two confirmed states to blend between. The per-client delay is tracked with an `InterpolationDelay` component (the server also uses it as an estimate for lag compensation).
 
-In those cases, you can disable the default per-component interpolation logic and provide your own custom logic.
-```rust,noplayground```
+Interpolation runs in the `Update` schedule (`InterpolationSystems::Prepare`, then `Interpolate`), after time sync has run, so the sampling point tracks the synchronized timeline.
 
+## Custom interpolation
 
+In some cases, the interpolation logic can be more complex than a simple linear blend per component.
+For example, you might want to interpolate based on multiple components at once (a cubic spline using position, velocity and acceleration).
 
+In those cases, register with `InterpolationFns::history_only` (which only maintains the history buffer) and add your own systems in `InterpolationSystems::Interpolate`, which runs after lightyear has prepared the histories.

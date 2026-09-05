@@ -37,7 +37,7 @@ This is where you define the "contract" of what is going to be sent across the n
 A protocol is composed of:
 
 - [Input](../concepts/advanced_replication/inputs.md): Defines the client's input type, i.e. the different actions that a user can perform (e.g. move, jump, shoot, etc)
-- [Message](../concepts/bevy_integration/events.md): Defines the message protocol, i.e. the messages that can be
+- Message: Defines the message protocol, i.e. the messages that can be
   exchanged between the client and server
 - [Components](../concepts/replication/title.md): Defines the component protocol, i.e. the list of components that can be replicated between the client and server
 - [Channels](../concepts/reliability/channels.md): Defines channels that are used to send messages between the client and server
@@ -62,8 +62,8 @@ Let's define our component protocol:
 pub struct PlayerId(ClientId);
 
 /// A component that will store the position of the box. We could also directly use the `Transform` component.
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerPosition(Vec2);
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, Deref, DerefMut)]
+pub struct PlayerPosition(pub Vec2);
 
 /// A component that will store the color of the box, so that each player can have a different color.
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -112,7 +112,7 @@ Let's define our inputs:
 
 ```rust
 /// The different directions that the player can move the box
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 pub struct Direction {
     pub(crate) up: bool,
     pub(crate) down: bool,
@@ -120,11 +120,15 @@ pub struct Direction {
     pub(crate) right: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Reflect, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
-    Delete,
-    Spawn,
+}
+
+impl Default for Inputs {
+    fn default() -> Self {
+        Self::Direction(Direction::default())
+    }
 }
 
 // All inputs need to implement the `MapEntities` trait
@@ -134,7 +138,7 @@ impl MapEntities for Inputs {
 
 impl Plugin for ProtocolPlugin{
   fn build(&self, app: &mut App) {
-    app.add_plugins(InputPlugin::<Inputs>::default());
+    app.add_plugins(input::native::InputPlugin::<Inputs>::default());
   }
 }
 ```
@@ -161,7 +165,9 @@ impl Plugin for ProtocolPlugin {
         app.add_channel::<Channel1>(ChannelSettings {
           mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
           ..default()
-        });
+        })
+        // this will automatically add the ChannelReceiver/ChannelSender on Client/Server entities        
+        .add_direction(NetworkDirection::ServerToClient);
     }
 }
 ```

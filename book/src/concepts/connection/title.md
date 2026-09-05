@@ -11,12 +11,12 @@ To establish that connection, that needs to be some machinery that runs on top o
 - storing the list of connected remote peers
 - etc.
 
-`lightyear` uses the traits `NetClient` and `NetServer` to abstract over the connection logic.
+Connection logic lives in components you add to the link entity, next to the IO component.
 
 Multiple implementations are provided:
-- Netcode
-- Steam
-- Local
+- Netcode (`NetcodeClient` / `NetcodeServer`)
+- Steam (`SteamClientIo` / `SteamServerIo`)
+- Local (`CrossbeamIo`, in-memory, for tests and host-server mode)
 
 
 ## Netcode
@@ -27,8 +27,8 @@ that there is an unordered unreliable transport layer to exchange packets.
 
 For my purpose I am using [this](https://github.com/benny-n/netcode) Rust implementation of the standard.
 
-You can use the Netcode connection by using the `NetcodeClient` and `NetcodeServer` structs, coupled with any of the available
-transports (Udp, WebTransport, etc.)
+You use the Netcode connection by adding the `NetcodeClient` or `NetcodeServer` component, coupled with any of the available
+IO components (`UdpIo`, `WebTransportClientIo`, etc.)
 
 To connect to a game server, the client needs to send a `ConnectToken` to the game server to start the connection process.
 

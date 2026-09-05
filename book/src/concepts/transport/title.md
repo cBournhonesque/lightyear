@@ -1,25 +1,18 @@
 # Transport
 
-The `Transport` trait is the trait that is used to send and receive raw data on the network.
+The bottom of the stack is the IO layer: getting raw bytes from one peer to another.
 
-It is very general:
+The [`Link`] component is the type-erased struct that will send/receive raw bytes.
+It holds a send queue and a receive queue of raw payloads, plus the link state (`Linking`, `Linked`, `Unlinked`) and 
+some stats.
+Lightyear systems only ever talk to the `Link`; they don't know or care how the bytes actually travel.
 
-```rust,noplayground
-pub trait PacketSender: Send + Sync {
-    /// Send data on the socket to the remote address
-    fn send(&mut self, payload: &[u8], address: &SocketAddr) -> Result<()>;
-}
-pub trait PacketReceiver: Send + Sync {
-    /// Receive a packet from the socket. Returns the data read and the origin.
-    ///
-    /// Returns Ok(None) if no data is available
-    fn recv(&mut self) -> Result<Option<(&mut [u8], SocketAddr)>>;
-}
-```
+How the bytes travel is decided by the IO component you pair with the `Link`:
 
-The trait currently has 4 implementations:
+- `UdpIo` / `ServerUdpIo`: plain UDP sockets
+- `WebTransportClientIo` / `WebTransportServerIo`: WebTransport (QUIC)
+- `WebSocketClientIo` / `WebSocketServerIo`: WebSocket
+- `CrossbeamIo`: in-memory channels, used for tests and host-server mode
+- `SteamClientIo` / `SteamServerIo`: Steam sockets
 
-- UDP sockets
-- WebTransport (using QUIC)
-- WebSocket
-- crossbeam-channels: used for internal testing
+So a UDP client is `Link` + `UdpIo`, a WebTransport client is `Link` + `WebTransportClientIo`, and so on. Swapping transports means swapping one component.

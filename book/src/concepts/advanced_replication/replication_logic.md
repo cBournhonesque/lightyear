@@ -4,7 +4,7 @@ This page explains how replication works and what guarantees can be made.
 
 Replication makes a distinction between:
 - Entity Actions (entity spawn/despawn, component insert/remove): these events change the archetype of an entity
-- Entity Updates (component update): these events don't change the archetype of an entity but simply update the value of some components. 
+- Entity Updates (component update): these events don't change the archetype of an entity but simply update the value of some components.
     Most (90%+) replication messages should be Entity Updates.
 
 Those two are handled differently by the replication system.
@@ -13,57 +13,46 @@ Those two are handled differently by the replication system.
 
 There are certain invariants/guarantees that we wish to maintain with replication.
 
-**Rule #1a**: we would like a replicated entity to be in a consistent state compared to what it was on the server: at no point do we want a situation where
+**Rule #1**: we would like a replicated entity to be in a consistent state compared to what it was on the server: at no point do we want a situation where
 a given component is on tick T1 but another component of the same entity is on tick T2. The replicated entity should be equal to a version of the remote entity in the past.
 Similarly, we would not want one component of an entity to be inserted later than other components. This could be disastrous because some other system could depend on both
 components being present together!
 
-**Rule #2**: we want to be able to extend this guarantee to multiple entities.
-I will give two relevant examples:
-- client prediction: for client-prediction, we want to rollback if a receives server-state doesn't match with the predicted history.
-    If we are running client-prediction for multiple entities that are not in the same tick, we could have situations where we need to rollback one entity starting from tick T1
-    and another entity starting from tick T2. This can be fairly hard to achieve, so we'd like to have all predicted entities be on the same tick.
+**Rule #2**: prediction and hierarchies need entities to move in lockstep.
+Two relevant examples:
+- client prediction: for client-prediction, we want to rollback if a received server-state doesn't match with the predicted history.
+    If predicted entities were on different ticks, we'd have to roll each one back from a different tick. Much easier if all predicted entities share the same tick.
 - hierarchies: some entities have relationships. For example you could have an entity with a component Head, and an entity Body with a component `HasParent(Entity)`
   which points to the Head entity. If we want to replicate this hierarchy, we need to make sure that the Head entity is replicated before the Body entity.
-  (otherwise the `Entity` pointed to in `HasParent` would be invalid on the client). Therefore we need to make sure that all updates for both the parent and the head
-  are in sync.
+  (otherwise the `Entity` pointed to in `HasParent` would be invalid on the client).
 
-
-The only way to guarantee that these rules are respected is to send all the updates for a given "replication group" as a single message.
-(if we send multiple messages, they could be added to multiple packets, and therefore arrive in a different time/order on the client because of jitter and packet loss)
-
-Lightyear introduces the concept of a [`ReplicationGroup`](crate::prelude::ReplicationGroup) which is a group of entity whose `EntityActions` and `EntityUpdates` will be sent 
-over the network as a single message.
-It is **guaranteed** that the state of all entities in a given `ReplicationGroup` will be consistent on the client, i.e.
-will be equivalent to the state of the group on the server at a given previous tick T.
-
+The way lightyear (via Replicon) honors this is by sending actions and updates for an entity together: whenever there are entity actions to send, the pending updates for the same entities go in the same message. That way a lost packet can't leave you with updates for an entity whose spawn you haven't seen.
 
 
 ## Entity Actions
 
-For each [`ReplicationGroup`](crate::prelude::ReplicationGroup), Entity Actions are replicated in an `OrderedReliable` manner.
+Entity Actions are replicated reliably and in order.
 
 ### Send
 
-Whenever there are any actions for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), we send them as a single message AND we include any updates for this group as well.
-This is to guarantee consistency; if we sent them as 2 separate messages, the packet containing the updates could get lost and we would be in an inconsistent state.
-Each message for a given [`ReplicationGroup`] is associated with a message id (a monotonically increasing number) that is used to order the messages on the client.
+Whenever there are actions to send, they go out together with the updates for the same entities.
+This is to guarantee consistency; if they went as 2 separate messages, the packet containing the updates could get lost and we would be in an inconsistent state.
 
 ### Receive
 
-On the receive side, we buffer the EntityActions that we receive, so that we can read them in order (message id 1, 2, 3, 4, etc.)
-We keep track of the next message id that we should receive.
+On the receive side, we buffer the EntityActions that we receive, so that we can read them in order.
+Updates are only applied once the actions they depend on have been applied.
 
 
 ## Entity Updates
 
 ### Send
 
-We gather all updates since the last time we got an ACK from the client that the EntityUpdates was received
+We gather all updates since the last time we got an ACK from the receiver that the updates were received.
 
 The reason for this is:
-- we could be gathering all the component changes since the last time we sent EntityActions, but then it could be wasteful
-if the last time we had any entity actions was a long time ago and many components got updated since.
+- we could be gathering all the component changes since the last time we sent actions, but then it could be wasteful
+if the last time we had any actions was a long time ago and many components got updated since.
 - we could be gathering all the component changes since the last time we sent a message, but then we could have a situation where:
   - we send changes for C1 on tick 1
   - we send changes for C2 on tick 2
@@ -72,10 +61,7 @@ if the last time we had any entity actions was a long time ago and many componen
 
 ### Receive
 
-For each [`ReplicationGroup`](crate::prelude::ReplicationGroup), Entity Updates are replicated in a `SequencedUnreliable` manner.
-We have some additional constraints:
-- we only apply EntityUpdates if we have already applied all the EntityActions for the given [`ReplicationGroup`](crate::prelude::ReplicationGroup) that were sent when the Updates were sent.
-  - for example we send A1, U2, A3, U4; we receive U4 first, but we only apply it if we have applied A3, as those are the latest EntityActions sent when U4 was sent
-- if we received a more recent update that can be applied, we discard the older one (Sequencing)
-  - for example if we send A1, U2, U3 and we receive A1 then U3, we discard U2 because it is older than U3
-    
+Entity Updates are applied in a sequenced way:
+- we only apply updates if we have already applied the EntityActions they were sent with
+- if we received a more recent update that can be applied, we discard the older one (sequencing)
+  - for example if the server sends U2 then U3 and we receive U3 first, we discard U2 because it is older than U3
