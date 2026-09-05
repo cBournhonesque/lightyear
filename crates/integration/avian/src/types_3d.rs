@@ -399,4 +399,39 @@ mod tests {
             Quat::from_rotation_y(core::f32::consts::FRAC_PI_8) * Vec3::X,
         );
     }
+
+    #[test]
+    fn velocity_diff_roundtrip() {
+        use lightyear_replication::diffable::Diffable;
+
+        let start = LinearVelocity(Vector::new(
+            Scalar::from(1.0),
+            Scalar::from(-2.0),
+            Scalar::from(4.0),
+        ));
+        let end = LinearVelocity(Vector::new(
+            Scalar::from(8.0),
+            Scalar::from(0.5),
+            Scalar::from(-1.0),
+        ));
+        assert_eq!(start.diff(&start), LinearVelocity::default());
+        let mut value = start.clone();
+        value.apply_diff(&start.diff(&end));
+        assert_eq!(value, end);
+
+        let start = AngularVelocity(Vector::new(
+            Scalar::from(0.5),
+            Scalar::from(-1.0),
+            Scalar::from(2.0),
+        ));
+        let end = AngularVelocity(Vector::new(
+            Scalar::from(-4.0),
+            Scalar::from(8.0),
+            Scalar::from(0.25),
+        ));
+        assert_eq!(start.diff(&start), AngularVelocity::default());
+        let mut value = start.clone();
+        value.apply_diff(&start.diff(&end));
+        assert_eq!(value, end);
+    }
 }

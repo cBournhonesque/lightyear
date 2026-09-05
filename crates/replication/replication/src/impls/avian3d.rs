@@ -1,5 +1,5 @@
 use crate::diffable::Diffable;
-use avian3d::prelude::{Position, Rotation};
+use avian3d::prelude::{AngularVelocity, LinearVelocity, Position, Rotation};
 
 impl Diffable<Self> for Position {
     fn base_value() -> Self {
@@ -26,5 +26,33 @@ impl Diffable<Self> for Rotation {
 
     fn apply_diff(&mut self, delta: &Self) {
         self.0 *= delta.0;
+    }
+}
+
+impl Diffable<Self> for LinearVelocity {
+    fn base_value() -> Self {
+        LinearVelocity::default()
+    }
+
+    fn diff(&self, new: &Self) -> Self {
+        LinearVelocity(new.0 - self.0)
+    }
+
+    fn apply_diff(&mut self, delta: &Self) {
+        self.0 += delta.0;
+    }
+}
+
+impl Diffable<Self> for AngularVelocity {
+    fn base_value() -> Self {
+        AngularVelocity::default()
+    }
+
+    fn diff(&self, new: &Self) -> Self {
+        AngularVelocity(new.0 - self.0)
+    }
+
+    fn apply_diff(&mut self, delta: &Self) {
+        self.0 += delta.0;
     }
 }
