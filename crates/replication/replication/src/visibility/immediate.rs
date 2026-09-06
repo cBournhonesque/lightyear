@@ -63,7 +63,7 @@ use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
-use crate::hierarchy::ReplicateLikeChildren;
+use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::send::Replicating;
 
 #[doc(hidden)]
@@ -122,7 +122,13 @@ impl FromWorld for VisibilityBits {
 /// Implemented for both [`World`] (immediate) and [`Commands`] (deferred).
 ///
 /// Visibility changes automatically propagate to descendant entities in the
-/// same replication hierarchy (those with [`ReplicateLikeChildren`]).
+/// same replication hierarchy (those with [`ReplicateLikeChildren`]),
+/// including descendants added to the hierarchy afterwards.
+///
+/// A hierarchy member with explicitly set visibility keeps it: the explicit
+/// write is recorded with [`VisibilityOverridden`] and later root changes no
+/// longer propagate to it. Remove the marker to re-inherit the root's
+/// visibility. Inheritance is per-entity from the ultimate replication root.
 ///
 /// # Parameters
 ///
@@ -201,15 +207,30 @@ impl VisibilityExt for Commands<'_, '_> {
     }
 }
 
+/// Marker for hierarchy members whose manual visibility is managed independently.
+///
+/// Inserted automatically when visibility is explicitly set on an entity with
+/// [`ReplicateLike`]. While present, visibility changes on the replication
+/// root no longer propagate to this entity. Remove it to re-inherit the
+/// root's visibility.
+///
+/// Like rooms, visibility inheritance is per-entity from the ultimate
+/// [`ReplicateLike`] root: marking one member does not affect its unmarked
+/// descendants, which keep following the root.
+///
+/// [`ReplicateLike`]: crate::hierarchy::ReplicateLike
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub struct VisibilityOverridden;
+
 impl VisibilityExt for World {
     fn gain_visibility(&mut self, entity: Entity, sender: Entity) {
         let bits = *self.resource::<VisibilityBits>();
-        set_visibility(self, entity, sender, bits, None);
+        set_visibility(self, entity, sender, bits, None, true);
     }
 
     fn lose_visibility(&mut self, entity: Entity, sender: Entity) {
         let bits = *self.resource::<VisibilityBits>();
-        set_visibility(self, entity, sender, bits, Some(bits.while_visible));
+        set_visibility(self, entity, sender, bits, Some(bits.while_visible), true);
     }
 
     fn lose_visibility_retained(&mut self, entity: Entity, sender: Entity) {
@@ -220,22 +241,47 @@ impl VisibilityExt for World {
             sender,
             bits,
             Some(bits.after_first_visibility),
+            true,
         );
     }
 
     fn lose_visibility_always_present(&mut self, entity: Entity, sender: Entity) {
         let bits = *self.resource::<VisibilityBits>();
-        set_visibility(self, entity, sender, bits, Some(bits.always_present));
+        set_visibility(self, entity, sender, bits, Some(bits.always_present), true);
+    }
+}
+
+/// Copies the manual visibility state for `from` onto `entity` within one
+/// sender's [`ClientVisibility`].
+///
+/// Only [`VisibilityBits`] are copied: every other filter bit (rooms,
+/// replication targets, …) is evaluated per-entity by replicon and must not
+/// leak across the hierarchy — overridden members especially rely on that.
+fn copy_manual_visibility(
+    visibility: &mut ClientVisibility,
+    entity: Entity,
+    from: Entity,
+    bits: VisibilityBits,
+) {
+    let source = visibility.get(from);
+    for bit in bits.iter() {
+        // `set` takes `visible`, while the mask stores hidden bits.
+        visibility.set(entity, bit, !source.contains(bit));
     }
 }
 
 /// Set one manual visibility state and recursively propagate it through [`ReplicateLikeChildren`].
+///
+/// `direct` distinguishes user calls (which opt a hierarchy member out of
+/// inheritance via [`VisibilityOverridden`]) from propagated writes (which
+/// never mark, and skip marked members).
 fn set_visibility(
     world: &mut World,
     entity: Entity,
     sender: Entity,
     bits: VisibilityBits,
     hidden_bit: Option<FilterBit>,
+    direct: bool,
 ) {
     if let Some(mut visibility) = world.get_mut::<ClientVisibility>(sender) {
         // The bits represent alternative states of one logical visibility filter. Clear every
@@ -247,6 +293,16 @@ fn set_visibility(
             visibility.set(entity, bit, false);
         }
     }
+    // A direct write on a hierarchy member records an explicit override, so
+    // later root changes no longer propagate to it. Direct writes on roots and
+    // standalone entities are just state: they propagate normally and, should
+    // the entity later join a hierarchy as a plain member, it inherits.
+    if direct
+        && world.get::<ReplicateLike>(entity).is_some()
+        && let Ok(mut entity_mut) = world.get_entity_mut(entity)
+    {
+        entity_mut.insert(VisibilityOverridden);
+    }
 
     let Some(children) = world.get::<ReplicateLikeChildren>(entity) else {
         return;
@@ -255,7 +311,72 @@ fn set_visibility(
     // ReplicateLikeChildren is typically very small (1-3 entities).
     let child_entities: smallvec::SmallVec<[Entity; 8]> = children.iter().collect();
     for child in child_entities {
-        set_visibility(world, child, sender, bits, hidden_bit);
+        if world.get::<VisibilityOverridden>(child).is_none() {
+            set_visibility(world, child, sender, bits, hidden_bit, false);
+        }
+    }
+}
+
+/// Inherit the replication root's manual visibility when an entity joins its
+/// hierarchy after visibility was set.
+///
+/// [`set_visibility`] pushes state to the [`ReplicateLikeChildren`] that exist
+/// at call time, but a child spawned (or reparented) later starts fully
+/// visible. When [`ReplicateLike`] is inserted we pull the root's live state
+/// for every sender and apply it to the joining subtree.
+/// (Rooms need no pull here: they are mirrored as components on attach in
+/// `RoomPlugin`.)
+fn inherit_visibility_on_replicate_like_added(
+    trigger: On<Insert, ReplicateLike>,
+    replicate_like: Query<&ReplicateLike>,
+    children: Query<&ReplicateLikeChildren>,
+    overridden: Query<Has<VisibilityOverridden>>,
+    mut senders: Query<&mut ClientVisibility>,
+    bits: Res<VisibilityBits>,
+) {
+    let Ok(like) = replicate_like.get(trigger.entity) else {
+        return;
+    };
+    // Collect the joining subtree (typically a single entity), skipping
+    // members with an explicit override: inherited state must not clobber
+    // theirs, and pulling never marks.
+    let mut stack: smallvec::SmallVec<[Entity; 8]> =
+        smallvec::SmallVec::from_elem(trigger.entity, 1);
+    let mut subtree: smallvec::SmallVec<[Entity; 8]> = smallvec::SmallVec::new();
+    while let Some(entity) = stack.pop() {
+        if overridden.get(entity).is_ok_and(|overridden| overridden) {
+            continue;
+        }
+        subtree.push(entity);
+        if let Ok(grandchildren) = children.get(entity) {
+            stack.extend(grandchildren.iter());
+        }
+    }
+    let bits = *bits;
+    for mut visibility in &mut senders {
+        for entity in &subtree {
+            copy_manual_visibility(&mut visibility, *entity, like.root, bits);
+        }
+    }
+}
+
+/// Re-inherit the replication root's manual visibility after
+/// [`VisibilityOverridden`] is removed.
+fn reinherit_visibility_on_override_removed(
+    trigger: On<Remove, VisibilityOverridden>,
+    replicate_like: Query<&ReplicateLike>,
+    mut senders: Query<&mut ClientVisibility>,
+    bits: Res<VisibilityBits>,
+) {
+    let Ok(like) = replicate_like.get(trigger.entity) else {
+        return;
+    };
+    let bits = *bits;
+    // Without an override the member follows the root again. Copying (rather
+    // than just clearing) also drops stale override bits the member may hold
+    // for senders the root never mentions.
+    for mut visibility in &mut senders {
+        copy_manual_visibility(&mut visibility, trigger.entity, like.root, bits);
     }
 }
 
@@ -289,5 +410,160 @@ impl Plugin for NetworkVisibilityPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VisibilityBits>();
         app.add_observer(clear_retained_visibility_on_despawn);
+        app.add_observer(inherit_visibility_on_replicate_like_added);
+        app.add_observer(reinherit_visibility_on_override_removed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_replicon::shared::replication::registry::ReplicationRegistry;
+
+    /// App with visibility inheritance and one fake sender, without networking.
+    fn visibility_app() -> (App, Entity) {
+        let mut app = App::new();
+        app.init_resource::<FilterRegistry>();
+        app.init_resource::<ReplicationRegistry>();
+        app.add_plugins(NetworkVisibilityPlugin);
+        let sender = app.world_mut().spawn(ClientVisibility::default()).id();
+        (app, sender)
+    }
+
+    /// Reads effective visibility straight from the sender's
+    /// [`ClientVisibility`]: hidden iff the manual despawn-on-hide bit is set.
+    fn hidden(app: &App, sender: Entity, entity: Entity) -> bool {
+        let bits = app.world().resource::<VisibilityBits>();
+        let visibility = app.world().get::<ClientVisibility>(sender).unwrap();
+        visibility.get(entity).contains(bits.while_visible)
+    }
+
+    fn is_overridden(app: &App, entity: Entity) -> bool {
+        app.world().get::<VisibilityOverridden>(entity).is_some()
+    }
+
+    #[test]
+    fn visibility_propagates_to_members() {
+        let (mut app, sender) = visibility_app();
+        let root = app.world_mut().spawn_empty().id();
+        let child = app.world_mut().spawn(ReplicateLike { root }).id();
+
+        app.world_mut().lose_visibility(root, sender);
+        assert!(hidden(&app, sender, root));
+        assert!(hidden(&app, sender, child));
+
+        app.world_mut().gain_visibility(root, sender);
+        assert!(!hidden(&app, sender, root));
+        assert!(!hidden(&app, sender, child));
+        // Plain propagation never marks.
+        assert!(!is_overridden(&app, root));
+        assert!(!is_overridden(&app, child));
+    }
+
+    #[test]
+    fn direct_member_write_overrides_and_sticks() {
+        let (mut app, sender) = visibility_app();
+        let root = app.world_mut().spawn_empty().id();
+        let child = app.world_mut().spawn(ReplicateLike { root }).id();
+
+        // Hide the child directly: later root pushes must skip it.
+        app.world_mut().lose_visibility(child, sender);
+        assert!(!hidden(&app, sender, root));
+        assert!(hidden(&app, sender, child));
+        assert!(is_overridden(&app, child));
+
+        app.world_mut().gain_visibility(root, sender);
+        assert!(!hidden(&app, sender, root));
+        assert!(
+            hidden(&app, sender, child),
+            "root push should skip the overridden child"
+        );
+
+        // Removing the marker re-inherits the root's (visible) state.
+        app.world_mut()
+            .entity_mut(child)
+            .remove::<VisibilityOverridden>();
+        assert!(!hidden(&app, sender, child));
+        assert!(!is_overridden(&app, child));
+
+        // ...and the child follows the root again afterwards.
+        app.world_mut().lose_visibility(root, sender);
+        assert!(hidden(&app, sender, child));
+    }
+
+    #[test]
+    fn overridden_child_replicates_while_root_hidden() {
+        let (mut app, sender) = visibility_app();
+        let root = app.world_mut().spawn_empty().id();
+        let child = app.world_mut().spawn(ReplicateLike { root }).id();
+
+        app.world_mut().lose_visibility(root, sender);
+        app.world_mut().gain_visibility(child, sender);
+
+        assert!(hidden(&app, sender, root));
+        assert!(!hidden(&app, sender, child));
+        assert!(is_overridden(&app, child));
+    }
+
+    #[test]
+    fn direct_root_write_does_not_mark() {
+        let (mut app, sender) = visibility_app();
+        let root = app.world_mut().spawn_empty().id();
+        let standalone = app.world_mut().spawn_empty().id();
+
+        app.world_mut().lose_visibility(root, sender);
+        app.world_mut().lose_visibility(standalone, sender);
+
+        assert!(!is_overridden(&app, root));
+        assert!(!is_overridden(&app, standalone));
+    }
+
+    #[test]
+    fn late_joiners_inherit_unless_marked() {
+        let (mut app, sender) = visibility_app();
+        let root = app.world_mut().spawn_empty().id();
+        app.world_mut().lose_visibility(root, sender);
+
+        let late = app.world_mut().spawn(ReplicateLike { root }).id();
+        assert!(hidden(&app, sender, late));
+        assert!(!is_overridden(&app, late));
+
+        // A pre-marked joiner opts out of the pull.
+        let independent = app
+            .world_mut()
+            .spawn((ReplicateLike { root }, VisibilityOverridden))
+            .id();
+        assert!(!hidden(&app, sender, independent));
+    }
+
+    #[test]
+    fn reparent_adopts_new_root_state() {
+        let (mut app, sender) = visibility_app();
+        let root_a = app.world_mut().spawn_empty().id();
+        let root_b = app.world_mut().spawn_empty().id();
+        let child = app.world_mut().spawn(ReplicateLike { root: root_a }).id();
+
+        // Hide under the first root, then move to a pristine root.
+        app.world_mut().lose_visibility(root_a, sender);
+        assert!(hidden(&app, sender, child));
+        app.world_mut()
+            .entity_mut(child)
+            .insert(ReplicateLike { root: root_b });
+        assert!(
+            !hidden(&app, sender, child),
+            "reparented member should adopt the new root's default-visible state"
+        );
+
+        // ...and to a hidden root.
+        app.world_mut().lose_visibility(root_b, sender);
+        assert!(hidden(&app, sender, child));
+
+        // Marked members keep their state across reparenting.
+        app.world_mut().gain_visibility(child, sender);
+        app.world_mut()
+            .entity_mut(child)
+            .insert(ReplicateLike { root: root_a });
+        assert!(!hidden(&app, sender, child));
+        assert!(is_overridden(&app, child));
     }
 }

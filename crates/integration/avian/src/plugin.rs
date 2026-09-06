@@ -70,6 +70,8 @@ Position mode automatically registers velocity-aware Hermite interpolation for t
 `(Position, Rotation, LinearVelocity, AngularVelocity)` bundle. Delayed interpolation, frame
 interpolation, and visual correction select it whenever all four components are present. The
 per-component rules remain useful for archetypes that do not contain the complete bundle.
+Velocities use linear fallback rules there, and all four components receive visual correction
+(linear error decay for velocities, which do not implement `Ease`).
 
 By default, Position mode also registers `Position`, `Rotation`, `LinearVelocity`, and
 `AngularVelocity` for filtered rigid-body replication and prediction. Position and Rotation get
@@ -111,8 +113,8 @@ pub enum AvianReplicationMode {
     /// Replicate [`Position`] and [`Rotation`].
     ///
     /// This is the preferred mode for Avian physics. Prediction history, correction, and frame
-    /// interpolation apply to `Position` and `Rotation`, and the rendered [`Transform`] is written
-    /// from that visual physics state in `PostUpdate`.
+    /// interpolation apply to `Position`, `Rotation`, `LinearVelocity`, and `AngularVelocity`,
+    /// and the rendered [`Transform`] is written from that visual physics state in `PostUpdate`.
     ///
     /// Child colliders without their own rigid body still use a local `Transform` to describe
     /// their offset from the parent body.
@@ -158,8 +160,9 @@ pub struct LightyearAvianPlugin {
     ///
     /// The default registration replicates `Position`, `Rotation`, `LinearVelocity`, and
     /// `AngularVelocity` only on entities with [`RigidBody`], predicts all four components, and
-    /// enables interpolation and correction for the pose components. Disable this when the
-    /// application uses custom replication rules, such as replicate-once deterministic state.
+    /// enables interpolation and correction for all four (Hermite bundle interpolation when the
+    /// complete bundle is present, linear fallback rules for lone velocities). Disable this when
+    /// the application uses custom replication rules, such as replicate-once deterministic state.
     ///
     /// Add the Lightyear networking plugins or another component protocol before this plugin so
     /// the replication registry exists when these defaults are installed.
@@ -231,6 +234,34 @@ fn angular_velocity_should_rollback(
     (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
 }
 
+/// Linear interpolation for `LinearVelocity`.
+///
+/// Avian does not implement [`Ease`](bevy_math::curve::Ease) for velocities,
+/// so this is used both as the fallback frame-interpolation function and as
+/// the visual-correction decay function (via `add_correction_fn`). It matches
+/// the velocity sampling that the Hermite bundle rule performs.
+fn linear_velocity_correction(
+    start: LinearVelocity,
+    other: LinearVelocity,
+    t: f32,
+) -> LinearVelocity {
+    let u = Scalar::from(t);
+    LinearVelocity(start.0 * (1.0 - u) + other.0 * u)
+}
+
+/// Linear interpolation for `AngularVelocity`.
+///
+/// See [`linear_velocity_correction`]. The same expression covers the 2D
+/// scalar and 3D vector representations.
+fn angular_velocity_correction(
+    start: AngularVelocity,
+    other: AngularVelocity,
+    t: f32,
+) -> AngularVelocity {
+    let u = Scalar::from(t);
+    AngularVelocity(start.0 * (1.0 - u) + other.0 * u)
+}
+
 impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PhysicsTransformConfig>();
@@ -238,10 +269,7 @@ impl Plugin for LightyearAvianPlugin {
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
                 if self.register_physics_components {
-                    if app.world().contains_resource::<ComponentRegistry>() {
-                        Self::register_position_mode_components(app);
-                    }
-                    Self::add_position_rotation_hermite_rule(app);
+                    Self::register_position_mode_protocol(app);
                 }
                 if !self.update_syncs_manually {
                     let mut config = app.world_mut().resource_mut::<PhysicsTransformConfig>();
@@ -401,30 +429,52 @@ impl Plugin for LightyearAvianPlugin {
 
 impl LightyearAvianPlugin {
     /// Register the standard network protocol for Avian's canonical Position-mode state.
-    fn register_position_mode_components(app: &mut App) {
-        app.component::<Position>()
-            .replicate_filtered::<With<RigidBody>>()
-            .predict()
-            .with_rollback_condition(position_should_rollback)
-            .add_linear_interpolation()
-            .add_correction();
+    ///
+    /// This replicates, predicts, and corrects `Position`, `Rotation`,
+    /// `LinearVelocity`, and `AngularVelocity` on rigid bodies, and registers
+    /// every interpolation rule Position mode needs: the Hermite bundle plus
+    /// one linear rule per component. The pose rules own full delayed
+    /// interpolation; the velocity rules are frame-only fallbacks for
+    /// archetypes without the complete bundle, so delayed interpolation is
+    /// unchanged. The bundle's default priority (its four members) wins over
+    /// the single-component rules whenever the complete bundle is present.
+    fn register_position_mode_protocol(app: &mut App) {
+        if app.world().contains_resource::<ComponentRegistry>() {
+            app.component::<Position>()
+                .replicate_filtered::<With<RigidBody>>()
+                .predict()
+                .with_rollback_condition(position_should_rollback)
+                .add_linear_interpolation()
+                .add_correction();
 
-        app.component::<Rotation>()
-            .replicate_filtered::<With<RigidBody>>()
-            .predict()
-            .with_rollback_condition(rotation_should_rollback)
-            .add_linear_interpolation()
-            .add_correction();
+            app.component::<Rotation>()
+                .replicate_filtered::<With<RigidBody>>()
+                .predict()
+                .with_rollback_condition(rotation_should_rollback)
+                .add_linear_interpolation()
+                .add_correction();
 
-        app.component::<LinearVelocity>()
-            .replicate_filtered::<With<RigidBody>>()
-            .predict()
-            .with_rollback_condition(linear_velocity_should_rollback);
+            app.component::<LinearVelocity>()
+                .replicate_filtered::<With<RigidBody>>()
+                .predict()
+                .with_rollback_condition(linear_velocity_should_rollback)
+                .interpolate_with(InterpolationFns::no_history(linear_velocity_correction))
+                .add_correction_fn(linear_velocity_correction);
 
-        app.component::<AngularVelocity>()
-            .replicate_filtered::<With<RigidBody>>()
-            .predict()
-            .with_rollback_condition(angular_velocity_should_rollback);
+            app.component::<AngularVelocity>()
+                .replicate_filtered::<With<RigidBody>>()
+                .predict()
+                .with_rollback_condition(angular_velocity_should_rollback)
+                .interpolate_with(InterpolationFns::no_history(angular_velocity_correction))
+                .add_correction_fn(angular_velocity_correction);
+        }
+        // Lone velocities (archetypes without the complete bundle) fall back
+        // to the linear frame-only rules registered above. They keep frame
+        // interpolation and correction sampling defined for every corrected
+        // component.
+        app.interpolate_bundle_with::<(Position, Rotation, LinearVelocity, AngularVelocity)>(
+            InterpolationFns::interpolate_with_context(crate::types::position_rotation::hermite),
+        );
     }
 
     /// Opt non-rigid interpolated entities into Avian's Position-to-Transform sync.
@@ -493,16 +543,6 @@ impl LightyearAvianPlugin {
                 .entity(trigger.entity)
                 .remove::<ApplyPosToTransform>();
         }
-    }
-
-    /// Register the canonical Avian pose and velocity bundle once for every
-    /// Position-mode application. The bundle's default priority is its four
-    /// members, so it wins over ordinary single-component rules whenever the
-    /// complete bundle is present.
-    fn add_position_rotation_hermite_rule(app: &mut App) {
-        app.interpolate_bundle_with::<(Position, Rotation, LinearVelocity, AngularVelocity)>(
-            InterpolationFns::interpolate_with_context(crate::types::position_rotation::hermite),
-        );
     }
 
     // Add a low-priority interpolation function for Transform

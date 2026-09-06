@@ -43,9 +43,12 @@ impl EntityMapper for EntityMap {
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct SendEntityMap(pub(crate) EntityHashMap<Entity>);
 
-impl EntityMapper for SendEntityMap {
-    /// Try to map the entity using the map, or return the initial entity if it doesn't work
-    fn get_mapped(&mut self, entity: Entity) -> Entity {
+impl SendEntityMap {
+    /// Read-only entity lookup used while serializing.
+    ///
+    /// Serialization never inserts mappings, so this shared-access version is
+    /// sufficient for the send path and can be called through a shared borrow.
+    pub fn get_mapped_shared(&self, entity: Entity) -> Entity {
         // if we have the entity in our mapping, map it and mark it as mapped
         // so that on the receive side we don't map it again
         match self.0.get(&entity) {
@@ -67,6 +70,13 @@ impl EntityMapper for SendEntityMap {
             }
         }
     }
+}
+
+impl EntityMapper for SendEntityMap {
+    /// Try to map the entity using the map, or return the initial entity if it doesn't work
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
+        self.get_mapped_shared(entity)
+    }
 
     fn set_mapped(&mut self, source: Entity, target: Entity) {
         trace!(
@@ -84,9 +94,12 @@ impl EntityMapper for SendEntityMap {
 #[derive(Default, Debug, Reflect, Deref, DerefMut)]
 pub struct ReceiveEntityMap(pub(crate) EntityHashMap<Entity>);
 
-impl EntityMapper for ReceiveEntityMap {
-    /// Map an entity from the remote World to the local World
-    fn get_mapped(&mut self, entity: Entity) -> Entity {
+impl ReceiveEntityMap {
+    /// Read-only entity lookup used while deserializing.
+    ///
+    /// Deserialization never inserts mappings, so this shared-access version is
+    /// sufficient for the receive path and can be called through a shared borrow.
+    pub fn get_mapped_shared(&self, entity: Entity) -> Entity {
         // if the entity was already mapped on the send side, we don't need to map it again
         // since it's the local world entity
         if RemoteEntityMap::is_mapped(entity) {
@@ -128,6 +141,13 @@ impl EntityMapper for ReceiveEntityMap {
             }
         }
     }
+}
+
+impl EntityMapper for ReceiveEntityMap {
+    /// Map an entity from the remote World to the local World
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
+        self.get_mapped_shared(entity)
+    }
 
     fn set_mapped(&mut self, source: Entity, target: Entity) {
         trace!(
@@ -139,6 +159,46 @@ impl EntityMapper for ReceiveEntityMap {
             "inserted receive entity mapping"
         );
         self.0.insert(source, target);
+    }
+}
+
+/// Read-only view of a [`SendEntityMap`] that implements [`EntityMapper`] over shared access.
+///
+/// `get_mapped` only reads the map, so sharing this view across parallel tasks is sound.
+/// `set_mapped` is unsupported, mirroring `bevy_replicon`'s send context: mapping code
+/// that runs during serialization must not insert mappings.
+#[derive(Debug, Clone, Copy)]
+pub struct SendMapView<'a>(pub &'a SendEntityMap);
+
+impl EntityMapper for SendMapView<'_> {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
+        self.0.get_mapped_shared(entity)
+    }
+
+    fn set_mapped(&mut self, _source: Entity, _target: Entity) {
+        unimplemented!(
+            "SendMapView is read-only; MapEntities impls used during serialization must not insert mappings"
+        );
+    }
+}
+
+/// Read-only view of a [`ReceiveEntityMap`] that implements [`EntityMapper`] over shared access.
+///
+/// `get_mapped` only reads the map, so sharing this view across parallel tasks is sound.
+/// `set_mapped` is unsupported, mirroring `bevy_replicon`'s send context: mapping code
+/// that runs during deserialization must not insert mappings.
+#[derive(Debug, Clone, Copy)]
+pub struct ReceiveMapView<'a>(pub &'a ReceiveEntityMap);
+
+impl EntityMapper for ReceiveMapView<'_> {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
+        self.0.get_mapped_shared(entity)
+    }
+
+    fn set_mapped(&mut self, _source: Entity, _target: Entity) {
+        unimplemented!(
+            "ReceiveMapView is read-only; MapEntities impls used during deserialization must not insert mappings"
+        );
     }
 }
 

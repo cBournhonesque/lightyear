@@ -493,6 +493,10 @@ impl Transport {
         self.send_mut_erased(ChannelKind::of::<C>(), bytes, priority)
     }
 
+    /// Buffers bytes directly in the channel sender.
+    ///
+    /// Requires exclusive access; producers should prefer the shared-access
+    /// `send_*` staging queue instead.
     pub fn send_mut_erased(
         &mut self,
         kind: ChannelKind,

@@ -41,11 +41,21 @@
 //!
 //! When an entity with [`Replicate`] has children (via `ChildOf`), those
 //! children automatically receive a [`ReplicateLike`] component pointing back
-//! to the root. This clones the root's replication configuration onto the
-//! child so the entire hierarchy replicates with the same visibility rules.
-//! Use [`DisableReplicateHierarchy`] on a child to opt out.
+//! to the root.
+//! [`ReplicateLike`] ensures that the child entity copies the root's replication
+//! behaviour (replication target, prediction target, visibility, rooms, etc.)
+//! The child entity can always override any of these behaviors, for example by inserting
+//! a [`Replicate`] component (in which case all other behaviour will still be propagated
+//! via [`ReplicateLike`] except for [`Replicate`])
+//!  Use [`DisableReplicateHierarchy`] on a child to opt out adding [`ReplicateLike`] automatically.
 //!
 //! You can also manually add [`ReplicateLike`] on any entity.
+//!
+//! Rooms and manual visibility are inherited from the root, but a member with
+//! explicitly set rooms or visibility keeps them (tracked with
+//! [`RoomsOverridden`](crate::visibility::room::RoomsOverridden) and
+//! [`VisibilityOverridden`](crate::visibility::immediate::VisibilityOverridden));
+//! remove the marker to re-inherit.
 //!
 //! ## Visibility
 //!
@@ -147,8 +157,10 @@ pub mod prelude {
     pub use crate::registry::ComponentRegistry;
     pub use crate::registry::TransformLinearInterpolation;
     pub use crate::registry::replication::{AppComponentExt, ComponentRegistrator};
-    pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
-    pub use crate::visibility::room::{RoomAllocator, RoomId, RoomPlugin, Rooms};
+    pub use crate::visibility::immediate::{
+        NetworkVisibilityPlugin, VisibilityExt, VisibilityOverridden,
+    };
+    pub use crate::visibility::room::{RoomAllocator, RoomId, RoomPlugin, Rooms, RoomsOverridden};
 
     pub use crate::diffable::Diffable;
 

@@ -82,7 +82,8 @@ impl Plugin for PredictionMarkerPlugin {
             affects_same_update: true,
         });
         // Keep the receiver-local marker registered for users that opt an
-        // already replicated entity into prediction manually.
+        // already replicated entity into prediction manually. It is never
+        // replicated itself, so it stays out of the protocol hash.
         app.register_marker_with::<Predicted>(MarkerConfig {
             priority: PREDICTED_PRIORITY,
             need_history: true,

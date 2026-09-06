@@ -1152,6 +1152,29 @@ pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
     fn add_custom_interpolation_diff(self) -> Self
     where
         C: SyncComponent + RepliconDiffable;
+
+    /// Add interpolation for this component using an explicit [`InterpolationFns`] rule.
+    ///
+    /// This is the chained equivalent of
+    /// [`AppInterpolationExt::interpolate_with`](crate::registry::AppInterpolationExt::interpolate_with):
+    /// it accepts any pipeline, including frame-only
+    /// ([`InterpolationFns::no_history`](crate::rules::InterpolationFns::no_history))
+    /// or history-only rules. The convenience methods above cover the common
+    /// cases; use this when they do not express what you need, for example a
+    /// frame-only rule for predicted velocities that should not own delayed
+    /// interpolation history.
+    fn interpolate_with(self, fns: InterpolationFns<C>) -> Self
+    where
+        C: SyncComponent;
+
+    /// Chained equivalent of
+    /// [`AppInterpolationExt::interpolate_diff_with`](crate::registry::AppInterpolationExt::interpolate_diff_with).
+    ///
+    /// Like [`Self::interpolate_with`], but for components replicated with
+    /// Replicon's diff-based mode.
+    fn interpolate_diff_with(self, fns: InterpolationFns<C>) -> Self
+    where
+        C: SyncComponent + RepliconDiffable;
 }
 
 impl<'a, C, R> InterpolationRegistrationExt<'a, C> for R
@@ -1231,6 +1254,36 @@ where
         Self::from_component_registration(add_custom_interpolation_diff_impl(
             self.into_component_registration(),
         ))
+    }
+
+    fn interpolate_with(self, fns: InterpolationFns<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        let registration = self.into_component_registration();
+        add_interpolation_rule::<C, ()>(
+            registration.app,
+            fns,
+            InterpolationRuleConfig {
+                priority: SINGLE_COMPONENT_RULE_PRIORITY,
+            },
+        );
+        Self::from_component_registration(registration)
+    }
+
+    fn interpolate_diff_with(self, fns: InterpolationFns<C>) -> Self
+    where
+        C: SyncComponent + RepliconDiffable,
+    {
+        let registration = self.into_component_registration();
+        add_interpolation_diff_rule::<C, ()>(
+            registration.app,
+            fns,
+            InterpolationRuleConfig {
+                priority: SINGLE_COMPONENT_RULE_PRIORITY,
+            },
+        );
+        Self::from_component_registration(registration)
     }
 }
 
@@ -2201,5 +2254,86 @@ mod tests {
             history.get_state_at(Tick(5)).and_then(HistoryState::value),
             Some(&TestDiffComponent(5))
         );
+    }
+
+    fn frame_only_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconPlugins,
+            crate::plugin::InterpolationMarkerPlugin,
+            crate::plugin::InterpolationPlugin,
+        ));
+        app
+    }
+
+    fn frame_only_rule_for<C: Component>(registry: &InterpolationRegistry) -> &InterpolationRule {
+        let kind = ComponentKind::of::<C>();
+        registry
+            .rules
+            .iter()
+            .find(|rule| rule.members().any(|member| member == kind))
+            .expect("frame-only rule should be registered")
+    }
+
+    fn assert_frame_only_rule<C: Component>(registry: &InterpolationRegistry) {
+        let rule = frame_only_rule_for::<C>(registry);
+        // The rule stores an interpolation function with a frame-apply
+        // callback, but owns no delayed-interpolation history or apply.
+        assert!(rule.interpolation.is_some());
+        assert!(rule.apply_frame_interpolation.is_some());
+        assert!(rule.apply_interpolation.is_none());
+        let member = rule
+            .members
+            .iter()
+            .find(|member| member.kind == ComponentKind::of::<C>())
+            .expect("rule should contain the component");
+        assert!(member.confirmed.is_none());
+        assert!(member.frame.is_some());
+    }
+
+    #[test]
+    fn chained_interpolate_with_registers_frame_only_rule() {
+        let mut app = frame_only_app();
+        app.component::<TestComp>()
+            .replicate()
+            .interpolate_with(InterpolationFns::no_history(lerp));
+
+        let registry = app.world().resource::<InterpolationRegistry>();
+        assert!(registry.interpolated::<TestComp>());
+        assert_frame_only_rule::<TestComp>(registry);
+    }
+
+    #[test]
+    fn chained_interpolate_with_context_registers_frame_only_rule() {
+        fn context_lerp(
+            start: TestComp,
+            end: TestComp,
+            ctx: InterpolationSampleContext,
+        ) -> TestComp {
+            lerp(start, end, ctx.t)
+        }
+
+        let mut app = frame_only_app();
+        app.component::<TestComp>()
+            .replicate()
+            .interpolate_with(InterpolationFns::no_history_with_context(context_lerp));
+
+        let registry = app.world().resource::<InterpolationRegistry>();
+        assert!(registry.interpolated::<TestComp>());
+        assert_frame_only_rule::<TestComp>(registry);
+    }
+
+    #[test]
+    fn chained_interpolate_diff_with_registers_frame_only_rule() {
+        let mut app = frame_only_app();
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.component::<TestDiffComponent>()
+            .replicate_diff()
+            .interpolate_diff_with(InterpolationFns::no_history(diff_lerp));
+
+        let registry = app.world().resource::<InterpolationRegistry>();
+        assert!(registry.interpolated::<TestDiffComponent>());
+        assert_frame_only_rule::<TestDiffComponent>(registry);
     }
 }
