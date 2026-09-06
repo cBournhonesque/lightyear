@@ -496,8 +496,7 @@ impl Transport {
     /// Buffers bytes directly in the channel sender.
     ///
     /// Requires exclusive access; producers should prefer the shared-access
-    /// `send_*` staging queue instead. This is the flush-time primitive used by
-    /// the transport send system, which owns `&mut self`.
+    /// `send_*` staging queue instead.
     pub fn send_mut_erased(
         &mut self,
         kind: ChannelKind,

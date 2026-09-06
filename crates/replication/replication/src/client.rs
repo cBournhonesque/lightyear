@@ -172,9 +172,7 @@ fn receive_client_packets(
 
 /// Send `ClientMessages` (acks) via transport to server.
 ///
-/// Drains `ClientMessages` and stages bytes on client_channels (MutationAcks)
-/// through the shared-access [`Transport`] queue, so this system only needs a
-/// shared borrow and can run in parallel with other producers.
+/// Drains `ClientMessages` and sends on client_channels (MutationAcks).
 fn send_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,

@@ -133,9 +133,7 @@ fn receive_server_packets(
 
 /// Send `ServerMessages` (replication data) via transport to peers.
 ///
-/// Drains `ServerMessages` and stages bytes on server_channels (Updates, Mutations)
-/// through the shared-access [`Transport`] queue, so this system only needs a
-/// shared borrow and can run in parallel with other producers.
+/// Drains `ServerMessages` and sends on server_channels (Updates, Mutations).
 fn send_server_packets(
     channel_map: Res<RepliconChannelMap>,
     mut server_messages: ResMut<ServerMessages>,
