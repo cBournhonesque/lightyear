@@ -1,9 +1,9 @@
 use crate::protocol::NativeInput as MyInput;
 use crate::stepper::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use test_log::test;
 use tracing::info;
@@ -27,12 +27,12 @@ fn test_remote_client_replicated_input() {
 
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
 
     // TEST
@@ -96,12 +96,12 @@ fn test_remote_client_predicted_input() {
 
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
     info!(?client_entity, "client entities");
 
@@ -169,12 +169,12 @@ fn test_host_client_inputers_replicated_to_remote_client() {
 
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
 
     // TEST

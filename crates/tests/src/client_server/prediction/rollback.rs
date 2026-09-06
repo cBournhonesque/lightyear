@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use bevy_replicon::prelude::{ClientSystems, RepliconTick};
 use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::time::Duration;
 use lightyear::input::native::prelude::InputMarker;
 use lightyear::prediction::Predicted;
@@ -19,7 +20,6 @@ use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{ConfirmedHistory, HistoryState, LocalTimeline, Tick};
-use lightyear_messages::MessageManager;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode, StateRollbackMetadata};
 use lightyear_prediction::prelude::*;
@@ -1162,12 +1162,12 @@ fn test_current_tick_confirmation_triggers_rollback() {
     // Replicate the predicted entity and run real fixed ticks on the client so its history is
     // populated through the normal FixedPostUpdate system.
     stepper.frame_step(2);
-    let predicted_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to the client");
     let current_tick = stepper.client_tick(0);
     assert!(
@@ -1264,12 +1264,12 @@ fn test_future_diff_insert_seeds_history_and_rolls_back_when_checkable() {
         .id();
 
     stepper.frame_step(2);
-    let predicted_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to the client");
     let current_tick = stepper.client_tick(0);
     let future_tick = current_tick + 3;
@@ -1887,48 +1887,48 @@ fn setup_stepper_for_input_rollback(
     );
 
     // add input-markers on client 1/2 so that they can send remote input messages
-    let client_entity_1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_1)
+    let client_entity_1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_1)
+        .copied()
         .expect("entity was not replicated to client");
     stepper.client_apps[1]
         .world_mut()
         .entity_mut(client_entity_1)
         .insert((InputMarker::<NativeInput>::default(),));
 
-    let client_entity_2 = stepper
-        .client(2)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_2)
+    let client_entity_2 = stepper.client_apps[2]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_2)
+        .copied()
         .expect("entity was not replicated to client");
     stepper.client_apps[2]
         .world_mut()
         .entity_mut(client_entity_2)
         .insert((InputMarker::<NativeInput>::default(),));
 
-    let client_entity_a = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_1)
+    let client_entity_a = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_1)
+        .copied()
         .expect("entity was not replicated to client");
     // we want to predict this entity
     stepper.client_apps[0]
         .world_mut()
         .entity_mut(client_entity_a)
         .insert((CompNotNetworked(1.0), DeterministicPredicted::default()));
-    let client_entity_b = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_2)
+    let client_entity_b = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_2)
+        .copied()
         .expect("entity was not replicated to client");
 
     // build a steady state where we have already received an input

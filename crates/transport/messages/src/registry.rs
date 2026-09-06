@@ -16,9 +16,7 @@ use core::hash::Hash;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
 use lightyear_core::prelude::{Tick, TimelineKind};
-use lightyear_serde::entity_map::{
-    ReceiveEntityMap, ReceiveMapView, RemoteEntityMap, SendEntityMap, SendMapView,
-};
+use lightyear_serde::entity_map::{ReceiveMapView, RemoteEntityMap, SendMapView};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
     ContextDeserializeFn, ContextDeserializeFns, ContextSerializeFn, ContextSerializeFns,
@@ -259,7 +257,7 @@ pub struct Context {
 }
 
 fn mapped_context_serialize<M: MapEntities + Clone>(
-    mapper: &SendEntityMap,
+    mapper: &SendMapView,
     message: &M,
     writer: &mut Writer,
     serialize_fn: SerializeFn<M>,
@@ -267,20 +265,20 @@ fn mapped_context_serialize<M: MapEntities + Clone>(
     let mut message = message.clone();
     // The view only exposes shared reads, so user mapping code runs without
     // requiring exclusive access to the entity map.
-    let mut view = SendMapView(mapper);
+    let mut view = *mapper;
     message.map_entities(&mut view);
     serialize_fn(&message, writer)
 }
 
 fn mapped_context_deserialize<M: MapEntities>(
-    mapper: &ReceiveEntityMap,
+    mapper: &ReceiveMapView,
     reader: &mut Reader,
     deserialize_fn: DeserializeFn<M>,
 ) -> core::result::Result<M, SerializationError> {
     let mut message = deserialize_fn(reader)?;
     // The view only exposes shared reads, so user mapping code runs without
     // requiring exclusive access to the entity map.
-    let mut view = ReceiveMapView(mapper);
+    let mut view = *mapper;
     message.map_entities(&mut view);
     Ok(message)
 }
@@ -289,8 +287,8 @@ impl MessageRegistry {
     pub(crate) fn register<M: Message, I: 'static>(
         &mut self,
         mode: MessageModeMetadata,
-        serialize: ContextSerializeFns<SendEntityMap, M, I>,
-        deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
+        serialize: ContextSerializeFns<M, I>,
+        deserialize: ContextDeserializeFns<M, I>,
     ) {
         trace!("Registering message: {}", DebugName::type_name::<M>());
         let kind = self.kind_map.add::<I>();
@@ -301,10 +299,7 @@ impl MessageRegistry {
         );
         self.hasher.hash::<M>();
 
-        let serialize_fns = ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
-            serialize,
-            deserialize,
-        );
+        let serialize_fns = ErasedSerializeFns::new::<M, I>(serialize, deserialize);
 
         let metadata = MessageMetadata {
             mode,
@@ -344,8 +339,8 @@ impl MessageRegistry {
         I: Clone + MapEntities + 'static,
     >(
         &mut self,
-        context_serialize: ContextSerializeFn<SendEntityMap, M, I>,
-        context_deserialize: ContextDeserializeFn<ReceiveEntityMap, M, I>,
+        context_serialize: ContextSerializeFn<M, I>,
+        context_deserialize: ContextDeserializeFn<M, I>,
     ) {
         let kind = MessageKind::of::<I>();
         let erased_fns = self
@@ -362,14 +357,14 @@ impl MessageRegistry {
         &self,
         message: &M,
         writer: &mut Writer,
-        entity_map: &SendEntityMap,
+        entity_map: &SendMapView,
     ) -> Result<(), MessageError> {
         let kind = MessageKind::of::<M>();
         let erased_fns = &self.metadata(&kind)?.serialize_fns;
         let net_id = self.kind_map.net_id(&kind).unwrap();
         net_id.to_bytes(writer)?;
         unsafe {
-            erased_fns.serialize::<SendEntityMap, M, M>(message, writer, entity_map)?;
+            erased_fns.serialize::<M, M>(message, writer, entity_map)?;
         }
         Ok(())
     }
@@ -377,7 +372,7 @@ impl MessageRegistry {
     pub(crate) fn deserialize<M: Message>(
         &self,
         reader: &mut Reader,
-        entity_map: &ReceiveEntityMap,
+        entity_map: &ReceiveMapView,
     ) -> Result<M, MessageError> {
         let net_id = NetId::from_bytes(reader)?;
         let kind = self
@@ -388,7 +383,7 @@ impl MessageRegistry {
         // SAFETY: the ErasedSerializeFns was created for the type M
         unsafe {
             erased_fns
-                .deserialize::<ReceiveEntityMap, M, M>(reader, entity_map)
+                .deserialize::<M, M>(reader, entity_map)
                 .map_err(Into::into)
         }
     }
@@ -524,6 +519,7 @@ mod tests {
     use bevy_ecs::entity::{Entity, EntityMapper};
     use bevy_ecs::event::Event;
     use lightyear_serde::SerializationError;
+    use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::writer::WriteInteger;
     use serde::Deserialize;
@@ -579,15 +575,23 @@ mod tests {
 
         let message = Message1(1.0);
         let mut writer = Writer::default();
+        let send_map = SendEntityMap::default();
+        let send_view = SendMapView {
+            shared: None,
+            local: &send_map,
+        };
         registry
-            .serialize(&message, &mut writer, &SendEntityMap::default())
+            .serialize(&message, &mut writer, &send_view)
             .unwrap();
         let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
-        let read = registry
-            .deserialize(&mut reader, &ReceiveEntityMap::default())
-            .unwrap();
+        let receive_map = ReceiveEntityMap::default();
+        let receive_view = ReceiveMapView {
+            shared: None,
+            local: &receive_map,
+        };
+        let read = registry.deserialize(&mut reader, &receive_view).unwrap();
         assert_eq!(message, read);
     }
 
@@ -602,15 +606,23 @@ mod tests {
 
         let message = Message2(1.0);
         let mut writer = Writer::default();
+        let send_map = SendEntityMap::default();
+        let send_view = SendMapView {
+            shared: None,
+            local: &send_map,
+        };
         registry
-            .serialize(&message, &mut writer, &SendEntityMap::default())
+            .serialize(&message, &mut writer, &send_view)
             .unwrap();
         let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
-        let read = registry
-            .deserialize(&mut reader, &ReceiveEntityMap::default())
-            .unwrap();
+        let receive_map = ReceiveEntityMap::default();
+        let receive_view = ReceiveMapView {
+            shared: None,
+            local: &receive_map,
+        };
+        let read = registry.deserialize(&mut reader, &receive_view).unwrap();
         assert_eq!(message, read);
     }
 
@@ -624,14 +636,23 @@ mod tests {
         let mut writer = Writer::default();
         let mut entity_map = SendEntityMap::default();
         entity_map.set_mapped(Entity::from_bits(1), Entity::from_bits(2));
+        let send_view = SendMapView {
+            shared: None,
+            local: &entity_map,
+        };
         registry
-            .serialize(&message, &mut writer, &entity_map)
+            .serialize(&message, &mut writer, &send_view)
             .unwrap();
         let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
+        let receive_map = ReceiveEntityMap::default();
+        let receive_view = ReceiveMapView {
+            shared: None,
+            local: &receive_map,
+        };
         let read = registry
-            .deserialize::<Message3>(&mut reader, &ReceiveEntityMap::default())
+            .deserialize::<Message3>(&mut reader, &receive_view)
             .unwrap();
         assert_eq!(read.0, Entity::from_bits(2));
     }

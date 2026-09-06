@@ -7,6 +7,7 @@ use bevy::prelude::{
 };
 use bevy::utils::default;
 use bevy_replicon::prelude::Signature;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::LocalTimeline;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
@@ -14,7 +15,6 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_core::prelude::Tick;
 use lightyear_core::timeline::is_in_rollback;
-use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
@@ -124,12 +124,12 @@ fn test_duplicate_prespawn_hash_keeps_first_candidate() {
     stepper.frame_step(1);
     stepper.frame_step(1);
 
-    let matched = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_prespawn)
+    let matched = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_prespawn)
+        .copied()
         .expect("entity is not present in entity map");
 
     assert_eq!(matched, client_prespawn_a);
@@ -181,19 +181,19 @@ fn test_prespawn_signature_for_client() {
 
     stepper.frame_step(2);
 
-    let client_0_mapped = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_prespawn)
+    let client_0_mapped = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_prespawn)
+        .copied()
         .unwrap();
-    let client_1_mapped = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_prespawn)
+    let client_1_mapped = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_prespawn)
+        .copied()
         .unwrap();
 
     assert_eq!(client_0_mapped, client_0_prespawn);
@@ -258,12 +258,12 @@ fn test_prespawn_reuses_hash_after_unmatched_local_despawn() {
         "the first unmatched local prespawn should stay despawned"
     );
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_prespawn)
+            .copied()
             .unwrap(),
         replacement_local
     );
@@ -309,12 +309,12 @@ fn test_prespawn_success() {
         .unwrap();
 
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_prespawn)
+            .copied()
             .unwrap(),
         client_prespawn
     );
@@ -369,12 +369,12 @@ fn test_matched_prespawn_despawned_on_rollback_before_spawn_tick() {
     stepper.frame_step(2);
 
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_prespawn)
+            .copied()
             .unwrap(),
         client_prespawn
     );
@@ -459,12 +459,12 @@ fn test_matched_prespawn_kept_on_rollback_at_or_after_spawn_tick() {
     stepper.frame_step(2);
 
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_prespawn)
+            .copied()
             .unwrap(),
         client_prespawn
     );
@@ -545,12 +545,12 @@ fn test_prespawn_confirmed_init_goes_to_history_without_overwriting_live_value()
     stepper.frame_step(2);
 
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_prespawn)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_prespawn)
+            .copied()
             .unwrap(),
         client_prespawn
     );
@@ -620,12 +620,12 @@ fn test_prespawn_client_missing() {
 
     // We couldn't match the entity based on hash
     // So we should have just spawned a predicted entity
-    let client_entity_2 = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_2)
+    let client_entity_2 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_2)
+        .copied()
         .expect("entity was not replicated to client");
 
     // the MapEntities component should have been mapped

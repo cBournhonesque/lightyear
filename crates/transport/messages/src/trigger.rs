@@ -10,7 +10,7 @@ use crate::registry::{
 };
 use crate::send_trigger::EventSender;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_serde::entity_map::{ReceiveEntityMap, ReceiveMapView, SendEntityMap, SendMapView};
+use lightyear_serde::entity_map::{ReceiveMapView, SendMapView};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
     ContextDeserializeFns, ContextSerializeFns, DeserializeFn, SerializeFn, SerializeFns,
@@ -119,7 +119,7 @@ impl AppTriggerExt for App {
 }
 
 fn trigger_serialize<M: Event>(
-    _: &SendEntityMap,
+    _: &SendMapView,
     message: &M,
     writer: &mut Writer,
     serialize: SerializeFn<M>,
@@ -130,7 +130,7 @@ fn trigger_serialize<M: Event>(
 }
 
 fn trigger_deserialize<M: Event>(
-    _: &ReceiveEntityMap,
+    _: &ReceiveMapView,
     reader: &mut Reader,
     deserialize: DeserializeFn<M>,
 ) -> Result<M, SerializationError> {
@@ -138,26 +138,26 @@ fn trigger_deserialize<M: Event>(
 }
 
 fn trigger_serialize_mapped<M: Event + MapEntities + Clone>(
-    mapper: &SendEntityMap,
+    mapper: &SendMapView,
     event: &M,
     writer: &mut Writer,
     serialize: SerializeFn<M>,
 ) -> Result<(), SerializationError> {
     let mut event = event.clone();
-    let mut view = SendMapView(mapper);
+    let mut view = *mapper;
     event.map_entities(&mut view);
     serialize(&event, writer)?;
     Ok(())
 }
 
 fn trigger_deserialize_mapped<M: Event + MapEntities>(
-    mapper: &ReceiveEntityMap,
+    mapper: &ReceiveMapView,
     reader: &mut Reader,
     deserialize: DeserializeFn<M>,
 ) -> Result<M, SerializationError> {
     // Serialize the trigger message
     let mut inner = deserialize(reader)?;
-    let mut view = ReceiveMapView(mapper);
+    let mut view = *mapper;
     inner.map_entities(&mut view);
     Ok(inner)
 }

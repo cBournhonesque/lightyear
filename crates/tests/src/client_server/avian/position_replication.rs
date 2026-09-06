@@ -4,9 +4,9 @@ use avian2d::math::Vector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_replicon::prelude::Remote;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::time::Duration;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
 use test_log::test;
 
@@ -91,19 +91,19 @@ fn test_replicate_position_child_rigidbody() {
         2.0
     );
 
-    let client_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_parent)
+    let client_parent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_parent)
+        .copied()
         .unwrap();
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
     assert_relative_eq!(
@@ -199,19 +199,19 @@ fn test_replicate_position_child_collider() {
     // Step enough for replication and hierarchy propagation.
     stepper.frame_step_server_first(2);
 
-    let client_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_parent)
+    let client_parent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_parent)
+        .copied()
         .unwrap();
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
     stepper

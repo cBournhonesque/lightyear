@@ -9,7 +9,7 @@ use bevy_ecs::{
     error::{BevyError, Result},
     system::{Local, Query, Res, SystemParam},
 };
-use lightyear_serde::entity_map::SendEntityMap;
+use lightyear_serde::entity_map::{SendEntityMap, SendMapView};
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::Channel;
 use lightyear_transport::prelude::Transport;
@@ -41,8 +41,14 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
         if !self.registry.is_map_entities::<M>()? {
             // TODO: serialize once for all senders. Figure out how to get a shared writer. Maybe on Server? Or as a global resource?
             //   or as Local?
+            // Local-only map: these messages carry no entities, so no lookup happens.
+            let empty = SendEntityMap::default();
+            let view = SendMapView {
+                shared: None,
+                local: &empty,
+            };
             self.registry
-                .serialize::<M>(message, &mut self.writer, &SendEntityMap::default())?;
+                .serialize::<M>(message, &mut self.writer, &view)?;
             let bytes = self.writer.take_written();
             let bytes_len = bytes.len();
             self.query
@@ -56,11 +62,14 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
             self.query
                 .iter_many_unique(senders)
                 .try_for_each(|(manager, transport)| {
-                    self.registry.serialize::<M>(
-                        message,
-                        &mut self.writer,
-                        &manager.entity_mapper.local_to_remote,
-                    )?;
+                    // Local-only map: `MultiMessageSender` is a server-side API
+                    // without access to the client's shared map.
+                    let view = SendMapView {
+                        shared: None,
+                        local: &manager.entity_mapper.local_to_remote,
+                    };
+                    self.registry
+                        .serialize::<M>(message, &mut self.writer, &view)?;
                     let bytes = self.writer.take_written();
                     #[cfg(feature = "metrics")]
                     metric_handles.record_send::<M>(bytes.len());

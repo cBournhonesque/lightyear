@@ -5,10 +5,8 @@ use bevy_state::prelude::*;
 #[cfg(any(feature = "prediction", feature = "interpolation"))]
 use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::*;
-use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
-use lightyear_messages::MessageManager;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
@@ -30,7 +28,8 @@ use tracing::error;
 /// - `ClientState` transitions (Connected when client connects)
 /// - Receiving `ClientMessages` (replication data from server) via transport
 /// - Sending `ClientMessages` (acks) via transport
-/// - Syncing replicon's `ServerEntityMap` to lightyear's `MessageManager` entity mapper
+/// - Marking `Client` connections to resolve message entity mappings through
+///   replicon's `ServerEntityMap` (no per-connection copy is kept)
 pub struct RepliconClientPlugin;
 
 impl Plugin for RepliconClientPlugin {
@@ -60,13 +59,11 @@ impl Plugin for RepliconClientPlugin {
             send_client_packets.in_set(ClientSystems::SendPackets),
         );
 
-        // Entity map bridge: replicon's ServerEntityMap -> lightyear's MessageManager entity_mapper
-        app.add_systems(
-            PreUpdate,
-            sync_entity_map
-                .after(ClientSystems::Receive)
-                .after(ServerSystems::Receive),
-        );
+        // Entity map bridge: message (de)serialization on local `Client`
+        // connections reads replicon's `ServerEntityMap` directly, with the
+        // local `MessageManager` map as fallback. No per-connection copy is
+        // kept, and no marker is needed: the connection kind is read straight
+        // from the `Client` component.
 
         // bevy_replicon's reset only clears the entity map; lightyear must clean up the actual
         // entities when their receiver disconnects or is removed.
@@ -227,31 +224,4 @@ fn on_replication_disconnect(
         debug!("Despawning replicated entity {:?} on disconnect", entity);
         commands.entity(entity).try_despawn();
     }
-}
-
-/// Sync replicon's `ServerEntityMap` entries to lightyear's `MessageManager.entity_mapper`.
-///
-/// This bridges replicon's entity tracking with lightyear's messaging entity map.
-fn sync_entity_map(
-    entity_map: Res<ServerEntityMap>,
-    mut managers: Query<&mut MessageManager, With<Client>>,
-    mut synced_entities: Local<bevy_platform::collections::HashSet<Entity>>,
-) {
-    if !entity_map.is_changed() {
-        return;
-    }
-
-    for mut mm in managers.iter_mut() {
-        for (server_entity, client_entity) in entity_map.to_client().iter() {
-            mm.entity_mapper.insert(*server_entity, *client_entity);
-        }
-        for server_entity in synced_entities.iter() {
-            if !entity_map.to_client().contains_key(server_entity) {
-                mm.entity_mapper.remove_by_remote(*server_entity);
-            }
-        }
-    }
-
-    synced_entities.retain(|server_entity| entity_map.to_client().contains_key(server_entity));
-    synced_entities.extend(entity_map.to_client().keys().copied());
 }

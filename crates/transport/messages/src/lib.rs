@@ -45,6 +45,7 @@ pub mod plugin;
 pub mod receive;
 mod receive_event;
 pub mod registry;
+pub mod replicon_map;
 pub mod send;
 mod send_trigger;
 #[cfg(feature = "server")]

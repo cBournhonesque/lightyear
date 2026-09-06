@@ -193,6 +193,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            // RepliconMapParam: replicon's shared entity map when the feature is on
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(Self::recv)
@@ -229,6 +231,8 @@ impl Plugin for MessagePlugin {
                     });
                 });
             }),
+            ParamBuilder,
+            // RepliconMapParam: replicon's shared entity map when the feature is on
             ParamBuilder,
         )
             .build_state(app.world_mut())

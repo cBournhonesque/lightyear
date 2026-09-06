@@ -7,6 +7,7 @@ use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::bei;
 use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIStateSequence};
 use lightyear::input::bei::prelude::BEIBuffer;
@@ -16,7 +17,6 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::*;
 use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
-use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned, PredictionTarget, Replicate};
 use lightyear_sync::prelude::client::{InputDelayConfig, InputTimelineConfig};
@@ -89,12 +89,12 @@ fn test_actions_on_replicated_context_entity() {
         .id();
     stepper.frame_step(3);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("context entity should be replicated to client");
 
     let (client_action, server_action) =
@@ -182,12 +182,12 @@ fn test_action_spawned_from_received_context_maps_back_to_server_entity() {
     stepper.frame_step(3);
 
     // On the client, spawn the matching action entity when the context arrives
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("context entity should be replicated to client");
 
     let client_action = stepper
@@ -235,12 +235,12 @@ fn test_bound_action_spawned_from_received_context_sends_inputs_after_mapping() 
 
     stepper.frame_step(3);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("context entity should be replicated to client");
 
     stepper.server_app.world_mut().spawn((
@@ -327,12 +327,12 @@ fn test_server_replicated_action_sends_inputs_after_client_adds_bindings() {
 
     stepper.frame_step(5);
 
-    let client_action = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_action)
+    let client_action = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_action)
+        .copied()
         .expect("action entity should be replicated to client");
 
     stepper
@@ -366,12 +366,12 @@ fn test_disabled_context_propagates_to_actions() {
         .id();
     stepper.frame_step(3);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
     let (client_action, server_action) =
         spawn_action_pair(&mut stepper, client_entity, server_entity, TEST_HASH + 1);
@@ -453,12 +453,12 @@ fn test_buffer_inputs_with_delay() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     let client_of_entity = stepper.client_of(0).id();
@@ -629,12 +629,12 @@ fn test_buffer_vec2_inputs_with_delay_preserves_buffered_action_value_dimension(
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     stepper.server_app.world_mut().spawn((
@@ -687,12 +687,12 @@ fn test_client_rollback() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     // Spawn action entities on both sides with PreSpawned
@@ -796,12 +796,12 @@ fn test_client_rollback_bei_events() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     // Spawn action entities on both sides with PreSpawned
@@ -920,12 +920,12 @@ fn test_input_broadcasting_prediction() {
     stepper.frame_step_server_first(1);
 
     // Get the predicted entities on both clients
-    let client0_predicted = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client0_predicted = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 0");
 
     // Spawn matching action entity on client 0 with PreSpawned + input mock
@@ -953,12 +953,12 @@ fn test_input_broadcasting_prediction() {
         ))
         .id();
 
-    let client1_predicted = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client1_predicted = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 1");
 
     stepper.frame_step(5);

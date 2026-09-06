@@ -1,6 +1,7 @@
 use crate::protocol::{CompFull, CompSimple};
 use crate::stepper::*;
 use bevy::prelude::Component;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::*;
 
 #[derive(Component, Debug, PartialEq)]
@@ -23,12 +24,12 @@ fn test_despawned_predicted_rollback() {
         ))
         .id();
     stepper.frame_step(2);
-    let predicted_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     // check that a rollback occurred to add the components on the predicted entity

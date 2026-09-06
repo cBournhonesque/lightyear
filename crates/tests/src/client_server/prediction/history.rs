@@ -1,6 +1,7 @@
 use super::*;
 use crate::protocol::{CompA, CompCorr, CompFull};
 use bevy::prelude::{Add, Commands, Component, Entity, On, Query, With};
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::*;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_prediction::Predicted;
@@ -42,7 +43,6 @@ fn test_prediction_history_received_from_initial_marker() {
     use crate::stepper::*;
     use lightyear::prelude::ConfirmHistory;
     use lightyear_connection::network_target::NetworkTarget;
-    use lightyear_messages::MessageManager;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::{PredictionTarget, Replicate};
 
@@ -89,12 +89,12 @@ fn test_prediction_history_received_from_initial_marker() {
     // Let the entity replicate to the client
     stepper.frame_step(2);
 
-    let predicted_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
 
     // The client entity should have Predicted after receiving PredictedSend.
@@ -185,7 +185,6 @@ fn test_prediction_history_received_from_initial_marker() {
 fn test_manual_predicted_marker_backfills_existing_replicated_component() {
     use lightyear::prelude::ConfirmHistory;
     use lightyear_connection::network_target::NetworkTarget;
-    use lightyear_messages::MessageManager;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::Replicate;
 
@@ -197,12 +196,12 @@ fn test_manual_predicted_marker_backfills_existing_replicated_component() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
     assert!(
         stepper
@@ -247,7 +246,6 @@ fn test_manual_predicted_marker_backfills_existing_replicated_component() {
 #[test]
 fn test_manual_predicted_and_component_does_not_seed_confirmed_history() {
     use lightyear_connection::network_target::NetworkTarget;
-    use lightyear_messages::MessageManager;
     use lightyear_replication::prelude::Replicate;
 
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -258,12 +256,12 @@ fn test_manual_predicted_and_component_does_not_seed_confirmed_history() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
     stepper
         .client_app()
@@ -284,7 +282,6 @@ fn test_manual_predicted_and_component_does_not_seed_confirmed_history() {
 #[test]
 fn test_server_insert_on_existing_predicted_entity_triggers_rollback() {
     use bevy::prelude::*;
-    use lightyear_messages::MessageManager;
     use lightyear_replication::prelude::{PredictionTarget, Replicate};
 
     #[derive(Resource, Default)]
@@ -312,12 +309,12 @@ fn test_server_insert_on_existing_predicted_entity_triggers_rollback() {
         .id();
 
     stepper.frame_step(2);
-    let predicted_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to the client");
     assert!(
         stepper
@@ -367,7 +364,6 @@ fn test_server_insert_on_existing_predicted_entity_triggers_rollback() {
 #[test]
 fn test_two_server_inserts_are_both_applied_by_one_rollback() {
     use bevy::prelude::*;
-    use lightyear_messages::MessageManager;
     use lightyear_replication::prelude::{PredictionTarget, Replicate};
 
     #[derive(Resource, Default)]
@@ -395,12 +391,12 @@ fn test_two_server_inserts_are_both_applied_by_one_rollback() {
         .id();
 
     stepper.frame_step(2);
-    let predicted_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to the client");
     let client_entity = stepper.client_app().world().entity(predicted_entity);
     assert!(!client_entity.contains::<CompFull>());

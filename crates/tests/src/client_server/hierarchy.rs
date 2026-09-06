@@ -2,9 +2,9 @@
 
 use crate::stepper::*;
 use bevy::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::*;
 use lightyear_core::prediction::Predicted;
-use lightyear_messages::MessageManager;
 use lightyear_replication::visibility::immediate::VisibilityExt;
 use test_log::test;
 
@@ -24,12 +24,12 @@ fn test_spawn_with_child() {
         .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     let server_child = stepper
@@ -38,12 +38,12 @@ fn test_spawn_with_child() {
         .spawn((ChildOf(server_entity),))
         .id();
     stepper.frame_step(2);
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .expect("entity is not present in entity map");
     assert_eq!(
         stepper
@@ -91,19 +91,19 @@ fn test_hierarchy_replication() {
     stepper.frame_step(2);
 
     // check that the parent got replicated, along with the hierarchy information
-    let client_grandparent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(grandparent)
+    let client_grandparent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&grandparent)
+        .copied()
         .expect("entity is not present in entity map");
-    let client_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(parent)
+    let client_parent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&parent)
+        .copied()
         .expect("entity is not present in entity map");
 
     let (client_parent, client_parent_component) = stepper
@@ -181,12 +181,12 @@ fn test_child_overrides_prediction_target() {
         ))
         .id();
     stepper.frame_step_server_first(1);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     let server_child = stepper
@@ -197,12 +197,12 @@ fn test_child_overrides_prediction_target() {
         .spawn((ChildOf(server_entity), InterpolationTarget::manual(vec![])))
         .id();
     stepper.frame_step_server_first(1);
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .expect("entity is not present in entity map");
     assert_eq!(
         stepper
@@ -253,22 +253,22 @@ fn test_hierarchy_visibility_propagates_to_children() {
 
     // Both parent and child should be visible to both clients initially
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_some(),
         "client 1 should see parent"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_some(),
         "client 1 should see child"
     );
@@ -284,24 +284,24 @@ fn test_hierarchy_visibility_propagates_to_children() {
 
     // Parent should be hidden for client 1
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_none(),
         "client 1 should not see parent after lose_visibility"
     );
 
     // Child should also be hidden — lose_visibility propagates through the ChildOf hierarchy
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_none(),
         "child should not be visible after lose_visibility on parent"
     );
@@ -326,12 +326,12 @@ fn test_hierarchy_visibility_late_child_stays_hidden() {
 
     // Both clients see the parent initially
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_some(),
         "client 1 should see parent"
     );
@@ -345,12 +345,12 @@ fn test_hierarchy_visibility_late_child_stays_hidden() {
         .lose_visibility(server_parent, sender_1);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_none(),
         "client 1 should not see parent after lose_visibility"
     );
@@ -374,23 +374,23 @@ fn test_hierarchy_visibility_late_child_stays_hidden() {
     );
     // Client 0 (parent still visible) should see the late child
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_some(),
         "client 0 should see late-spawned child"
     );
     // Client 1 (parent hidden) should NOT see the late child
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_none(),
         "late-spawned child should inherit lose_visibility from parent"
     );
@@ -421,12 +421,12 @@ fn test_hierarchy_visibility_child_override() {
     stepper.frame_step(2);
 
     let is_visible = |stepper: &ClientServerStepper, entity: Entity| {
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&entity)
+            .copied()
             .is_some()
     };
     let is_marked = |stepper: &ClientServerStepper| {
@@ -584,12 +584,12 @@ fn test_hierarchy_replicate_child_overrides_target_inherits_rooms() {
     );
 
     let is_visible = |stepper: &ClientServerStepper, client: usize, entity: Entity| {
-        stepper
-            .client(client)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(entity)
+        stepper.client_apps[client]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&entity)
+            .copied()
             .is_some()
     };
     // client 0 sees both; client 1 sees neither: the child's own target
@@ -663,42 +663,42 @@ fn test_hierarchy_rooms_propagate_to_children() {
 
     // parent is in room A: only client 0 sees parent and child
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_some(),
         "client 0 should see parent in room A"
     );
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_some(),
         "client 0 should see child of parent in room A"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_none(),
         "client 1 should not see parent in room A"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_none(),
         "client 1 should not see child of parent in room A"
     );
@@ -712,42 +712,42 @@ fn test_hierarchy_rooms_propagate_to_children() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_none(),
         "client 0 should not see parent after it moved to room B"
     );
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_none(),
         "client 0 should not see child after parent moved to room B"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_some(),
         "client 1 should see parent after it moved to room B"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_some(),
         "client 1 should see child after parent moved to room B"
     );
@@ -761,22 +761,22 @@ fn test_hierarchy_rooms_propagate_to_children() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_some(),
         "client 0 should see parent after joining room B"
     );
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_some(),
         "client 0 should see child after joining room B"
     );
@@ -874,12 +874,12 @@ fn test_hierarchy_rooms_child_override() {
     );
 
     let is_visible = |stepper: &ClientServerStepper, client: usize, entity: Entity| {
-        stepper
-            .client(client)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(entity)
+        stepper.client_apps[client]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&entity)
+            .copied()
             .is_some()
     };
     // parent and plain child follow room A; the override follows room B
@@ -962,12 +962,12 @@ fn test_root_prediction_target_switch_propagates_to_child() {
         .spawn(ChildOf(server_root))
         .id();
     stepper.frame_step_server_first(4);
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .expect("child should be replicated");
 
     // the child cloned the root's target and the client predicts it

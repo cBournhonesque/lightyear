@@ -4,11 +4,11 @@ use bevy::prelude::*;
 use bevy_enhanced_input::action::mock::{ActionMock, MockSpan};
 use bevy_enhanced_input::action::{Action, TriggerState};
 use bevy_enhanced_input::prelude::{ActionOf, ActionValue, Actions, Fire};
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::bei::input_message::BEIBuffer;
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::input::input_buffer::Compressed;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned, PredictionTarget, Replicate};
 
 const TEST_HASH: u64 = 42;
@@ -48,19 +48,19 @@ fn test_rebroadcast() {
     stepper.frame_step_server_first(1);
 
     // Get the predicted entities on both clients
-    let client0_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client0_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 1");
-    let client1_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client1_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 2");
 
     // Spawn matching action entity on client 0 with PreSpawned, then let the
@@ -147,12 +147,12 @@ fn test_host_client_action_rebroadcasts_to_remote_client() {
 
     stepper.frame_step_server_first(1);
 
-    let remote_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let remote_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to remote client");
 
     // The host client lives in the server app, so driving the server-side action entity
@@ -257,12 +257,12 @@ fn test_remote_client_action_updates_server_action_state_in_host_server() {
 
     stepper.frame_step_server_first(1);
 
-    let remote_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let remote_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to remote client");
     let remote_action = stepper.client_apps[0]
         .world()
