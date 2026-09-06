@@ -16,6 +16,7 @@ use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
+use crate::send::ReplicationSender;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::{error, trace};
 
@@ -31,6 +32,10 @@ impl Plugin for RepliconServerPlugin {
     fn build(&self, app: &mut App) {
         // When Connected is added to a link entity, add replicon's ConnectedClient + NetworkId
         app.add_observer(on_client_connected);
+        // Gate replication (not messaging) on ReplicationSender via ClientVisibility.
+        app.add_observer(strip_client_visibility_without_sender);
+        app.add_observer(admit_client_visibility_with_sender);
+        app.add_observer(remove_client_visibility_with_sender_removed);
 
         // State management
         app.add_observer(on_server_started);
@@ -93,6 +98,70 @@ fn on_client_connected(
 
     for entity in hosts.iter() {
         commands.entity(entity).insert(ClientVisibility::default());
+    }
+}
+
+/// Only links with [`ReplicationSender`](crate::send::ReplicationSender) participate in replication.
+///
+/// `ClientVisibility` is what admits a link into replicon's send loop, so it is
+/// kept exactly on connected server-side links that also have `ReplicationSender`.
+/// Links without it stay connected (messages still flow) but receive no replication.
+/// Host links keep their existing manual insert in [`on_client_connected`].
+fn strip_client_visibility_without_sender(
+    trigger: On<Add, ClientVisibility>,
+    links: Query<
+        (),
+        (
+            With<ClientOf>,
+            Without<HostClient>,
+            Without<ReplicationSender>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    if links.contains(trigger.entity) {
+        commands.entity(trigger.entity).remove::<ClientVisibility>();
+    }
+}
+
+/// Admit a connected link into replication once it gains [`ReplicationSender`](crate::send::ReplicationSender).
+///
+/// Inserting `ClientVisibility` triggers [`handle_new_client_visibility`](crate::send::handle_new_client_visibility),
+/// which evaluates pre-existing entities for the link.
+fn admit_client_visibility_with_sender(
+    trigger: On<Add, ReplicationSender>,
+    links: Query<
+        (),
+        (
+            With<ClientOf>,
+            Without<HostClient>,
+            With<Connected>,
+            Without<ClientVisibility>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    if links.contains(trigger.entity) {
+        commands
+            .entity(trigger.entity)
+            .insert(ClientVisibility::default());
+    }
+}
+
+/// Stop replicating to a link that loses [`ReplicationSender`](crate::send::ReplicationSender).
+///
+/// Without `ClientVisibility` replicon's send loop skips the link; re-adding the
+/// marker re-admits it via [`admit_client_visibility_with_sender`].
+fn remove_client_visibility_with_sender_removed(
+    trigger: On<Remove, ReplicationSender>,
+    links: Query<(), (With<ClientOf>, Without<HostClient>, With<ClientVisibility>)>,
+    mut commands: Commands,
+) {
+    if trigger.trigger().new_archetype.is_none() {
+        return;
+    }
+    if links.contains(trigger.entity) {
+        commands.entity(trigger.entity).remove::<ClientVisibility>();
     }
 }
 

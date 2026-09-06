@@ -26,6 +26,7 @@ impl Display for LocalId {
 #[derive(
     Debug, Component, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect, Deref,
 )]
+#[component(immutable)]
 pub struct RemoteId(pub PeerId);
 
 impl Display for RemoteId {

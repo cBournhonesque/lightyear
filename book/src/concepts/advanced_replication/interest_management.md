@@ -16,7 +16,7 @@ There are two main advantages:
 
 Visibility is per (entity, client-link) pair: the server only replicates an entity through links it is currently visible to. Visibility is cached, so once you mark an entity visible to a client it stays relevant until you change it again.
 
-Note that `Replicate`'s target is still the outer gate: a client outside the target never receives the entity, no matter the visibility. Visibility only narrows things further.
+`Replicate`'s target composes with visibility as a logical AND: a client outside the target never receives the entity, no matter the visibility. Visibility only narrows things further.
 
 There are two ways to manage it.
 

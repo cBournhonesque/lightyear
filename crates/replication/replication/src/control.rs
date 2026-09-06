@@ -1,19 +1,16 @@
-use crate::send::ReplicationSender;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin};
-use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::{RuleFns, ScopeLifetime, SingleComponent};
-use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
-use bevy_replicon::server::visibility::filters_mask::FilterBit;
-use bevy_replicon::server::visibility::registry::FilterRegistry;
+use bevy_replicon::prelude::{
+    AppVisibilityExt, RuleFns, ScopeLifetime, SingleComponent, VisibilityFilter,
+};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
-use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::host::HostClient;
+use lightyear_core::id::RemoteId;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -62,38 +59,21 @@ pub struct ControlledBy {
     pub lifetime: Lifetime,
 }
 
+/// `ControlledSend` is receiver-local: only the owning client sees it.
+///
+/// `RemoteId` is only the required client-component slot; the predicate uses
+/// the link entity itself, so links without an id receive nothing.
+impl VisibilityFilter for ControlledBy {
+    type ClientComponent = RemoteId;
+    type Scope = SingleComponent<ControlledSend>;
+    const LIFETIME: ScopeLifetime = ScopeLifetime::WhileVisible;
+
+    fn is_visible(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+        remote.is_some_and(|_| client == self.owner)
+    }
+}
+
 impl ControlledBy {
-    fn on_insert(
-        trigger: On<Add, ControlledBy>,
-        controlled_by: Query<&ControlledBy>,
-        control_bit: Res<ControlBit>,
-        mut sender: Query<(Entity, &mut ClientVisibility), With<ReplicationSender>>,
-    ) {
-        let visibility_bit = control_bit.0;
-        let owner_entity = controlled_by.get(trigger.entity).unwrap().owner;
-        // ControlledSend is receiver-local: only the owning client should see it.
-        for (sender_entity, mut visibility) in sender.iter_mut() {
-            if sender_entity == owner_entity {
-                visibility.set(trigger.entity, visibility_bit, true);
-            } else {
-                visibility.set(trigger.entity, visibility_bit, false);
-            }
-        }
-    }
-
-    fn on_discard(
-        trigger: On<Discard, ControlledBy>,
-        controlled_by: Query<&ControlledBy>,
-        control_bit: Res<ControlBit>,
-        mut sender: Query<&mut ClientVisibility, With<ReplicationSender>>,
-    ) {
-        let visibility_bit = control_bit.0;
-        let sender_entity = controlled_by.get(trigger.entity).unwrap().owner;
-        if let Ok(mut visibility) = sender.get_mut(sender_entity) {
-            visibility.set(trigger.entity, visibility_bit, false);
-        }
-    }
-
     pub(crate) fn handle_disconnection(
         trigger: On<Add, Disconnected>,
         mut commands: Commands,
@@ -173,34 +153,15 @@ pub enum Lifetime {
     Persistent,
 }
 
-/// Component-level visibility for [`ControlledSend`]
-#[derive(Resource, Deref)]
-pub struct ControlBit(FilterBit);
-
-impl FromWorld for ControlBit {
-    fn from_world(world: &mut World) -> Self {
-        let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
-            world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<SingleComponent<ControlledSend>>(
-                    world,
-                    &mut registry,
-                    ScopeLifetime::WhileVisible,
-                )
-            })
-        });
-        Self(bit)
-    }
-}
-
 pub struct ControlPlugin;
 
 impl Plugin for ControlPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ControlBit>();
+        // `ControlledBy` is a `VisibilityFilter`: Replicon evaluates it on
+        // insertion and on link changes, replacing the previous manual writes.
         // ControlledSend is registered in SharedComponentRegistrationPlugin
         // so its wire ID and custom Controlled receive behavior match.
-        app.add_observer(ControlledBy::on_insert);
-        app.add_observer(ControlledBy::on_discard);
+        app.add_visibility_filter::<ControlledBy>();
         app.add_observer(ControlledBy::handle_disconnection);
         app.add_observer(emulate_controlled_on_host_client_added);
         app.add_observer(emulate_controlled_on_add);
