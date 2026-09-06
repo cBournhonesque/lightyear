@@ -176,13 +176,13 @@ fn receive_client_packets(
 fn send_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,
-    mut transports: Query<&mut Transport, (With<Client>, With<ReplicationReceiver>)>,
+    transports: Query<&Transport, (With<Client>, With<ReplicationReceiver>)>,
 ) {
     for (channel_idx, message) in client_messages.drain_sent() {
         let (channel_kind, _) = channel_map.client_channels[channel_idx];
-        for mut transport in transports.iter_mut() {
+        for transport in transports.iter() {
             transport
-                .send_mut_erased(channel_kind, message.clone(), 1.0)
+                .send_erased(channel_kind, message.clone(), 1.0)
                 .ok();
         }
     }

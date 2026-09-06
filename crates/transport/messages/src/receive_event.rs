@@ -228,7 +228,7 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
     message_id: Option<MessageId>,
     target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &mut ReceiveEntityMap,
+    entity_map: &ReceiveEntityMap,
     from: PeerId,
 ) -> Result<(), MessageError>;
 
@@ -270,7 +270,7 @@ pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
     message_id: Option<MessageId>,
     target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &mut ReceiveEntityMap,
+    entity_map: &ReceiveEntityMap,
     from: PeerId,
 ) -> Result<(), MessageError> {
     let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
