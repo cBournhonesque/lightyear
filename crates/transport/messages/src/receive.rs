@@ -281,7 +281,7 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
     message_id: Option<MessageId>,
     target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &mut ReceiveEntityMap,
+    entity_map: &ReceiveEntityMap,
 ) -> Result<(), MessageError>;
 
 pub(crate) type ReceiveLocalMessageFn = unsafe fn(
@@ -354,7 +354,7 @@ impl<M: Message> MessageReceiver<M> {
         message_id: Option<MessageId>,
         target_timeline: Option<TimelineKind>,
         serialize_metadata: &ErasedSerializeFns,
-        entity_map: &mut ReceiveEntityMap,
+        entity_map: &ReceiveEntityMap,
     ) -> Result<(), MessageError> {
         let insert_receiver = receiver.is_none();
         let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
@@ -478,7 +478,7 @@ impl MessagePlugin {
         tick: Tick,
         message_id: Option<MessageId>,
         target_timeline: Option<TimelineKind>,
-        message_manager: &mut MessageManager,
+        message_manager: &MessageManager,
         commands: &ParallelCommands,
         remote_peer_id: PeerId,
     ) -> Result<(), MessageError> {
@@ -551,7 +551,7 @@ impl MessagePlugin {
                         message_id,
                         target_timeline,
                         serialize_fns,
-                        &mut message_manager.entity_mapper.remote_to_local,
+                        &message_manager.entity_mapper.remote_to_local,
                     )
                 }
             }
@@ -573,7 +573,7 @@ impl MessagePlugin {
                         message_id,
                         target_timeline,
                         serialize_fns,
-                        &mut message_manager.entity_mapper.remote_to_local,
+                        &message_manager.entity_mapper.remote_to_local,
                         remote_peer_id,
                     )
                 }
@@ -593,7 +593,7 @@ impl MessagePlugin {
             //  them directly to the host-server's MessageReceiver<M>)
             (
                 Entity,
-                &mut MessageManager,
+                &MessageManager,
                 &mut Transport,
                 &RemoteId,
                 Option<&mut HostClient>,
@@ -612,13 +612,7 @@ impl MessagePlugin {
         let receiver_query = &receiver_query;
         let transport_query = adaptive_for_each_mut!(transport_query);
         transport_query.for_each(
-            |(
-                entity,
-                mut message_manager,
-                mut transport,
-                remote_peer_id,
-                mut host_client,
-            )| {
+            |(entity, message_manager, mut transport, remote_peer_id, mut host_client)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
                 // enable split borrows
@@ -647,7 +641,7 @@ impl MessagePlugin {
                             tick,
                             None,
                             target_timeline,
-                            &mut message_manager,
+                            message_manager,
                             &commands,
                             remote_peer_id.0,
                         ) {
@@ -677,7 +671,7 @@ impl MessagePlugin {
                                     tick,
                                     message_id,
                                     target_timeline,
-                                    &mut message_manager,
+                                    message_manager,
                                     &commands,
                                     remote_peer_id.0,
                                 )?;

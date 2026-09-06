@@ -53,7 +53,7 @@ impl<C, M, I> ContextSerializeFns<C, M, I> {
     }
     pub fn serialize(
         self,
-        context: &mut C,
+        context: &C,
         message: &M,
         writer: &mut Writer,
     ) -> Result<(), SerializationError> {
@@ -86,11 +86,7 @@ impl<C, M, I> ContextDeserializeFns<C, M, I> {
             deserialize: self.deserialize,
         }
     }
-    pub fn deserialize(
-        self,
-        context: &mut C,
-        reader: &mut Reader,
-    ) -> Result<M, SerializationError> {
+    pub fn deserialize(self, context: &C, reader: &mut Reader) -> Result<M, SerializationError> {
         (self.context_deserialize)(context, reader, self.deserialize)
     }
 }
@@ -125,7 +121,7 @@ type ErasedSerializeFn = unsafe fn(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: &mut SendEntityMap,
+    entity_map: &SendEntityMap,
 ) -> Result<(), SerializationError>;
 
 /// Type of the serialize function without entity mapping
@@ -137,12 +133,12 @@ pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationEr
 #[doc(hidden)]
 /// Type of the serialize function with entity mapping
 pub type ContextSerializeFn<C, M, I> =
-    fn(&mut C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
+    fn(&C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
 
 #[doc(hidden)]
 /// Type of the deserialize function with entity mapping
 pub type ContextDeserializeFn<C, M, I> =
-    fn(&mut C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
+    fn(&C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
 
 #[allow(unused)]
 pub type CloneFn<M> = fn(&M) -> M;
@@ -151,7 +147,7 @@ pub type CloneFn<M> = fn(&M) -> M;
 pub type ErasedMapEntitiesFn = for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap);
 
 fn default_context_serialize<C, M>(
-    _: &mut C,
+    _: &C,
     message: &M,
     writer: &mut Writer,
     serialize_fn: SerializeFn<M>,
@@ -160,7 +156,7 @@ fn default_context_serialize<C, M>(
 }
 
 fn default_context_deserialize<C, M>(
-    _: &mut C,
+    _: &C,
     reader: &mut Reader,
     deserialize_fn: DeserializeFn<M>,
 ) -> Result<M, SerializationError> {
@@ -219,7 +215,7 @@ unsafe fn erased_serialize_fn<M: 'static>(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: &mut SendEntityMap,
+    entity_map: &SendEntityMap,
 ) -> Result<(), SerializationError> {
     unsafe {
         // SAFETY: the Ptr was created for the message of type M
@@ -293,7 +289,7 @@ impl ErasedSerializeFns {
         &self,
         message: &M,
         writer: &mut Writer,
-        context: &mut C,
+        context: &C,
     ) -> Result<(), SerializationError> {
         let serialize: SerializeFn<I> = unsafe { core::mem::transmute(self.serialize) };
         let context_serialize: ContextSerializeFn<C, M, I> =
@@ -308,7 +304,7 @@ impl ErasedSerializeFns {
     pub unsafe fn deserialize<C, M: 'static, I>(
         &self,
         reader: &mut Reader,
-        context: &mut C,
+        context: &C,
     ) -> Result<M, SerializationError> {
         let deserialize: DeserializeFn<I> = unsafe { core::mem::transmute(self.deserialize) };
         let context_deserialize: ContextDeserializeFn<C, M, I> =

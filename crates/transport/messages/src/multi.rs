@@ -19,7 +19,7 @@ use lightyear_transport::prelude::Transport;
 /// 2) send a message without needing to clone it
 #[derive(SystemParam)]
 pub struct MultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
-    pub(crate) query: Query<'w, 's, (&'static mut MessageManager, &'static mut Transport), F>,
+    pub(crate) query: Query<'w, 's, (&'static MessageManager, &'static Transport), F>,
     pub(crate) registry: Res<'w, MessageRegistry>,
     // TODO: should we let users provide their own Writer?
     pub(crate) writer: Local<'s, Writer>,
@@ -41,15 +41,12 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
         if !self.registry.is_map_entities::<M>()? {
             // TODO: serialize once for all senders. Figure out how to get a shared writer. Maybe on Server? Or as a global resource?
             //   or as Local?
-            self.registry.serialize::<M>(
-                message,
-                &mut self.writer,
-                &mut SendEntityMap::default(),
-            )?;
+            self.registry
+                .serialize::<M>(message, &mut self.writer, &SendEntityMap::default())?;
             let bytes = self.writer.take_written();
             let bytes_len = bytes.len();
             self.query
-                .iter_many_unique_mut(senders)
+                .iter_many_unique(senders)
                 .try_for_each(|(_, transport)| {
                     #[cfg(feature = "metrics")]
                     metric_handles.record_send::<M>(bytes_len);
@@ -57,13 +54,12 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                 })?;
         } else {
             self.query
-                .iter_many_unique_mut(senders)
-                .try_for_each(|(mut manager, transport)| {
+                .iter_many_unique(senders)
+                .try_for_each(|(manager, transport)| {
                     self.registry.serialize::<M>(
                         message,
                         &mut self.writer,
-                        // TODO: ideally we could do entity mapping without Mut!!!
-                        &mut manager.entity_mapper.local_to_remote,
+                        &manager.entity_mapper.local_to_remote,
                     )?;
                     let bytes = self.writer.take_written();
                     #[cfg(feature = "metrics")]

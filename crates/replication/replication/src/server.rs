@@ -133,11 +133,13 @@ fn receive_server_packets(
 
 /// Send `ServerMessages` (replication data) via transport to peers.
 ///
-/// Drains `ServerMessages` and sends on server_channels (Updates, Mutations).
+/// Drains `ServerMessages` and stages bytes on server_channels (Updates, Mutations)
+/// through the shared-access [`Transport`] queue, so this system only needs a
+/// shared borrow and can run in parallel with other producers.
 fn send_server_packets(
     channel_map: Res<RepliconChannelMap>,
     mut server_messages: ResMut<ServerMessages>,
-    mut transports: Query<&mut Transport, With<ClientOf>>,
+    transports: Query<&Transport, With<ClientOf>>,
 ) {
     for (client, channel_idx, message) in server_messages.drain_sent() {
         let (channel_kind, _) = channel_map.server_channels[channel_idx];
@@ -147,8 +149,8 @@ fn send_server_packets(
             channel_idx,
             client
         );
-        if let Ok(mut transport) = transports.get_mut(client) {
-            transport.send_mut_erased(channel_kind, message, 1.0).ok();
+        if let Ok(transport) = transports.get(client) {
+            transport.send_erased(channel_kind, message, 1.0).ok();
         } else {
             trace!("send_server_packets: no transport for client {:?}", client);
         }

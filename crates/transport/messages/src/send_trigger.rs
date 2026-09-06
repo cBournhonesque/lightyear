@@ -52,7 +52,7 @@ impl<M: Event> EventSender<M> {
         net_id: MessageNetId,
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
-        entity_map: &mut SendEntityMap,
+        entity_map: &SendEntityMap,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `trigger_sender` must be of type `TriggerSender<M>`
         let mut sender = unsafe { trigger_sender.with_type::<Self>() };
@@ -181,7 +181,7 @@ pub(crate) type SendTriggerFn = unsafe fn(
     message_net_id: MessageNetId,
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &mut SendEntityMap,
+    entity_map: &SendEntityMap,
 ) -> Result<(), MessageError>;
 
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type
