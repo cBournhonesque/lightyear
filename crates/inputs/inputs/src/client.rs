@@ -44,7 +44,7 @@
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   read the backend's state component (restored from the [`InputBuffer`] each tick).
 
-use crate::config::{InputConfig, SharedInputConfig};
+use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 #[cfg(feature = "prediction")]
 use crate::input_message::resolve_prespawned_target;
@@ -172,7 +172,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.init_resource::<SharedInputConfig>();
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
         // Client input systems may be installed in a combined client/server app. Keep their

@@ -4,7 +4,10 @@ use core::time::Duration;
 use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 
-// TODO: add builder functions on InputPlugin to add
+/// Tuning for one input type's client↔server exchange.
+///
+/// Obtain with [`InputConfig::new`] and chain the `with_*` builders, or use a
+/// struct literal with `..Default::default()`.
 #[derive(Debug, Reflect, Resource)]
 pub struct InputConfig<A> {
     #[cfg(feature = "interpolation")]
@@ -13,13 +16,19 @@ pub struct InputConfig<A> {
     ///
     /// See: <https://developer.valvesoftware.com/wiki/Lag_Compensation>
     pub lag_compensation: bool,
-    /// How many consecutive packets losses do we want to handle?
-    /// This is used to compute the redundancy of the input messages.
-    /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
-    ///  for the 3 last packets.
+    /// How many consecutive packet losses to survive.
+    ///
+    /// Each message repeats the inputs for the last `packet_redundancy` send
+    /// windows (see `send_interval`). Higher values cost bandwidth per message
+    /// but recover from longer loss bursts. `0` disables history: messages then
+    /// carry only `end_tick`, which still advances the receiver's confirmed
+    /// frontier as a keepalive.
     pub packet_redundancy: u16,
-    /// How often do we send input messages to the server?
-    /// Duration::default() means that we will send input messages every frame.
+    /// Minimum time between input messages.
+    ///
+    /// `Duration::default()` (zero) means one message per frame. Larger values
+    /// batch more ticks into each message: the covered window scales as
+    /// `(send_interval / tick_duration + 1) * packet_redundancy` ticks.
     pub send_interval: Duration,
     /// If true, the actions won't be rolled back when a rollback happens.
     ///
@@ -41,8 +50,9 @@ impl<A> Clone for InputConfig<A> {
     }
 }
 
-impl<A> Default for InputConfig<A> {
-    fn default() -> Self {
+impl<A> InputConfig<A> {
+    /// Default config; chain `with_*` to tune.
+    pub fn new() -> Self {
         InputConfig {
             #[cfg(feature = "interpolation")]
             lag_compensation: false,
@@ -53,11 +63,63 @@ impl<A> Default for InputConfig<A> {
             marker: PhantomData,
         }
     }
+
+    /// See [`InputConfig::packet_redundancy`].
+    pub fn with_packet_redundancy(mut self, packet_redundancy: u16) -> Self {
+        self.packet_redundancy = packet_redundancy;
+        self
+    }
+
+    /// See [`InputConfig::send_interval`].
+    pub fn with_send_interval(mut self, send_interval: Duration) -> Self {
+        self.send_interval = send_interval;
+        self
+    }
+
+    /// See [`InputConfig::ignore_rollbacks`].
+    pub fn with_ignore_rollbacks(mut self, ignore_rollbacks: bool) -> Self {
+        self.ignore_rollbacks = ignore_rollbacks;
+        self
+    }
+
+    /// See [`InputConfig::rebroadcast_inputs`].
+    pub fn with_rebroadcast_inputs(mut self, rebroadcast_inputs: bool) -> Self {
+        self.rebroadcast_inputs = rebroadcast_inputs;
+        self
+    }
+
+    /// See [`InputConfig::lag_compensation`].
+    #[cfg(feature = "interpolation")]
+    pub fn with_lag_compensation(mut self, lag_compensation: bool) -> Self {
+        self.lag_compensation = lag_compensation;
+        self
+    }
 }
 
-/// Input config shared across all Action types.
-/// Used to avoid creating some systems multiple times
-#[derive(Default, Resource)]
-pub(crate) struct SharedInputConfig {
-    pub(crate) reset_last_confirmed_system_added: bool,
+impl<A> Default for InputConfig<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_sets_fields() {
+        let config = InputConfig::<u8>::new()
+            .with_packet_redundancy(2)
+            .with_send_interval(Duration::from_millis(50))
+            .with_ignore_rollbacks(true)
+            .with_rebroadcast_inputs(true);
+        assert_eq!(config.packet_redundancy, 2);
+        assert_eq!(config.send_interval, Duration::from_millis(50));
+        assert!(config.ignore_rollbacks);
+        assert!(config.rebroadcast_inputs);
+
+        let default = InputConfig::<u8>::default();
+        assert_eq!(default.packet_redundancy, 5);
+        assert!(!default.rebroadcast_inputs);
+    }
 }
