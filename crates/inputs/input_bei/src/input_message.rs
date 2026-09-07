@@ -8,7 +8,10 @@ use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
-use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
+use lightyear_inputs::input_message::{
+    ActionStateQueryData, ActionStateSequence, InputSnapshot, first_buffered_tick,
+    message_start_tick,
+};
 use serde::{Deserialize, Serialize};
 
 pub type BEIBuffer<C> = InputBuffer<ActionsSnapshot, C>;
@@ -207,18 +210,14 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
     ) -> Option<Self> {
         let mut diffs = Vec::new();
         // find the first tick for which we have an `TriggerState` buffered
-        let mut start_tick = end_tick - num_ticks + 1;
-        while start_tick <= end_tick {
-            if input_buffer.get(start_tick).is_some() {
-                break;
-            }
-            start_tick += 1;
-        }
-
-        // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
-        if start_tick > end_tick {
+        let Some(start_tick) = first_buffered_tick(
+            input_buffer,
+            message_start_tick(end_tick, num_ticks as usize),
+            end_tick,
+        ) else {
+            // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
             return None;
-        }
+        };
         let start_state = *input_buffer.get(start_tick).unwrap();
         let mut tick = start_tick + 1;
         let (mut cur_state, mut cur_value) = (start_state.state, start_state.value);
@@ -623,5 +622,30 @@ mod tests {
 
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
         assert_eq!(earliest_mismatch, Some(Tick(7)));
+    }
+
+    /// Build → send → update roundtrip preserves fired state/value.
+    #[test]
+    fn test_build_update_roundtrip() {
+        let mut sender = BEIBuffer::<Context1>::default();
+        let mut fired = ActionsSnapshot::default();
+        fired.state = TriggerState::Fired;
+        fired.value = ActionValue::Bool(true);
+        for tick in 5..=8u32 {
+            sender.set(Tick(tick), fired);
+        }
+        let sequence =
+            BEIStateSequence::<Context1>::build_from_input_buffer(&sender, 4, Tick(8)).unwrap();
+
+        let mut receiver = BEIBuffer::<Context1>::default();
+        sequence.update_buffer(&mut receiver, Tick(8), Duration::default());
+        for tick in 5..=8u32 {
+            let snapshot = receiver
+                .get(Tick(tick))
+                .unwrap_or_else(|| panic!("missing input at tick {tick}"));
+            // (events/time are recomputed on receipt; state and value must survive)
+            assert_eq!(snapshot.state, TriggerState::Fired, "fired at {tick}");
+            assert_eq!(snapshot.value, ActionValue::Bool(true));
+        }
     }
 }

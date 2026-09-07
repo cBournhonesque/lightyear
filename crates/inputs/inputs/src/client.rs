@@ -48,7 +48,7 @@ use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
-    PerTargetData, StateMut, StateRef,
+    PerTargetData, StateMut, StateRef, resolve_prespawned_target,
 };
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
@@ -388,16 +388,6 @@ fn input_target(
         "P2P input target {entity:?} must have a PreSpawned component with a resolved hash"
     );
     InputTarget::Entity(entity)
-}
-
-#[inline]
-fn matches_prespawned_target(
-    hash: u64,
-    p2p_link: Option<Entity>,
-    pre_spawned: &PreSpawned,
-) -> bool {
-    pre_spawned.hash.is_some_and(|candidate| candidate == hash)
-        && p2p_link.is_none_or(|link| pre_spawned.receiver == Some(link))
 }
 
 // equivalent to &ActionState<S::Action>
@@ -1049,11 +1039,15 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
                     );
                     None
                 }
-                InputTarget::PreSpawned(hash) => {
-                    prespawned.iter().find_map(|(entity, pre_spawned)| {
-                        matches_prespawned_target(hash, p2p_link, pre_spawned).then_some(entity)
-                    })
-                }
+                InputTarget::PreSpawned(hash) => resolve_prespawned_target(
+                    prespawned
+                        .iter()
+                        .map(|(entity, pre_spawned)| {
+                            (entity, pre_spawned.hash, pre_spawned.receiver)
+                        }),
+                    hash,
+                    p2p_link,
+                ),
             }) else {
                 if message.rebroadcast {
                     debug!(
@@ -1559,15 +1553,27 @@ mod tests {
         let mut world = World::new();
         let owner = world.spawn_empty().id();
         let other = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
         let pre_spawned = PreSpawned::new(0xCAFE).for_receiver(owner);
+        let candidates = || core::iter::once((target, pre_spawned.hash, pre_spawned.receiver));
 
-        assert!(matches_prespawned_target(0xCAFE, Some(owner), &pre_spawned));
-        assert!(!matches_prespawned_target(
-            0xCAFE,
-            Some(other),
-            &pre_spawned
-        ));
-        assert!(matches_prespawned_target(0xCAFE, None, &pre_spawned));
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xCAFE, Some(owner)),
+            Some(target)
+        );
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xCAFE, Some(other)),
+            None
+        );
+        // server-side handling passes no link and matches any hash
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xCAFE, None),
+            Some(target)
+        );
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xBEEF, Some(owner)),
+            None
+        );
     }
 
     #[test]

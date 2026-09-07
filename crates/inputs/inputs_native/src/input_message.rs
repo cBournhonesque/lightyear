@@ -7,7 +7,7 @@ use core::fmt::Debug;
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
-use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
+use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot, message_start_tick};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -80,8 +80,12 @@ impl<
         end_tick: Tick,
     ) -> Option<Self> {
         let buffer_start_tick = input_buffer.start_tick?;
-        // find the first tick for which we have an `ActionState` buffered
-        let start_tick = max(end_tick - num_ticks + 1, buffer_start_tick);
+        // Clamp the canonical window to the buffered range. (Unlike leafwing/BEI,
+        // native tolerates a leading gap: `Absent` is preserved on the wire.)
+        let start_tick = max(
+            message_start_tick(end_tick, num_ticks as usize),
+            buffer_start_tick,
+        );
 
         // find the initial state, (which we convert out of SameAsPrecedent)
         let start_state = input_buffer
@@ -274,6 +278,25 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);
         assert_eq!(input_buffer.get(Tick(9)), None);
+    }
+
+    /// Build → send → update roundtrip preserves every tick.
+    #[test]
+    fn test_build_update_roundtrip() {
+        let mut sender = InputBuffer::default();
+        sender.set(Tick(5), ActionState(0));
+        sender.set(Tick(6), ActionState(0));
+        sender.set(Tick(7), ActionState(1));
+        sender.set(Tick(8), ActionState(1));
+        let sequence =
+            NativeStateSequence::<i32>::build_from_input_buffer(&sender, 4, Tick(8)).unwrap();
+
+        let mut receiver = InputBuffer::default();
+        let mismatch = sequence.update_buffer(&mut receiver, Tick(8), Duration::default());
+        assert_eq!(mismatch, Some(Tick(5)));
+        for (tick, value) in [(5u32, 0), (6, 0), (7, 1), (8, 1)] {
+            assert_eq!(receiver.get(Tick(tick)), Some(&ActionState(value)));
+        }
     }
 
     /// Check that everything after the mismatch is cleared

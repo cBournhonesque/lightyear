@@ -43,6 +43,55 @@ pub enum InputTarget {
     PreSpawned(u64),
 }
 
+/// First tick covered by a message/sequence spanning `len` ticks ending at `end_tick`.
+///
+/// Canonical range form (`end_tick + 1 - len`, saturating at zero), shared by
+/// buffer updates, history-rewrite detection, and the backends' message builders
+/// (which additionally clamp or search to their buffered range).
+pub fn message_start_tick(end_tick: Tick, len: usize) -> Tick {
+    end_tick + 1 - len as u32
+}
+
+/// First tick in `[start, end]` that actually has a buffered input, if any.
+///
+/// Leafwing/BEI builders need a real snapshot as `start_state` and cannot start
+/// from an `Absent` gap, so they advance past unbuffered ticks with this.
+/// (Native tolerates a leading gap instead: its wire preserves `Absent`.)
+pub fn first_buffered_tick<S: Clone + PartialEq, M>(
+    buffer: &InputBuffer<S, M>,
+    start: Tick,
+    end: Tick,
+) -> Option<Tick> {
+    let mut tick = start;
+    while tick <= end {
+        if buffer.get(tick).is_some() {
+            return Some(tick);
+        }
+        tick = tick + 1;
+    }
+    None
+}
+
+/// Resolve a prespawned-hash input target to a local entity.
+///
+/// `candidates` are `(entity, hash, receiver)` triples from local `PreSpawned` state.
+/// `link` scopes the match: direct P2P inputs (`Some`) only resolve hashes owned
+/// by the sending link, while server-side handling (`None`) matches any hash —
+/// the rebroadcast path already scoped the sender, so that asymmetry is preserved as-is.
+pub fn resolve_prespawned_target(
+    candidates: impl IntoIterator<Item = (Entity, Option<u64>, Option<Entity>)>,
+    hash: u64,
+    link: Option<Entity>,
+) -> Option<Entity> {
+    candidates
+        .into_iter()
+        .find_map(|(entity, candidate, receiver)| {
+            (candidate.is_some_and(|candidate| candidate == hash)
+                && link.is_none_or(|link| receiver == Some(link)))
+            .then_some(entity)
+        })
+}
+
 /// Contains the input data for a specific target entity over a range of ticks.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Reflect)]
 pub struct PerTargetData<S> {
@@ -169,7 +218,7 @@ pub trait ActionStateSequence:
         let mut previous_predicted_input =
             last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
         let mut earliest_mismatch: Option<Tick> = None;
-        let start_tick = end_tick + 1 - self.len() as u32;
+        let start_tick = message_start_tick(end_tick, self.len());
         let mut latest_received_input = None;
 
         // the first value is guaranteed to not be SameAsPrecedent

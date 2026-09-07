@@ -6,6 +6,7 @@ use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
+    message_start_tick, resolve_prespawned_target,
 };
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
@@ -408,8 +409,11 @@ fn receive_input_message<S: ActionStateSequence>(
                     // so that other clients can resolve them via normal entity mapping.
                     for input in message.inputs.iter_mut() {
                         if let InputTarget::PreSpawned(hash) = input.target
-                            && let Some(server_e) = prespawned.iter()
-                                .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                            && let Some(server_e) = resolve_prespawned_target(
+                                prespawned.iter().map(|(e, p)| (e, p.hash, p.receiver)),
+                                hash,
+                                None,
+                            )
                         {
                             input.target = InputTarget::Entity(server_e);
                         }
@@ -470,9 +474,11 @@ fn receive_input_message<S: ActionStateSequence>(
                         debug!(?hash, "Received input for prespawned entity");
                         // PreSpawnedReceiver only stores lifecycle ticks and entities, so resolve
                         // the hash against server-side input entities.
-                        prespawned
-                            .iter()
-                            .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()
+                        resolve_prespawned_target(
+                            prespawned.iter().map(|(e, p)| (e, p.hash, p.receiver)),
+                            hash,
+                            None,
+                        )
                     }
                 }) else {
                     debug!(?data.states, ?data.target, end_tick = ?message.end_tick, "received input message for unrecognized entity");
@@ -652,7 +658,11 @@ fn detect_input_history_rewrite<S: ActionStateSequence>(
     let last_remote_tick = input_buffer.last_remote_tick?;
     let buffer_start_tick = input_buffer.start_tick?;
     let buffer_end_tick = input_buffer.end_tick()?;
-    let start_tick = end_tick + 1 - states.len() as u32;
+    // NOTE: this deliberately shares only the range math with `update_buffer`.
+    // The comparison cores stay separate: here raw incoming vs stored buffer at
+    // confirmed ticks (logging only), there decayed-prediction vs incoming for
+    // new ticks (drives rollback). Merging them would couple the two purposes.
+    let start_tick = message_start_tick(end_tick, states.len());
     let mut incoming = None;
     for (delta, input) in states.get_snapshots_from_message(tick_duration).enumerate() {
         let tick = start_tick + lightyear_core::tick::Tick(delta as u32);
