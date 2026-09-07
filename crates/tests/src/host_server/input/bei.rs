@@ -309,14 +309,20 @@ fn assert_buffer_contains_fired_input(buffer: &BEIBuffer<BEIContext>, label: &st
 }
 
 fn buffer_contains_fired_input(buffer: &BEIBuffer<BEIContext>) -> bool {
-    buffer.buffer.iter().any(|input| {
-        matches!(
-            input,
-            Compressed::Input(snapshot)
-                if snapshot.state == TriggerState::Fired
-                    && snapshot.value == ActionValue::Bool(true)
-        )
-    })
+    let (Some(start), Some(end)) = (buffer.start_tick, buffer.end_tick()) else {
+        return false;
+    };
+    let mut tick = start;
+    while tick <= end {
+        if let Compressed::Input(snapshot) = buffer.get_raw(tick)
+            && snapshot.state == TriggerState::Fired
+            && snapshot.value == ActionValue::Bool(true)
+        {
+            return true;
+        }
+        tick = tick + 1;
+    }
+    false
 }
 
 fn find_action_with_fired_input(world: &World, context: Entity, label: &str) -> Entity {

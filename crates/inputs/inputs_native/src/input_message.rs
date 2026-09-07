@@ -90,19 +90,17 @@ impl<
         let mut states = vec![start_state];
 
         // append the other states until the end tick
-        let buffer_start = (start_tick + 1 - buffer_start_tick) as usize;
-        let buffer_end = (end_tick + 1 - buffer_start_tick) as usize;
-        for idx in buffer_start..buffer_end {
-            let state =
-                input_buffer
-                    .buffer
-                    .get(idx)
-                    .map_or(Compressed::Absent, |input| match input {
-                        Compressed::Absent => Compressed::Absent,
-                        Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-                        Compressed::Input(v) => v.into(),
-                    });
+        // (`get_raw` returns `Absent` past the buffer end, matching the old
+        // out-of-range `map_or` fallback.)
+        let mut tick = start_tick + 1;
+        while tick <= end_tick {
+            let state = match input_buffer.get_raw(tick) {
+                Compressed::Absent => Compressed::Absent,
+                Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
+                Compressed::Input(v) => v.into(),
+            };
             states.push(state);
+            tick = tick + 1;
         }
         Some(Self { states })
     }
@@ -200,16 +198,12 @@ mod tests {
     /// buffer's start tick
     #[test]
     fn test_update_buffer_from_sequence_lower_start_tick() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([
-                Compressed::Input(ActionState(0)),
-                Compressed::SameAsPrecedent,
-                Compressed::SameAsPrecedent,
-            ]),
-            last_remote_tick: Some(Tick(12)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Input(0), SameAsPrecedent, SameAsPrecedent]
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set(Tick(11), ActionState(0));
+        input_buffer.set(Tick(12), ActionState(0));
+        input_buffer.last_remote_tick = Some(Tick(12));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // tick 7
@@ -238,16 +232,12 @@ mod tests {
 
     #[test]
     fn test_update_buffer_from_sequence_absent() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([
-                Compressed::Input(ActionState(0)),
-                Compressed::Absent,
-                Compressed::SameAsPrecedent,
-            ]),
-            last_remote_tick: Some(Tick(12)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Input(0), Absent, SameAsPrecedent]
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set_empty(Tick(11));
+        input_buffer.set_raw(Tick(12), Compressed::SameAsPrecedent);
+        input_buffer.last_remote_tick = Some(Tick(12));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // Tick 11
@@ -264,12 +254,11 @@ mod tests {
 
     #[test]
     fn test_update_buffer_from_sequence_present() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([Compressed::Absent, Compressed::SameAsPrecedent]),
-            last_remote_tick: Some(Tick(11)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Absent, SameAsPrecedent]
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set_empty(Tick(10));
+        input_buffer.set_raw(Tick(11), Compressed::SameAsPrecedent);
+        input_buffer.last_remote_tick = Some(Tick(11));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // Tick 9
@@ -290,12 +279,11 @@ mod tests {
     /// Check that everything after the mismatch is cleared
     #[test]
     fn test_update_buffer_from_sequence_clip_after() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([Compressed::Absent, Compressed::Input(ActionState(3))]),
-            last_remote_tick: Some(Tick(9)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Absent, Input(3)]
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set_empty(Tick(10));
+        input_buffer.set(Tick(11), ActionState(3));
+        input_buffer.last_remote_tick = Some(Tick(9));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // Tick 10

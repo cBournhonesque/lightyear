@@ -45,9 +45,9 @@ use tracing::{debug, error, trace};
 /// `end_tick > server_tick + MAX_INPUT_LOOKAHEAD_TICKS` are dropped before
 /// they are written into the [`InputBuffer`].
 ///
-/// Without this bound, [`InputBuffer::extend_to_range`] / [`InputBuffer::set_raw`]
-/// extend the internal `VecDeque` to fit *any* tick value (filling intermediate
-/// entries with `Absent` / `SameAsPrecedent`). A modified client sending
+/// Without this bound, [`InputBuffer::set_raw`] gap-filling extends the internal
+/// ring to fit *any* tick value (filling intermediate entries with
+/// `SameAsPrecedent`, evicting the oldest past capacity). A modified client sending
 /// `end_tick = current + 30_000` would cause a 30 000-entry allocation per
 /// message; repeated across messages and connections, the server is
 /// memory-exhausted.
