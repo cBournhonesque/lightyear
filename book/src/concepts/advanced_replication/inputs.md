@@ -23,3 +23,16 @@ Input handling runs across several schedules. The `InputSystems` sets involved, 
 On the server the inputs arrive as messages, get buffered per client, and are then served tick-by-tick: when the server simulates tick T, it hands your systems the inputs the client buffered for tick T. That's the tick-sync guarantee: your input for tick T runs on the server at tick T.
 
 The practical consequence is the same as before: read inputs from the `ActionState<I>` component, and run the simulation that consumes them in the `FixedUpdate` schedule.
+
+## Tick pipeline (skeleton)
+
+Per-frame flow for local inputs (delay `d`, usually 0): `WriteClientInputs` (you write the
+`ActionState`) → `BufferClientInputs` (buffered at tick `now + d`; with delay, the sim tick's
+input is reloaded from the buffer) → `FixedUpdate` (your simulation) → `RestoreInputs`
+(re-points the component at the newest input when delayed) → `PrepareInputMessage` (packs the
+last ticks with redundancy, `end_tick = now + d`) → `Sync` (adjusts ticks on timeline shift) →
+`SendInputMessage` → `CleanUp` (drops old ticks).
+
+Inputs for remote players arrive via server rebroadcast (or directly from peers in P2P),
+update the per-entity input buffer, and trigger a rollback when they correct an
+already-simulated tick. Details (buffer semantics, scheduling table) land here in E1/E6.
