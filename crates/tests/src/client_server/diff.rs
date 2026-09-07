@@ -7,13 +7,13 @@ use bevy_replicon::prelude::{EntityDiffExt, RepliconPlugins, RepliconTick, RuleF
 use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::{
     InterpolationMarkerPlugin, InterpolationPlugin, InterpolationRegistrationExt,
     PredictionBuilderExt,
 };
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{ConfirmedHistory, HistoryState, Interpolated};
-use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::manager::PredictionManager;
 use lightyear_prediction::plugin::{PredictionMarkerPlugin, PredictionPlugin};
@@ -24,12 +24,12 @@ use lightyear_replication::prelude::{
 use serde::Serialize;
 
 fn client_entity(stepper: &ClientServerStepper, server_entity: Entity) -> Entity {
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap()
 }
 

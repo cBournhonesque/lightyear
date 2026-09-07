@@ -11,7 +11,7 @@ use bevy_utils::prelude::DebugName;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::{Tick, TimelineRegistry};
 use lightyear_serde::ToBytes;
-use lightyear_serde::entity_map::SendEntityMap;
+use lightyear_serde::entity_map::SendMapView;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
@@ -52,7 +52,7 @@ impl<M: Event> EventSender<M> {
         net_id: MessageNetId,
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
-        entity_map: &SendEntityMap,
+        entity_map: &SendMapView,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `trigger_sender` must be of type `TriggerSender<M>`
         let mut sender = unsafe { trigger_sender.with_type::<Self>() };
@@ -68,11 +68,7 @@ impl<M: Event> EventSender<M> {
             net_id.to_bytes(&mut sender.writer)?;
             // SAFETY: the message has been checked to be of type `M`.
             unsafe {
-                serialize_metadata.serialize::<SendEntityMap, M, M>(
-                    &event,
-                    &mut sender.writer,
-                    entity_map,
-                )?
+                serialize_metadata.serialize::<M, M>(&event, &mut sender.writer, entity_map)?
             };
             let bytes = sender.writer.take_written();
             trace!(
@@ -181,7 +177,7 @@ pub(crate) type SendTriggerFn = unsafe fn(
     message_net_id: MessageNetId,
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &SendEntityMap,
+    entity_map: &SendMapView,
 ) -> Result<(), MessageError>;
 
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type

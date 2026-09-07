@@ -193,6 +193,8 @@ impl Plugin for MessagePlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            // RepliconMapParam: replicon's shared entity map when the feature is on
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(Self::recv)
@@ -229,6 +231,8 @@ impl Plugin for MessagePlugin {
                     });
                 });
             }),
+            ParamBuilder,
+            // RepliconMapParam: replicon's shared entity map when the feature is on
             ParamBuilder,
         )
             .build_state(app.world_mut())
@@ -323,7 +327,9 @@ mod tests {
     use alloc::{vec, vec::Vec};
     use bevy_ecs::event::Event;
     use bevy_ecs::prelude::{Component, Entity, ResMut, Resource};
-    use lightyear_connection::client::{Client, Connected};
+    #[cfg(feature = "client")]
+    use lightyear_connection::client::Client;
+    use lightyear_connection::client::Connected;
     use lightyear_connection::direction::NetworkDirection;
     use lightyear_connection::host::HostClient;
     use lightyear_core::id::{PeerId, RemoteId};
@@ -856,7 +862,13 @@ mod tests {
         assert_eq!(messages, vec![M(3)]);
     }
 
+    // Requires the `client` feature: without it `add_direction` is a no-op and
+    // no senders are registered, so this test would fail. (The `Client`
+    // component type itself is always compiled, which is why this fails at
+    // runtime rather than at compile time. It passes in CI only because the
+    // multi-package invocation unifies the facade's features onto this crate.)
     #[test]
+    #[cfg(feature = "client")]
     fn direction_adds_senders_but_not_receivers() {
         let mut app = message_test_app(true);
         let client = app.world_mut().spawn(Client).id();

@@ -15,6 +15,7 @@ client = ["lightyear_connection/client"]
 server = ["lightyear_link", "lightyear_connection/server"]
 test_utils = []
 metrics = ["dep:metrics"]
+replicon = ["dep:bevy_replicon"]
 
 [dependencies]
 lightyear_link = { workspace = true, optional = true }
@@ -38,6 +39,9 @@ bevy_app.workspace = true
 bevy_ecs = { workspace = true, features = ["serialize"] }
 bevy_reflect.workspace = true
 bevy_utils.workspace = true
+
+# optional integration with replicon's shared entity map (no_std compatible)
+bevy_replicon = { workspace = true, optional = true }
 
 [dev-dependencies]
 lightyear_link.workspace = true

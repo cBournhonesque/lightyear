@@ -1,6 +1,7 @@
 use crate::MessageManager;
 use crate::plugin::{MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
+use crate::replicon_map::RepliconMapParam;
 use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -8,14 +9,14 @@ use bevy_ecs::{
     component::Component,
     entity::Entity,
     event::Event,
-    query::With,
+    query::{Has, With},
     system::{ParallelCommands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
 use lightyear_core::prelude::{TimelineKind, TimelineRegistry};
 use lightyear_core::tick::Tick;
 use lightyear_serde::ToBytes;
-use lightyear_serde::entity_map::ReceiveEntityMap;
+use lightyear_serde::entity_map::ReceiveMapView;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
@@ -26,7 +27,7 @@ use lightyear_utils::ready_buffer::ReadyBuffer;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_utils::prelude::DebugName;
 use bytes::Bytes;
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_serde::registry::ErasedSerializeFns;
@@ -281,7 +282,7 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
     message_id: Option<MessageId>,
     target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &ReceiveEntityMap,
+    entity_map: &ReceiveMapView,
 ) -> Result<(), MessageError>;
 
 pub(crate) type ReceiveLocalMessageFn = unsafe fn(
@@ -354,10 +355,10 @@ impl<M: Message> MessageReceiver<M> {
         message_id: Option<MessageId>,
         target_timeline: Option<TimelineKind>,
         serialize_metadata: &ErasedSerializeFns,
-        entity_map: &ReceiveEntityMap,
+        entity_map: &ReceiveMapView,
     ) -> Result<(), MessageError> {
         let insert_receiver = receiver.is_none();
-        let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
+        let message = unsafe { serialize_metadata.deserialize::<M, M>(reader, entity_map)? };
         if let Some(receiver) = receiver {
             // SAFETY: the callback and component id are registered for Self.
             let mut receiver = unsafe { receiver.with_type::<Self>() };
@@ -478,7 +479,7 @@ impl MessagePlugin {
         tick: Tick,
         message_id: Option<MessageId>,
         target_timeline: Option<TimelineKind>,
-        message_manager: &MessageManager,
+        entity_map: &ReceiveMapView,
         commands: &ParallelCommands,
         remote_peer_id: PeerId,
     ) -> Result<(), MessageError> {
@@ -551,7 +552,7 @@ impl MessagePlugin {
                         message_id,
                         target_timeline,
                         serialize_fns,
-                        &message_manager.entity_mapper.remote_to_local,
+                        entity_map,
                     )
                 }
             }
@@ -573,7 +574,7 @@ impl MessagePlugin {
                         message_id,
                         target_timeline,
                         serialize_fns,
-                        &message_manager.entity_mapper.remote_to_local,
+                        entity_map,
                         remote_peer_id,
                     )
                 }
@@ -597,6 +598,7 @@ impl MessagePlugin {
                 &mut Transport,
                 &RemoteId,
                 Option<&mut HostClient>,
+                Has<Client>,
             ),
             With<Connected>,
         >,
@@ -606,17 +608,25 @@ impl MessagePlugin {
         channel_registry: Res<ChannelRegistry>,
         timeline_registry: Res<TimelineRegistry>,
         commands: ParallelCommands,
+        replicon: RepliconMapParam,
     ) {
         // Each outer query item accesses receivers on a different entity, so workers can safely
         // share the query before taking their disjoint unsafe reborrows below.
         let receiver_query = &receiver_query;
+        let replicon = &replicon;
         let transport_query = adaptive_for_each_mut!(transport_query);
         transport_query.for_each(
-            |(entity, message_manager, mut transport, remote_peer_id, mut host_client)| {
+            |(entity, message_manager, mut transport, remote_peer_id, mut host_client, is_client)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
                 // enable split borrows
                 let transport = &mut *transport;
+                // Host-client delivery keeps the connection-local map: the shared
+                // replicon map describes the host's client-side view, not this buffer.
+                let view = ReceiveMapView {
+                    shared: replicon.shared_recv_map(is_client && host_client.is_none()),
+                    local: &message_manager.entity_mapper.remote_to_local,
+                };
                 // TODO: we can run this in parallel using rayon!
                 if let Some(host_client) = host_client.as_mut() {
                     // Host-client messages already carry their channel kind, so they do not need
@@ -641,7 +651,7 @@ impl MessagePlugin {
                             tick,
                             None,
                             target_timeline,
-                            message_manager,
+                            &view,
                             &commands,
                             remote_peer_id.0,
                         ) {
@@ -671,7 +681,7 @@ impl MessagePlugin {
                                     tick,
                                     message_id,
                                     target_timeline,
-                                    message_manager,
+                                    &view,
                                     &commands,
                                     remote_peer_id.0,
                                 )?;

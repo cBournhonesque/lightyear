@@ -2,6 +2,7 @@ use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 #[cfg(feature = "metrics")]
 use crate::registry::MessageMetricHandles;
 use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
+use crate::replicon_map::RepliconMapParam;
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::lifecycle::HookContext;
@@ -9,17 +10,17 @@ use bevy_ecs::{
     change_detection::MutUntyped,
     component::Component,
     entity::Entity,
-    query::{With, Without},
+    query::{Has, With, Without},
     system::{ParallelCommands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, Tick, TimelineRegistry};
 use lightyear_serde::ToBytes;
-use lightyear_serde::entity_map::SendEntityMap;
+use lightyear_serde::entity_map::SendMapView;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
@@ -77,7 +78,7 @@ pub(crate) type SendMessageFn = unsafe fn(
     message_net_id: MessageNetId,
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &SendEntityMap,
+    entity_map: &SendMapView,
     #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
 ) -> Result<(), MessageError>;
 
@@ -123,7 +124,7 @@ impl<M: Message> MessageSender<M> {
         net_id: MessageNetId,
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
-        entity_map: &SendEntityMap,
+        entity_map: &SendMapView,
         #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
@@ -138,7 +139,7 @@ impl<M: Message> MessageSender<M> {
                 net_id.to_bytes(&mut sender.writer)?;
                 // SAFETY: the message has been checked to be of type `M`.
                 unsafe {
-                    serialize_metadata.serialize::<SendEntityMap, M, M>(
+                    serialize_metadata.serialize::<M, M>(
                         &message,
                         &mut sender.writer,
                         entity_map,
@@ -280,96 +281,104 @@ impl MessagePlugin {
     /// Serialize them into bytes that are buffered in a [`Transport`]
     pub fn send(
         mut transport_query: Query<
-            (Entity, &Transport, &MessageManager),
+            (Entity, &Transport, &MessageManager, Has<Client>),
             (With<Connected>, Without<HostClient>),
         >,
         // MessageSender<M> present on that entity
         message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
+        replicon: RepliconMapParam,
     ) {
         // Each outer query item accesses senders on a different entity, so workers can safely
         // share the query before taking their disjoint unsafe reborrows below.
         let message_sender_query = &message_sender_query;
-        adaptive_for_each_mut!(transport_query).for_each(|(entity, transport, message_manager)| {
-            // SAFETY: we know that this won't lead to violating the aliasing rule
-            let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
+        let replicon = &replicon;
+        adaptive_for_each_mut!(transport_query).for_each(
+            |(entity, transport, message_manager, is_client)| {
+                // SAFETY: we know that this won't lead to violating the aliasing rule
+                let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
+                let view = SendMapView {
+                    shared: replicon.shared_send_map(is_client),
+                    local: &message_manager.entity_mapper.local_to_remote,
+                };
 
-            message_manager
-                .send_messages
-                .iter()
-                .try_for_each(|(message_kind, sender_id)| {
-                    let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                    let message_sender = entity_mut
-                        .get_mut_by_id(*sender_id)
-                        .ok_or(MessageError::MissingComponent(*sender_id))?;
-                    let metadata = registry.metadata(message_kind)?;
-                    let MessageModeMetadata::Message {
-                        send: send_metadata,
-                        ..
-                    } = &metadata.mode
-                    else {
-                        return Err(MessageError::UnrecognizedMessage(*message_kind));
-                    };
-                    let serialize_fns = &metadata.serialize_fns;
-                    let message_id = registry
-                        .kind_map
-                        .net_id(message_kind)
-                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                    #[cfg(feature = "metrics")]
-                    let metric_handles = &metadata.metrics;
-                    // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                    unsafe {
-                        (send_metadata.send_message_fn)(
-                            message_sender,
-                            *message_id,
-                            transport,
-                            serialize_fns,
-                            &message_manager.entity_mapper.local_to_remote,
-                            #[cfg(feature = "metrics")]
-                            metric_handles,
-                        )?;
-                    }
-                    Ok::<_, MessageError>(())
-                })
-                .inspect_err(|e| error!("error sending message: {e:?}"))
-                .ok();
+                message_manager
+                    .send_messages
+                    .iter()
+                    .try_for_each(|(message_kind, sender_id)| {
+                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                        let message_sender = entity_mut
+                            .get_mut_by_id(*sender_id)
+                            .ok_or(MessageError::MissingComponent(*sender_id))?;
+                        let metadata = registry.metadata(message_kind)?;
+                        let MessageModeMetadata::Message {
+                            send: send_metadata,
+                            ..
+                        } = &metadata.mode
+                        else {
+                            return Err(MessageError::UnrecognizedMessage(*message_kind));
+                        };
+                        let serialize_fns = &metadata.serialize_fns;
+                        let message_id = registry
+                            .kind_map
+                            .net_id(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        #[cfg(feature = "metrics")]
+                        let metric_handles = &metadata.metrics;
+                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                        unsafe {
+                            (send_metadata.send_message_fn)(
+                                message_sender,
+                                *message_id,
+                                transport,
+                                serialize_fns,
+                                &view,
+                                #[cfg(feature = "metrics")]
+                                metric_handles,
+                            )?;
+                        }
+                        Ok::<_, MessageError>(())
+                    })
+                    .inspect_err(|e| error!("error sending message: {e:?}"))
+                    .ok();
 
-            message_manager
-                .send_triggers
-                .iter()
-                .try_for_each(|(message_kind, sender_id)| {
-                    let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                    let message_sender = entity_mut
-                        .get_mut_by_id(*sender_id)
-                        .ok_or(MessageError::MissingComponent(*sender_id))?;
-                    let metadata = registry.metadata(message_kind)?;
-                    let MessageModeMetadata::Trigger {
-                        send: send_metadata,
-                        ..
-                    } = &metadata.mode
-                    else {
-                        return Err(MessageError::UnrecognizedMessage(*message_kind));
-                    };
-                    let serialize_fns = &metadata.serialize_fns;
-                    let message_id = registry
-                        .kind_map
-                        .net_id(message_kind)
-                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                    // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                    unsafe {
-                        (send_metadata.send_trigger_fn)(
-                            message_sender,
-                            *message_id,
-                            transport,
-                            serialize_fns,
-                            &message_manager.entity_mapper.local_to_remote,
-                        )?;
-                    }
-                    Ok::<_, MessageError>(())
-                })
-                .inspect_err(|e| error!("error sending trigger: {e:?}"))
-                .ok();
-        })
+                message_manager
+                    .send_triggers
+                    .iter()
+                    .try_for_each(|(message_kind, sender_id)| {
+                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                        let message_sender = entity_mut
+                            .get_mut_by_id(*sender_id)
+                            .ok_or(MessageError::MissingComponent(*sender_id))?;
+                        let metadata = registry.metadata(message_kind)?;
+                        let MessageModeMetadata::Trigger {
+                            send: send_metadata,
+                            ..
+                        } = &metadata.mode
+                        else {
+                            return Err(MessageError::UnrecognizedMessage(*message_kind));
+                        };
+                        let serialize_fns = &metadata.serialize_fns;
+                        let message_id = registry
+                            .kind_map
+                            .net_id(message_kind)
+                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                        unsafe {
+                            (send_metadata.send_trigger_fn)(
+                                message_sender,
+                                *message_id,
+                                transport,
+                                serialize_fns,
+                                &view,
+                            )?;
+                        }
+                        Ok::<_, MessageError>(())
+                    })
+                    .inspect_err(|e| error!("error sending trigger: {e:?}"))
+                    .ok();
+            },
+        )
     }
 
     /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
