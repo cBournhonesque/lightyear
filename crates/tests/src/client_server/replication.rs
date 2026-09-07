@@ -257,22 +257,22 @@ fn test_no_replication_without_replication_sender() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity is not present in sending client entity map"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity is present in markerless client entity map"
     );
@@ -286,12 +286,12 @@ fn test_no_replication_without_replication_sender() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity is not present in re-admitted client entity map"
     );
@@ -316,22 +316,22 @@ fn test_target_mode_replicates_to_matching_links() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity is not present in target client entity map"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity is present in non-target client entity map"
     );
