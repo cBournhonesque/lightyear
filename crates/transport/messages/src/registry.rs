@@ -576,10 +576,7 @@ mod tests {
         let message = Message1(1.0);
         let mut writer = Writer::default();
         let send_map = SendEntityMap::default();
-        let send_view = SendMapView {
-            shared: None,
-            local: &send_map,
-        };
+        let send_view = SendMapView::local_only(&send_map);
         registry
             .serialize(&message, &mut writer, &send_view)
             .unwrap();
@@ -587,10 +584,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let receive_map = ReceiveEntityMap::default();
-        let receive_view = ReceiveMapView {
-            shared: None,
-            local: &receive_map,
-        };
+        let receive_view = ReceiveMapView::local_only(&receive_map);
         let read = registry.deserialize(&mut reader, &receive_view).unwrap();
         assert_eq!(message, read);
     }
@@ -607,10 +601,7 @@ mod tests {
         let message = Message2(1.0);
         let mut writer = Writer::default();
         let send_map = SendEntityMap::default();
-        let send_view = SendMapView {
-            shared: None,
-            local: &send_map,
-        };
+        let send_view = SendMapView::local_only(&send_map);
         registry
             .serialize(&message, &mut writer, &send_view)
             .unwrap();
@@ -618,10 +609,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let receive_map = ReceiveEntityMap::default();
-        let receive_view = ReceiveMapView {
-            shared: None,
-            local: &receive_map,
-        };
+        let receive_view = ReceiveMapView::local_only(&receive_map);
         let read = registry.deserialize(&mut reader, &receive_view).unwrap();
         assert_eq!(message, read);
     }
@@ -636,10 +624,7 @@ mod tests {
         let mut writer = Writer::default();
         let mut entity_map = SendEntityMap::default();
         entity_map.set_mapped(Entity::from_bits(1), Entity::from_bits(2));
-        let send_view = SendMapView {
-            shared: None,
-            local: &entity_map,
-        };
+        let send_view = SendMapView::local_only(&entity_map);
         registry
             .serialize(&message, &mut writer, &send_view)
             .unwrap();
@@ -647,10 +632,7 @@ mod tests {
 
         let mut reader = Reader::from(data);
         let receive_map = ReceiveEntityMap::default();
-        let receive_view = ReceiveMapView {
-            shared: None,
-            local: &receive_map,
-        };
+        let receive_view = ReceiveMapView::local_only(&receive_map);
         let read = registry
             .deserialize::<Message3>(&mut reader, &receive_view)
             .unwrap();

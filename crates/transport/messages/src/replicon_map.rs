@@ -3,7 +3,7 @@
 //! Local `Client` connections resolve entity mappings through
 //! replicon's [`ServerEntityMap`](bevy_replicon::shared::server_entity_map::ServerEntityMap)
 //! first, falling back to the local [`MessageManager`](crate::MessageManager) map for
-//! lightyear-owned pairs (connection entity, host identity) that replicon never sees.
+//! lightyear-owned pairs (sender identities and similar) that replicon never sees.
 //!
 //! Server-side (`ClientOf`) connections always use the local map: replicon keeps no
 //! server-side map, and the shared map in a host app describes the host's own
@@ -18,17 +18,33 @@ use bevy_ecs::system::{Res, SystemParam};
 #[cfg(feature = "replicon")]
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 
-/// Shared lookup tables borrowed from replicon's entity map for one system run.
-///
-/// Send/receive views check these first and fall back to the connection-local map
-/// for lightyear-owned pairs (connection entity, host identity) that replicon
-/// never sees.
-#[derive(Clone, Copy)]
-pub(crate) struct SharedMaps<'a> {
-    /// Remote (server) entities by local (client) entity: send side.
-    pub to_server: &'a EntityHashMap<Entity>,
-    /// Local (client) entities by remote (server) entity: receive side.
-    pub to_client: &'a EntityHashMap<Entity>,
+impl RepliconMapParam<'_> {
+    /// Shared send table (remote entities by local entity) for one connection.
+    ///
+    /// Used as the view's primary map, falling back to the connection-local map
+    /// for lightyear-owned pairs (sender identities and similar) that replicon
+    /// never sees. `None` unless the connection opts in *and* the `replicon`
+    /// feature provides the shared map (absent on servers and without replication).
+    pub(crate) fn shared_send_map(&self, use_shared: bool) -> Option<&EntityHashMap<Entity>> {
+        #[cfg(feature = "replicon")]
+        if use_shared && let Some(map) = self.map.as_deref() {
+            return Some(map.to_server());
+        }
+        let _ = (self, use_shared);
+        None
+    }
+
+    /// Shared receive table (local entities by remote entity) for one connection.
+    ///
+    /// Same policy as [`RepliconMapParam::shared_send_map`], other direction.
+    pub(crate) fn shared_recv_map(&self, use_shared: bool) -> Option<&EntityHashMap<Entity>> {
+        #[cfg(feature = "replicon")]
+        if use_shared && let Some(map) = self.map.as_deref() {
+            return Some(map.to_client());
+        }
+        let _ = (self, use_shared);
+        None
+    }
 }
 
 /// SystemParam exposing replicon's entity map when the `replicon` feature is enabled.
@@ -55,19 +71,3 @@ pub struct RepliconMapParam<'w> {
 #[cfg(not(feature = "replicon"))]
 #[derive(Resource)]
 pub enum NeverMap {}
-
-/// Borrow replicon's shared lookup tables when the `replicon` feature is enabled.
-///
-/// Always `None` when the feature is off, so call sites need no feature branches.
-/// Server-side connections ignore the result (replicon keeps no server-side map).
-pub(crate) fn shared_maps<'a>(replicon: &'a RepliconMapParam<'_>) -> Option<SharedMaps<'a>> {
-    #[cfg(feature = "replicon")]
-    if let Some(map) = replicon.map.as_deref() {
-        return Some(SharedMaps {
-            to_server: map.to_server(),
-            to_client: map.to_client(),
-        });
-    }
-    let _ = replicon;
-    None
-}

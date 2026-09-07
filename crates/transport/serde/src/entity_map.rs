@@ -49,10 +49,7 @@ impl SendEntityMap {
     /// Serialization never inserts mappings, so this shared-access version is
     /// sufficient for the send path and can be called through a shared borrow.
     pub fn get_mapped_shared(&self, entity: Entity) -> Entity {
-        let mut view = SendMapView {
-            shared: None,
-            local: self,
-        };
+        let mut view = SendMapView::local_only(self);
         view.get_mapped(entity)
     }
 }
@@ -85,10 +82,7 @@ impl ReceiveEntityMap {
     /// Deserialization never inserts mappings, so this shared-access version is
     /// sufficient for the receive path and can be called through a shared borrow.
     pub fn get_mapped_shared(&self, entity: Entity) -> Entity {
-        let mut view = ReceiveMapView {
-            shared: None,
-            local: self,
-        };
+        let mut view = ReceiveMapView::local_only(self);
         view.get_mapped(entity)
     }
 }
@@ -132,7 +126,15 @@ pub struct SendMapView<'a> {
     pub local: &'a SendEntityMap,
 }
 
-impl SendMapView<'_> {
+impl<'a> SendMapView<'a> {
+    /// View over the connection-local map only: every shared lookup misses.
+    pub fn local_only(local: &'a SendEntityMap) -> Self {
+        Self {
+            shared: None,
+            local,
+        }
+    }
+
     /// Look up the remote entity for a local entity (send side).
     fn get_remote(&self, local: Entity) -> Option<Entity> {
         if let Some(remote) = self.shared.and_then(|shared| shared.get(&local).copied()) {
@@ -191,7 +193,15 @@ pub struct ReceiveMapView<'a> {
     pub local: &'a ReceiveEntityMap,
 }
 
-impl ReceiveMapView<'_> {
+impl<'a> ReceiveMapView<'a> {
+    /// View over the connection-local map only: every shared lookup misses.
+    pub fn local_only(local: &'a ReceiveEntityMap) -> Self {
+        Self {
+            shared: None,
+            local,
+        }
+    }
+
     /// Look up the local entity for a remote entity (receive side).
     fn get_local(&self, remote: Entity) -> Option<Entity> {
         if let Some(local) = self.shared.and_then(|shared| shared.get(&remote).copied()) {
@@ -460,10 +470,7 @@ mod tests {
     fn test_send_view_marks_hits_and_passes_through_misses() {
         let (send, _, local, remote) = local_pair();
         let unknown = Entity::from_raw_u32(3).unwrap();
-        let mut view = SendMapView {
-            shared: None,
-            local: &send,
-        };
+        let mut view = SendMapView::local_only(&send);
         // hit: mapped and marked so the receiver skips lookup
         let mapped = view.get_mapped(local);
         assert!(RemoteEntityMap::is_mapped(mapped));
@@ -505,10 +512,7 @@ mod tests {
     fn test_receive_view_unmarks_premapped_and_placeholders_misses() {
         let (_, receive, local, remote) = local_pair();
         let unknown = Entity::from_raw_u32(3).unwrap();
-        let mut view = ReceiveMapView {
-            shared: None,
-            local: &receive,
-        };
+        let mut view = ReceiveMapView::local_only(&receive);
         // pre-mapped on the send side: used as-is without lookup
         assert_eq!(view.get_mapped(RemoteEntityMap::mark_mapped(local)), local);
         // hit: resolved through storage

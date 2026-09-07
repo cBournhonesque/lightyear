@@ -1,7 +1,7 @@
 use crate::MessageManager;
 use crate::plugin::{MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
-use crate::replicon_map::{RepliconMapParam, shared_maps};
+use crate::replicon_map::RepliconMapParam;
 use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -614,7 +614,6 @@ impl MessagePlugin {
         // share the query before taking their disjoint unsafe reborrows below.
         let receiver_query = &receiver_query;
         let replicon = &replicon;
-        let shared = shared_maps(replicon);
         let transport_query = adaptive_for_each_mut!(transport_query);
         transport_query.for_each(
             |(entity, message_manager, mut transport, remote_peer_id, mut host_client, is_client)| {
@@ -625,11 +624,7 @@ impl MessagePlugin {
                 // Host-client delivery keeps the connection-local map: the shared
                 // replicon map describes the host's client-side view, not this buffer.
                 let view = ReceiveMapView {
-                    shared: if is_client && host_client.is_none() {
-                        shared.map(|maps| maps.to_client)
-                    } else {
-                        None
-                    },
+                    shared: replicon.shared_recv_map(is_client && host_client.is_none()),
                     local: &message_manager.entity_mapper.remote_to_local,
                 };
                 // TODO: we can run this in parallel using rayon!

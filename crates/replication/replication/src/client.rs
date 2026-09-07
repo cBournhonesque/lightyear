@@ -59,12 +59,6 @@ impl Plugin for RepliconClientPlugin {
             send_client_packets.in_set(ClientSystems::SendPackets),
         );
 
-        // Entity map bridge: message (de)serialization on local `Client`
-        // connections reads replicon's `ServerEntityMap` directly, with the
-        // local `MessageManager` map as fallback. No per-connection copy is
-        // kept, and no marker is needed: the connection kind is read straight
-        // from the `Client` component.
-
         // bevy_replicon's reset only clears the entity map; lightyear must clean up the actual
         // entities when their receiver disconnects or is removed.
         app.add_observer(on_replication_disconnect);

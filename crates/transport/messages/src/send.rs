@@ -2,7 +2,7 @@ use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 #[cfg(feature = "metrics")]
 use crate::registry::MessageMetricHandles;
 use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
-use crate::replicon_map::{RepliconMapParam, shared_maps};
+use crate::replicon_map::RepliconMapParam;
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::lifecycle::HookContext;
@@ -293,17 +293,12 @@ impl MessagePlugin {
         // share the query before taking their disjoint unsafe reborrows below.
         let message_sender_query = &message_sender_query;
         let replicon = &replicon;
-        let shared = shared_maps(replicon);
         adaptive_for_each_mut!(transport_query).for_each(
             |(entity, transport, message_manager, is_client)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
                 let view = SendMapView {
-                    shared: if is_client {
-                        shared.map(|maps| maps.to_server)
-                    } else {
-                        None
-                    },
+                    shared: replicon.shared_send_map(is_client),
                     local: &message_manager.entity_mapper.local_to_remote,
                 };
 
