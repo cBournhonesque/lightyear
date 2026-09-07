@@ -1,7 +1,7 @@
 # Input handling
 
 Lightyear handles inputs for you by:
-- buffering the last few inputs on both client and server
+- buffering recent inputs on both client and server (bounded per-entity ring)
 - re-using the inputs from past ticks during rollback
 - sending client inputs to the server with redundancy
 
@@ -24,7 +24,7 @@ On the server the inputs arrive as messages, get buffered per client, and are th
 
 The practical consequence is the same as before: read inputs from the `ActionState<I>` component, and run the simulation that consumes them in the `FixedUpdate` schedule.
 
-## Tick pipeline (skeleton)
+## Tick pipeline
 
 Per-frame flow for local inputs (delay `d`, usually 0): `WriteClientInputs` (you write the
 `ActionState`) → `BufferClientInputs` (buffered at tick `now + d`; with delay, the sim tick's
