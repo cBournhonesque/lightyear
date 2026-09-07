@@ -5,6 +5,7 @@ use avian2d::collision::collider::EnlargedAabb;
 use avian2d::physics_transform::ApplyPosToTransform;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::time::Duration;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};
@@ -13,7 +14,6 @@ use lightyear::prediction::diagnostics::PredictionMetrics;
 use lightyear::prediction::rollback::RollbackSystems;
 use lightyear::prelude::{ConfirmedHistory, Interpolated, Predicted};
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
 use test_log::test;
 
@@ -113,12 +113,12 @@ fn touching_child_collider_survives_prediction_interpolation_and_correction() {
     let predicted_root = mapped_entity(&stepper, 0, root);
     let interpolated_root = mapped_entity(&stepper, 1, root);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(child)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&child)
+            .copied()
             .is_none(),
         "the deterministic child entity must not be replicated"
     );
@@ -362,9 +362,12 @@ fn every_client_predicts_both_compound_players_and_resolves_their_contact() {
         let left_child = local_compound_child(world, left_root);
         let right_child = local_compound_child(world, right_root);
 
-        let mapper = stepper.client(client_id).get::<MessageManager>().unwrap();
-        assert!(mapper.entity_mapper.get_local(left.1).is_none());
-        assert!(mapper.entity_mapper.get_local(right.1).is_none());
+        let mapper = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client();
+        assert!(mapper.get(&left.1).copied().is_none());
+        assert!(mapper.get(&right.1).copied().is_none());
 
         assert!(
             world.resource::<PlayerContactObserved>().0,
@@ -671,12 +674,12 @@ fn record_visual_correction(
 }
 
 fn mapped_entity(stepper: &ClientServerStepper, client_id: usize, server: Entity) -> Entity {
-    stepper
-        .client(client_id)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server)
+    stepper.client_apps[client_id]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server)
+        .copied()
         .unwrap()
 }
 
@@ -793,22 +796,30 @@ fn run_compound_hierarchy(mode: AvianReplicationMode) {
 
     stepper.frame_step_server_first(2);
 
-    let mapper = &stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper;
-    let client_root = mapper.get_local(root).expect("root was not replicated");
+    let mapper = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
+    let client_root = mapper.get(&root).copied().expect("root was not replicated");
     let client_direct = mapper
-        .get_local(direct)
+        .get(&direct)
+        .copied()
         .expect("direct child was not replicated");
-    let client_pivot = mapper.get_local(pivot).expect("pivot was not replicated");
+    let client_pivot = mapper
+        .get(&pivot)
+        .copied()
+        .expect("pivot was not replicated");
     let client_nested = mapper
-        .get_local(nested)
+        .get(&nested)
+        .copied()
         .expect("nested child was not replicated");
-    let client_sensor = mapper.get_local(sensor).expect("sensor was not replicated");
+    let client_sensor = mapper
+        .get(&sensor)
+        .copied()
+        .expect("sensor was not replicated");
     let client_child_body = mapper
-        .get_local(child_body)
+        .get(&child_body)
+        .copied()
         .expect("child rigid body was not replicated");
 
     // This test reconstructs local-only physics on the remote hierarchy. Insert

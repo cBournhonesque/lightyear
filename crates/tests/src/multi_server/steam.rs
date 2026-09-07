@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 use crate::stepper::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::{ListenTarget, SteamServerIo};
@@ -10,7 +11,6 @@ use lightyear::prelude::{SessionConfig, SteamAppExt};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_crossbeam::CrossbeamIo;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
 use tracing::info;
 
@@ -59,19 +59,19 @@ fn test_steam_server_with_netcode_server() {
         .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
     stepper.frame_step_server_first(1);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
-    stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
     info!("Received entities");
 }

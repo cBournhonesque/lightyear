@@ -45,6 +45,7 @@ pub mod plugin;
 pub mod receive;
 mod receive_event;
 pub mod registry;
+pub mod replicon_map;
 pub mod send;
 mod send_trigger;
 #[cfg(feature = "server")]
@@ -88,7 +89,17 @@ pub type MessageNetId = NetId;
 /// This component is added to entities that need to send or receive messages.
 /// It keeps track of the [`MessageSender<M>`](send::MessageSender) and [`MessageReceiver<M>`](receive::MessageReceiver) components
 /// attached to the entity, allowing the messaging system to interact with them.
-/// It also holds a [`RemoteEntityMap`] for mapping entities between client and server.
+/// It also holds the connection's [`RemoteEntityMap`], which maps entities
+/// between the local and remote peers.
+///
+/// The map holds lightyear-owned pairs only: sender identities (remote sender
+/// ↔ local connection entity, populated from `SenderMetadata`) and similar
+/// pairs that replication never sees. Replicated entities are intentionally NOT
+/// copied here: on local `Client` connections, send/receive views resolve those
+/// through replicon's shared
+/// [`ServerEntityMap`](bevy_replicon::shared::server_entity_map::ServerEntityMap)
+/// first and consult this map as fallback. (On servers there is no shared map,
+/// so this map is the full source.)
 #[derive(Component, Default, Reflect)]
 #[require(Transport)]
 pub struct MessageManager {
@@ -98,5 +109,7 @@ pub struct MessageManager {
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
     /// List of typed receiver component ids present on this entity.
     pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,
+    /// Connection-local entity mappings: sender identities and other
+    /// lightyear-owned pairs. See the [struct-level docs](MessageManager).
     pub entity_mapper: RemoteEntityMap,
 }

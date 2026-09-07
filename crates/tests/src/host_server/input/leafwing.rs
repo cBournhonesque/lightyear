@@ -2,11 +2,11 @@ use crate::protocol::LeafwingInput1;
 use crate::stepper::*;
 use bevy::input::ButtonInput;
 use bevy::prelude::KeyCode;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::prelude::InputMap;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
 use lightyear_sync::prelude::InputTimelineConfig;
 use lightyear_sync::prelude::client::InputDelayConfig;
@@ -32,12 +32,12 @@ fn test_buffer_inputs_with_delay() {
         ))
         .id();
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
     stepper
         .server_app

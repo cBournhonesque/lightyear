@@ -28,7 +28,9 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_connection.workspace = true
-lightyear_messages.workspace = true
+# `replicon` lets message (de)serialization read replicon's shared entity map
+# instead of a per-connection copy.
+lightyear_messages = { workspace = true, features = ["replicon"] }
 lightyear_transport.workspace = true
 lightyear_sync = { workspace = true, optional = true }
 

@@ -2,6 +2,7 @@ use crate::protocol::*;
 use crate::stepper::*;
 use bevy::ecs::entity::UniqueEntityArray;
 use bevy::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::fmt::Debug;
 use lightyear::prelude::Message;
 use lightyear::prelude::*;
@@ -163,12 +164,12 @@ fn test_send_triggers_map_entities() {
         .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     stepper

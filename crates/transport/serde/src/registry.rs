@@ -1,4 +1,4 @@
-use crate::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
+use crate::entity_map::{EntityMap, ReceiveEntityMap, ReceiveMapView, SendEntityMap, SendMapView};
 use crate::postcard_utils;
 use crate::reader::Reader;
 use crate::writer::Writer;
@@ -26,26 +26,26 @@ pub struct ErasedSerializeFns {
     pub map_entities: Option<ErasedMapEntitiesFn>,
 }
 
-pub struct ContextSerializeFns<C, M, I = M> {
+pub struct ContextSerializeFns<M, I = M> {
     /// Called to serialize the type into the writer
     pub serialize: SerializeFn<I>,
-    pub context_serialize: ContextSerializeFn<C, M, I>,
+    pub context_serialize: ContextSerializeFn<M, I>,
 }
 
-impl<C, M> ContextSerializeFns<C, M, M> {
+impl<M> ContextSerializeFns<M, M> {
     pub fn new(serialize: SerializeFn<M>) -> Self {
         Self {
             serialize,
-            context_serialize: default_context_serialize::<C, M>,
+            context_serialize: default_context_serialize::<M>,
         }
     }
 }
 
-impl<C, M, I> ContextSerializeFns<C, M, I> {
+impl<M, I> ContextSerializeFns<M, I> {
     pub fn with_context<M2>(
         self,
-        context_serialize: ContextSerializeFn<C, M2, I>,
-    ) -> ContextSerializeFns<C, M2, I> {
+        context_serialize: ContextSerializeFn<M2, I>,
+    ) -> ContextSerializeFns<M2, I> {
         ContextSerializeFns {
             context_serialize,
             serialize: self.serialize,
@@ -53,7 +53,7 @@ impl<C, M, I> ContextSerializeFns<C, M, I> {
     }
     pub fn serialize(
         self,
-        context: &C,
+        context: &SendMapView,
         message: &M,
         writer: &mut Writer,
     ) -> Result<(), SerializationError> {
@@ -61,32 +61,36 @@ impl<C, M, I> ContextSerializeFns<C, M, I> {
     }
 }
 
-pub struct ContextDeserializeFns<C, M, I = M> {
+pub struct ContextDeserializeFns<M, I = M> {
     /// Called to deserialize the type from the reader
     pub deserialize: DeserializeFn<I>,
-    pub context_deserialize: ContextDeserializeFn<C, M, I>,
+    pub context_deserialize: ContextDeserializeFn<M, I>,
 }
 
-impl<C, M> ContextDeserializeFns<C, M, M> {
+impl<M> ContextDeserializeFns<M, M> {
     pub fn new(deserialize: DeserializeFn<M>) -> Self {
         Self {
             deserialize,
-            context_deserialize: default_context_deserialize::<C, M>,
+            context_deserialize: default_context_deserialize::<M>,
         }
     }
 }
 
-impl<C, M, I> ContextDeserializeFns<C, M, I> {
+impl<M, I> ContextDeserializeFns<M, I> {
     pub fn with_context<M2>(
         self,
-        context_deserialize: ContextDeserializeFn<C, M2, I>,
-    ) -> ContextDeserializeFns<C, M2, I> {
+        context_deserialize: ContextDeserializeFn<M2, I>,
+    ) -> ContextDeserializeFns<M2, I> {
         ContextDeserializeFns {
             context_deserialize,
             deserialize: self.deserialize,
         }
     }
-    pub fn deserialize(self, context: &C, reader: &mut Reader) -> Result<M, SerializationError> {
+    pub fn deserialize(
+        self,
+        context: &ReceiveMapView,
+        reader: &mut Reader,
+    ) -> Result<M, SerializationError> {
         (self.context_deserialize)(context, reader, self.deserialize)
     }
 }
@@ -121,7 +125,7 @@ type ErasedSerializeFn = unsafe fn(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: &SendEntityMap,
+    entity_map: &SendMapView,
 ) -> Result<(), SerializationError>;
 
 /// Type of the serialize function without entity mapping
@@ -131,14 +135,27 @@ pub type SerializeFn<M> = fn(message: &M, writer: &mut Writer) -> Result<(), Ser
 pub type DeserializeFn<M> = fn(reader: &mut Reader) -> Result<M, SerializationError>;
 
 #[doc(hidden)]
-/// Type of the serialize function with entity mapping
-pub type ContextSerializeFn<C, M, I> =
-    fn(&C, message: &M, writer: &mut Writer, SerializeFn<I>) -> Result<(), SerializationError>;
+/// Type of the serialize function with entity mapping.
+///
+/// The map is a concrete [`SendMapView`] chaining an optional shared map
+/// (e.g. replicon's, on client connections) over the connection-local map.
+pub type ContextSerializeFn<M, I> = for<'a> fn(
+    &'a SendMapView<'a>,
+    message: &M,
+    writer: &mut Writer,
+    SerializeFn<I>,
+) -> Result<(), SerializationError>;
 
 #[doc(hidden)]
-/// Type of the deserialize function with entity mapping
-pub type ContextDeserializeFn<C, M, I> =
-    fn(&C, reader: &mut Reader, DeserializeFn<I>) -> Result<M, SerializationError>;
+/// Type of the deserialize function with entity mapping.
+///
+/// The map is a concrete [`ReceiveMapView`] chaining an optional shared map
+/// (e.g. replicon's, on client connections) over the connection-local map.
+pub type ContextDeserializeFn<M, I> = for<'a> fn(
+    &'a ReceiveMapView<'a>,
+    reader: &mut Reader,
+    DeserializeFn<I>,
+) -> Result<M, SerializationError>;
 
 #[allow(unused)]
 pub type CloneFn<M> = fn(&M) -> M;
@@ -146,8 +163,8 @@ pub type CloneFn<M> = fn(&M) -> M;
 /// Type of the entity mapping function
 pub type ErasedMapEntitiesFn = for<'a> unsafe fn(message: PtrMut<'a>, entity_map: &mut EntityMap);
 
-fn default_context_serialize<C, M>(
-    _: &C,
+fn default_context_serialize<M>(
+    _: &SendMapView,
     message: &M,
     writer: &mut Writer,
     serialize_fn: SerializeFn<M>,
@@ -155,8 +172,8 @@ fn default_context_serialize<C, M>(
     serialize_fn(message, writer)
 }
 
-fn default_context_deserialize<C, M>(
-    _: &C,
+fn default_context_deserialize<M>(
+    _: &ReceiveMapView,
     reader: &mut Reader,
     deserialize_fn: DeserializeFn<M>,
 ) -> Result<M, SerializationError> {
@@ -215,19 +232,19 @@ unsafe fn erased_serialize_fn<M: 'static>(
     erased_serialize_fn: &ErasedSerializeFns,
     message: Ptr,
     writer: &mut Writer,
-    entity_map: &SendEntityMap,
+    entity_map: &SendMapView,
 ) -> Result<(), SerializationError> {
     unsafe {
         // SAFETY: the Ptr was created for the message of type M
         let message = message.deref::<M>();
-        erased_serialize_fn.serialize::<_, M, M>(message, writer, entity_map)
+        erased_serialize_fn.serialize::<M, M>(message, writer, entity_map)
     }
 }
 
 impl ErasedSerializeFns {
-    pub fn new<SerContext, DeContext, M: 'static, I: 'static>(
-        serialize: ContextSerializeFns<SerContext, M, I>,
-        deserialize: ContextDeserializeFns<DeContext, M, I>,
+    pub fn new<M: 'static, I: 'static>(
+        serialize: ContextSerializeFns<M, I>,
+        deserialize: ContextDeserializeFns<M, I>,
     ) -> Self {
         Self {
             type_id: TypeId::of::<M>(),
@@ -285,14 +302,14 @@ impl ErasedSerializeFns {
     ///
     /// # Safety
     /// the ErasedSerializeFns must be created for the type M
-    pub unsafe fn serialize<C, M: 'static, I>(
+    pub unsafe fn serialize<M: 'static, I>(
         &self,
         message: &M,
         writer: &mut Writer,
-        context: &C,
+        context: &SendMapView,
     ) -> Result<(), SerializationError> {
         let serialize: SerializeFn<I> = unsafe { core::mem::transmute(self.serialize) };
-        let context_serialize: ContextSerializeFn<C, M, I> =
+        let context_serialize: ContextSerializeFn<M, I> =
             unsafe { core::mem::transmute(self.context_serialize) };
         context_serialize(context, message, writer, serialize)
     }
@@ -301,13 +318,13 @@ impl ErasedSerializeFns {
     ///
     /// # Safety
     /// the ErasedSerializeFns must be created for the type M
-    pub unsafe fn deserialize<C, M: 'static, I>(
+    pub unsafe fn deserialize<M: 'static, I>(
         &self,
         reader: &mut Reader,
-        context: &C,
+        context: &ReceiveMapView,
     ) -> Result<M, SerializationError> {
         let deserialize: DeserializeFn<I> = unsafe { core::mem::transmute(self.deserialize) };
-        let context_deserialize: ContextDeserializeFn<C, M, I> =
+        let context_deserialize: ContextDeserializeFn<M, I> =
             unsafe { core::mem::transmute(self.context_deserialize) };
         context_deserialize(context, reader, deserialize)
     }
@@ -316,9 +333,9 @@ impl ErasedSerializeFns {
     ///
     /// # Safety
     /// the ErasedSerializeFns must be created for the type M
-    pub unsafe fn deserialize_fns<C, M: 'static, I>(&self) -> ContextDeserializeFns<C, M, I> {
+    pub unsafe fn deserialize_fns<M: 'static, I>(&self) -> ContextDeserializeFns<M, I> {
         let deserialize: DeserializeFn<I> = unsafe { core::mem::transmute(self.deserialize) };
-        let context_deserialize: ContextDeserializeFn<C, M, I> =
+        let context_deserialize: ContextDeserializeFn<M, I> =
             unsafe { core::mem::transmute(self.context_deserialize) };
         ContextDeserializeFns {
             deserialize,

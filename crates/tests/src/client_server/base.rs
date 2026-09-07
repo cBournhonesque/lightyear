@@ -150,6 +150,10 @@ fn test_sender_metadata() {
             .expect("client is not present in entity map"),
         client_of
     );
+    // NOTE: the (client_of -> client) connection pair lives only in the local
+    // `MessageManager` map (populated from `SenderMetadata`); replicon's map
+    // only tracks replicated entities, so this lookup intentionally does not
+    // go through `ServerEntityMap`.
     assert_eq!(
         stepper
             .client(0)

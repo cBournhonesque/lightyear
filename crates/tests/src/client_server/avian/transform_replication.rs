@@ -3,11 +3,11 @@ use approx::assert_relative_eq;
 use avian2d::math::Vector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::time::Duration;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::frame_interpolation::FrameInterpolationHistory;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
 use test_log::test;
 
@@ -90,19 +90,19 @@ fn test_replicate_transform_rigid_body() {
         2.0
     );
 
-    let client_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_parent)
+    let client_parent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_parent)
+        .copied()
         .unwrap();
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
     assert_relative_eq!(
@@ -223,22 +223,22 @@ fn test_replicate_transform_child_collider() {
     );
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_parent)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_parent)
+            .copied()
             .is_none(),
         "Render-only frames should not send a new replication checkpoint"
     );
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_child)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_child)
+            .copied()
             .is_none(),
         "Render-only frames should not send a new replication checkpoint"
     );
@@ -298,19 +298,19 @@ fn test_replicate_transform_child_collider() {
         4.0
     );
 
-    let client_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_parent)
+    let client_parent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_parent)
+        .copied()
         .unwrap();
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let client_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
 

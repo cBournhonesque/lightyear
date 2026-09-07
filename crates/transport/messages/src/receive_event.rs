@@ -12,7 +12,7 @@ use core::any::Any;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::TimelineKind;
-use lightyear_serde::entity_map::ReceiveEntityMap;
+use lightyear_serde::entity_map::ReceiveMapView;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::channel::ChannelKind;
@@ -228,7 +228,7 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
     message_id: Option<MessageId>,
     target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &ReceiveEntityMap,
+    entity_map: &ReceiveMapView,
     from: PeerId,
 ) -> Result<(), MessageError>;
 
@@ -270,10 +270,10 @@ pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
     message_id: Option<MessageId>,
     target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
-    entity_map: &ReceiveEntityMap,
+    entity_map: &ReceiveMapView,
     from: PeerId,
 ) -> Result<(), MessageError> {
-    let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
+    let message = unsafe { serialize_metadata.deserialize::<M, M>(reader, entity_map)? };
     if let Some(timeline) = target_timeline {
         if let Some(receiver) = receiver {
             // SAFETY: the callback and component id are registered for this event type.

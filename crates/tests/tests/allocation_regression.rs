@@ -3,11 +3,11 @@ use std::sync::Mutex;
 
 use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
 use bevy::prelude::{Entity, FixedUpdate, Query, Res, ResMut, Resource, Update, With};
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::{
     MessageReceiver, MessageSender, NetworkTarget, Predicted, PredictionTarget, Replicate,
     Transport,
 };
-use lightyear_messages::MessageManager;
 use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_tests::protocol::{Channel1, CompFull, StringMessage};
 use lightyear_tests::stepper::{
@@ -495,12 +495,12 @@ fn run_prediction_update(stepper: &mut ClientServerStepper) {
 }
 
 fn mapped_client_entity(stepper: &ClientServerStepper, server_entity: Entity) -> Entity {
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .expect("client message manager should exist")
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("server entity should be mapped on the client")
 }
 
@@ -510,12 +510,12 @@ fn wait_for_mapped_client_entity(
 ) -> Entity {
     for _ in 0..50 {
         stepper.frame_step_server_first(1);
-        if let Some(client_entity) = stepper
-            .client(0)
-            .get::<MessageManager>()
-            .expect("client message manager should exist")
-            .entity_mapper
-            .get_local(server_entity)
+        if let Some(client_entity) = stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
         {
             return client_entity;
         }

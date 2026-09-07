@@ -2,11 +2,11 @@ use crate::protocol::LeafwingInput1;
 use crate::stepper::*;
 use bevy::input::ButtonInput;
 use bevy::prelude::KeyCode;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::prelude::InputMap;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
 use lightyear_sync::prelude::client::InputDelayConfig;
 use lightyear_sync::prelude::*;
@@ -31,12 +31,12 @@ fn test_buffer_inputs_with_delay() {
         ))
         .id();
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
     stepper
         .client_app()
@@ -244,12 +244,12 @@ fn test_server_just_pressed() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client");
 
     stepper
@@ -315,20 +315,20 @@ fn test_rebroadcast_initializes_action_state_from_buffer() {
         .id();
     stepper.frame_step_server_first(1);
 
-    let client0_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client0_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 0");
 
-    let client1_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client1_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 1");
 
     // Client 0 drives inputs
@@ -388,20 +388,20 @@ fn test_leafwing_input_rebroadcast() {
         .id();
     stepper.frame_step_server_first(1);
 
-    let client0_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client0_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 0");
 
-    let client1_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client1_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 1");
 
     // Client 0 has an InputMap so it can drive inputs
@@ -487,12 +487,12 @@ fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
     // `set_raw` — exercising the DoS path rather than being filtered first.
     stepper.frame_step(5);
 
-    let target_local = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(target_server_entity)
+    let target_local = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&target_server_entity)
+        .copied()
         .expect("target entity should be replicated to client 0");
 
     // Establish a baseline server-side InputBuffer at the current tick range.
@@ -617,12 +617,12 @@ fn test_input_validator_system_can_drop_messages() {
         .id();
     stepper.frame_step(2);
 
-    let local = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let local = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity replicated to client 0");
     stepper.client_apps[0]
         .world_mut()
@@ -695,19 +695,19 @@ fn test_authorize_controlled_targets_helper() {
         .id();
     stepper.frame_step(10);
 
-    let local_a = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_a)
+    let local_a = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_a)
+        .copied()
         .expect("A replicated to client 0");
-    let local_b = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_b)
+    let local_b = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_b)
+        .copied()
         .expect("B replicated to client 0");
 
     // Client 0 puts an InputMap on BOTH its own entity and the victim's, so its
@@ -776,12 +776,12 @@ fn test_authorize_controlled_targets_keeps_emptied_message() {
         .id();
     stepper.frame_step(5);
 
-    let local = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(victim)
+    let local = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&victim)
+        .copied()
         .expect("victim replicated to client 0");
     stepper.client_apps[0]
         .world_mut()
@@ -855,12 +855,12 @@ fn test_validator_can_read_message_metadata() {
         .id();
     stepper.frame_step(2);
 
-    let local = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let local = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity replicated to client 0");
     stepper.client_apps[0]
         .world_mut()
@@ -1055,19 +1055,19 @@ fn test_custom_validator_ordered_after_authorize() {
         .id();
     stepper.frame_step(10);
 
-    let local_a = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_a)
+    let local_a = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_a)
+        .copied()
         .expect("A replicated");
-    let local_b = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_b)
+    let local_b = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_b)
+        .copied()
         .expect("B replicated");
     for local in [local_a, local_b] {
         stepper.client_apps[0].world_mut().entity_mut(local).insert(

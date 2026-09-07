@@ -1,6 +1,7 @@
 use crate::protocol::NativeInput as MyInput;
 use crate::stepper::*;
 use bevy::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::input::server::InputRebroadcaster;
 use lightyear::prelude::input::native::ActionState;
@@ -8,7 +9,6 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, Rollback};
 use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
-use lightyear_messages::MessageManager;
 use lightyear_prediction::prelude::PredictionManager;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_replication::prelude::{RoomAllocator, Rooms};
@@ -32,12 +32,12 @@ fn test_remote_client_replicated_input() {
 
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
 
     // TEST
@@ -99,12 +99,12 @@ fn test_remote_client_predicted_input() {
 
     stepper.frame_step(2);
 
-    let client_predicted = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_predicted = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
 
     info!(?client_predicted, "client entities");
@@ -190,20 +190,20 @@ fn test_input_broadcasting_prediction() {
     stepper.frame_step_server_first(1);
 
     // Get the predicted entities on both clients
-    let client0_predicted = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client0_predicted = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 0");
 
-    let client1_predicted = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client1_predicted = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 1");
 
     // Add input markers to client 0, and make sure that it's replicated to client 1
@@ -373,28 +373,28 @@ fn test_input_custom_rebroadcast() {
         .insert(InputRebroadcaster::<MyInput>::Room(room));
 
     // Get the predicted entities on both clients
-    let client0_predicted = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client0_predicted = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 0");
 
-    let client1_predicted = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client1_predicted = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 1");
 
-    let client2_predicted = stepper
-        .client(2)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client2_predicted = stepper.client_apps[2]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity not replicated to client 2");
 
     // Add input markers to client 0, and make sure that it's replicated to client 1 but not to client 2

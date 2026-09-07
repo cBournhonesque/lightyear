@@ -3,6 +3,7 @@
 use crate::protocol::*;
 use crate::stepper::*;
 use bevy::prelude::*;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
@@ -21,12 +22,12 @@ fn test_spawn_gain_visibility() {
         .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
     stepper.frame_step(2);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be auto-visible after spawn");
 
     // lose visibility
@@ -37,12 +38,12 @@ fn test_spawn_gain_visibility() {
         .lose_visibility(server_entity, stepper.client_of_entities[0]);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity should not be visible after lose_visibility"
     );
@@ -54,12 +55,12 @@ fn test_spawn_gain_visibility() {
         .commands()
         .gain_visibility(server_entity, stepper.client_of_entities[0]);
     stepper.frame_step(2);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be visible again after gain_visibility");
 }
 
@@ -74,12 +75,12 @@ fn test_despawn_lose_visibility() {
         .id();
     let sender = stepper.client_of_entities[0];
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
 
     // lose visibility: a Despawn message should be sent
@@ -89,12 +90,12 @@ fn test_despawn_lose_visibility() {
         .lose_visibility(server_entity, sender);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none()
     );
     assert!(
@@ -112,12 +113,12 @@ fn test_despawn_lose_visibility() {
         .gain_visibility(server_entity, sender);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some()
     );
 }
@@ -134,12 +135,12 @@ fn test_retain_entity_on_lose_visibility() {
     let sender = stepper.client_of_entities[0];
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
     assert_eq!(
         stepper.client_apps[0]
@@ -157,12 +158,12 @@ fn test_retain_entity_on_lose_visibility() {
     stepper.frame_step(2);
 
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity),
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied(),
         Some(client_entity),
         "retained visibility should preserve the remote entity mapping"
     );
@@ -187,12 +188,12 @@ fn test_retain_entity_on_lose_visibility() {
         .gain_visibility(server_entity, sender);
     stepper.frame_step(2);
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity),
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied(),
         Some(client_entity),
         "gaining visibility should reuse the retained remote entity"
     );
@@ -222,12 +223,12 @@ fn test_retain_visibility_before_first_replication() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "AfterFirstVisibility should not spawn an entity that was never visible"
     );
@@ -238,12 +239,12 @@ fn test_retain_visibility_before_first_replication() {
         .gain_visibility(server_entity, sender);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "the entity should spawn when it becomes visible for the first time"
     );
@@ -268,12 +269,12 @@ fn test_always_present_visibility_before_first_replication() {
         .lose_visibility_always_present(server_entity, sender);
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("AlwaysPresent should spawn an entity that starts hidden");
     assert_eq!(
         stepper.client_apps[0]
@@ -302,12 +303,12 @@ fn test_always_present_visibility_before_first_replication() {
         .gain_visibility(server_entity, sender);
     stepper.frame_step(2);
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity),
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied(),
         Some(client_entity),
         "gaining visibility should reuse the always-present remote entity"
     );
@@ -348,12 +349,12 @@ fn test_true_despawn_reaches_retained_entity() {
         .id();
     let sender = stepper.client_of_entities[0];
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
 
     stepper
@@ -379,12 +380,12 @@ fn test_true_despawn_reaches_retained_entity() {
         "an authoritative despawn should override retained visibility"
     );
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none()
     );
 }
@@ -400,12 +401,12 @@ fn test_remove_replicate_suppresses_despawn_of_retained_entity() {
         .id();
     let sender = stepper.client_of_entities[0];
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
 
     stepper
@@ -461,19 +462,19 @@ fn test_despawn_with_visibility() {
         .gain_visibility(server_entity_1, stepper.client_of_entities[1]);
 
     stepper.frame_step(2);
-    let client_entity_0 = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_0)
+    let client_entity_0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_0)
+        .copied()
         .unwrap();
-    let client_entity_1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity_1)
+    let client_entity_1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity_1)
+        .copied()
         .unwrap();
 
     // update the entity_map on the second connection to re-use the same entity
@@ -552,12 +553,12 @@ fn test_spawn_multiple_lose_visibility() {
         .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
     stepper.frame_step(2);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be auto-visible after spawn");
 
     // lose visibility
@@ -568,12 +569,12 @@ fn test_spawn_multiple_lose_visibility() {
         .lose_visibility(server_entity, stepper.client_of_entities[0]);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity should not be visible after lose_visibility"
     );
@@ -594,12 +595,12 @@ fn test_spawn_multiple_lose_visibility() {
         .gain_visibility(server_entity, stepper.client_of_entities[0]);
     stepper.frame_step(2);
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity should be visible again after gain_visibility"
     );
@@ -623,22 +624,22 @@ fn test_visibility_persists_on_replication_target_change() {
 
     // both clients should see the entity
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "client 0 should see the entity"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "client 1 should see the entity"
     );
@@ -653,12 +654,12 @@ fn test_visibility_persists_on_replication_target_change() {
 
     // client 1 should no longer see the entity
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "client 1 should not see the entity after lose_visibility"
     );
@@ -673,23 +674,23 @@ fn test_visibility_persists_on_replication_target_change() {
 
     // client 0 should still see the entity
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "client 0 should still see the entity after ReplicationTarget change"
     );
     // client 1 should still NOT see the entity (visibility override persists)
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "client 1 should still not see the entity after ReplicationTarget change"
     );

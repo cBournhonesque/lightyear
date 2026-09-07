@@ -49,26 +49,8 @@ impl SendEntityMap {
     /// Serialization never inserts mappings, so this shared-access version is
     /// sufficient for the send path and can be called through a shared borrow.
     pub fn get_mapped_shared(&self, entity: Entity) -> Entity {
-        // if we have the entity in our mapping, map it and mark it as mapped
-        // so that on the receive side we don't map it again
-        match self.0.get(&entity) {
-            Some(mapped) => {
-                trace!("Mapping entity {entity:?} to {mapped:?} in SendEntityMap!");
-                trace!(
-                    target: "lightyear_debug::entity",
-                    kind = "entity_map_send",
-                    direction = "send",
-                    source_entity = ?entity,
-                    remote_entity = ?mapped,
-                    "mapped entity while serializing"
-                );
-                RemoteEntityMap::mark_mapped(*mapped)
-            }
-            _ => {
-                // otherwise just send the entity as is, and the receiver will map it
-                entity
-            }
-        }
+        let mut view = SendMapView::local_only(self);
+        view.get_mapped(entity)
     }
 }
 
@@ -100,6 +82,137 @@ impl ReceiveEntityMap {
     /// Deserialization never inserts mappings, so this shared-access version is
     /// sufficient for the receive path and can be called through a shared borrow.
     pub fn get_mapped_shared(&self, entity: Entity) -> Entity {
+        let mut view = ReceiveMapView::local_only(self);
+        view.get_mapped(entity)
+    }
+}
+
+impl EntityMapper for ReceiveEntityMap {
+    /// Map an entity from the remote World to the local World
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
+        self.get_mapped_shared(entity)
+    }
+
+    fn set_mapped(&mut self, source: Entity, target: Entity) {
+        trace!(
+            target: "lightyear_debug::entity",
+            kind = "entity_map_insert",
+            direction = "receive",
+            remote_entity = ?source,
+            entity = ?target,
+            "inserted receive entity mapping"
+        );
+        self.0.insert(source, target);
+    }
+}
+
+/// Read-only send-side lookup that implements [`EntityMapper`] over shared access.
+///
+/// Holds only shared references and performs only reads, so sharing this view across
+/// parallel tasks is sound. `set_mapped` is unsupported, mirroring `bevy_replicon`'s
+/// send context: mapping code that runs during serialization must not insert mappings.
+///
+/// An optional shared map (e.g. replicon's, on client connections) is checked first;
+/// the connection-local map is the fallback for entities the shared map never sees.
+///
+/// A hit maps the entity and marks it as mapped so the receive side does not map it
+/// again; a miss sends the entity as-is and lets the receiver map it.
+#[derive(Clone, Copy)]
+pub struct SendMapView<'a> {
+    /// Shared external map, checked before [`SendMapView::local`].
+    /// `None` on server-side connections and without external replication.
+    pub shared: Option<&'a EntityHashMap<Entity>>,
+    /// Connection-local send map (fallback).
+    pub local: &'a SendEntityMap,
+}
+
+impl<'a> SendMapView<'a> {
+    /// View over the connection-local map only: every shared lookup misses.
+    pub fn local_only(local: &'a SendEntityMap) -> Self {
+        Self {
+            shared: None,
+            local,
+        }
+    }
+
+    /// Look up the remote entity for a local entity (send side).
+    fn get_remote(&self, local: Entity) -> Option<Entity> {
+        if let Some(remote) = self.shared.and_then(|shared| shared.get(&local).copied()) {
+            return Some(remote);
+        }
+        self.local.0.get(&local).copied()
+    }
+}
+
+impl EntityMapper for SendMapView<'_> {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
+        match self.get_remote(entity) {
+            Some(mapped) => {
+                trace!("Mapping entity {entity:?} to {mapped:?} in SendMapView!");
+                trace!(
+                    target: "lightyear_debug::entity",
+                    kind = "entity_map_send",
+                    direction = "send",
+                    source_entity = ?entity,
+                    remote_entity = ?mapped,
+                    "mapped entity while serializing"
+                );
+                RemoteEntityMap::mark_mapped(mapped)
+            }
+            _ => {
+                // otherwise just send the entity as is, and the receiver will map it
+                entity
+            }
+        }
+    }
+
+    fn set_mapped(&mut self, _source: Entity, _target: Entity) {
+        unimplemented!(
+            "SendMapView is read-only; MapEntities impls used during serialization must not insert mappings"
+        );
+    }
+}
+
+/// Read-only receive-side lookup that implements [`EntityMapper`] over shared access.
+///
+/// Holds only shared references and performs only reads, so sharing this view across
+/// parallel tasks is sound. `set_mapped` is unsupported, mirroring `bevy_replicon`'s
+/// send context: mapping code that runs during deserialization must not insert mappings.
+///
+/// An optional shared map (e.g. replicon's, on client connections) is checked first;
+/// the connection-local map is the fallback for entities the shared map never sees.
+///
+/// An entity already marked on the send side is used as-is; otherwise it is looked up,
+/// and `Entity::PLACEHOLDER` is returned when no mapping exists.
+#[derive(Clone, Copy)]
+pub struct ReceiveMapView<'a> {
+    /// Shared external map, checked before [`ReceiveMapView::local`].
+    /// `None` on server-side connections and without external replication.
+    pub shared: Option<&'a EntityHashMap<Entity>>,
+    /// Connection-local receive map (fallback).
+    pub local: &'a ReceiveEntityMap,
+}
+
+impl<'a> ReceiveMapView<'a> {
+    /// View over the connection-local map only: every shared lookup misses.
+    pub fn local_only(local: &'a ReceiveEntityMap) -> Self {
+        Self {
+            shared: None,
+            local,
+        }
+    }
+
+    /// Look up the local entity for a remote entity (receive side).
+    fn get_local(&self, remote: Entity) -> Option<Entity> {
+        if let Some(local) = self.shared.and_then(|shared| shared.get(&remote).copied()) {
+            return Some(local);
+        }
+        self.local.0.get(&remote).copied()
+    }
+}
+
+impl EntityMapper for ReceiveMapView<'_> {
+    fn get_mapped(&mut self, entity: Entity) -> Entity {
         // if the entity was already mapped on the send side, we don't need to map it again
         // since it's the local world entity
         if RemoteEntityMap::is_mapped(entity) {
@@ -115,7 +228,7 @@ impl ReceiveEntityMap {
             mapped
         } else {
             // if we don't find the entity, return Entity::PLACEHOLDER as an error
-            match self.0.get(&entity).copied() {
+            match self.get_local(entity) {
                 Some(mapped) => {
                     trace!(
                         target: "lightyear_debug::entity",
@@ -140,59 +253,6 @@ impl ReceiveEntityMap {
                 }
             }
         }
-    }
-}
-
-impl EntityMapper for ReceiveEntityMap {
-    /// Map an entity from the remote World to the local World
-    fn get_mapped(&mut self, entity: Entity) -> Entity {
-        self.get_mapped_shared(entity)
-    }
-
-    fn set_mapped(&mut self, source: Entity, target: Entity) {
-        trace!(
-            target: "lightyear_debug::entity",
-            kind = "entity_map_insert",
-            direction = "receive",
-            remote_entity = ?source,
-            entity = ?target,
-            "inserted receive entity mapping"
-        );
-        self.0.insert(source, target);
-    }
-}
-
-/// Read-only view of a [`SendEntityMap`] that implements [`EntityMapper`] over shared access.
-///
-/// `get_mapped` only reads the map, so sharing this view across parallel tasks is sound.
-/// `set_mapped` is unsupported, mirroring `bevy_replicon`'s send context: mapping code
-/// that runs during serialization must not insert mappings.
-#[derive(Debug, Clone, Copy)]
-pub struct SendMapView<'a>(pub &'a SendEntityMap);
-
-impl EntityMapper for SendMapView<'_> {
-    fn get_mapped(&mut self, entity: Entity) -> Entity {
-        self.0.get_mapped_shared(entity)
-    }
-
-    fn set_mapped(&mut self, _source: Entity, _target: Entity) {
-        unimplemented!(
-            "SendMapView is read-only; MapEntities impls used during serialization must not insert mappings"
-        );
-    }
-}
-
-/// Read-only view of a [`ReceiveEntityMap`] that implements [`EntityMapper`] over shared access.
-///
-/// `get_mapped` only reads the map, so sharing this view across parallel tasks is sound.
-/// `set_mapped` is unsupported, mirroring `bevy_replicon`'s send context: mapping code
-/// that runs during deserialization must not insert mappings.
-#[derive(Debug, Clone, Copy)]
-pub struct ReceiveMapView<'a>(pub &'a ReceiveEntityMap);
-
-impl EntityMapper for ReceiveMapView<'_> {
-    fn get_mapped(&mut self, entity: Entity) -> Entity {
-        self.0.get_mapped_shared(entity)
     }
 
     fn set_mapped(&mut self, _source: Entity, _target: Entity) {
@@ -386,11 +446,93 @@ impl ToBytes for Entity {
 #[cfg(test)]
 mod tests {
     use crate::ToBytes;
-    use crate::entity_map::RemoteEntityMap;
+    use crate::entity_map::{
+        ReceiveEntityMap, ReceiveMapView, RemoteEntityMap, SendEntityMap, SendMapView,
+    };
     use crate::reader::Reader;
     use crate::writer::Writer;
-    use bevy_ecs::entity::{Entity, EntityGeneration, EntityIndex};
+    use bevy_ecs::entity::{
+        Entity, EntityGeneration, EntityIndex, EntityMapper, hash_map::EntityHashMap,
+    };
     use test_log::test;
+
+    fn local_pair() -> (SendEntityMap, ReceiveEntityMap, Entity, Entity) {
+        let local = Entity::from_raw_u32(1).unwrap();
+        let remote = Entity::from_raw_u32(2).unwrap();
+        let mut send = SendEntityMap::default();
+        send.0.insert(local, remote);
+        let mut receive = ReceiveEntityMap::default();
+        receive.0.insert(remote, local);
+        (send, receive, local, remote)
+    }
+
+    #[test]
+    fn test_send_view_marks_hits_and_passes_through_misses() {
+        let (send, _, local, remote) = local_pair();
+        let unknown = Entity::from_raw_u32(3).unwrap();
+        let mut view = SendMapView::local_only(&send);
+        // hit: mapped and marked so the receiver skips lookup
+        let mapped = view.get_mapped(local);
+        assert!(RemoteEntityMap::is_mapped(mapped));
+        assert_eq!(RemoteEntityMap::mark_unmapped(mapped), remote);
+        // miss: sent as-is for the receiver to map
+        assert_eq!(view.get_mapped(unknown), unknown);
+    }
+
+    #[test]
+    fn test_send_view_prefers_shared_over_local() {
+        let (send, _, local, _) = local_pair();
+        let shared_remote = Entity::from_raw_u32(9).unwrap();
+        let shared = EntityHashMap::from_iter([(local, shared_remote)]);
+        let mut view = SendMapView {
+            shared: Some(&shared),
+            local: &send,
+        };
+        // shared hit wins over the local pair
+        let mapped = view.get_mapped(local);
+        assert_eq!(RemoteEntityMap::mark_unmapped(mapped), shared_remote);
+    }
+
+    #[test]
+    fn test_send_view_shared_miss_falls_back_to_local() {
+        let (send, _, local, remote) = local_pair();
+        let other = Entity::from_raw_u32(7).unwrap();
+        let shared_remote = Entity::from_raw_u32(9).unwrap();
+        let shared = EntityHashMap::from_iter([(other, shared_remote)]);
+        let mut view = SendMapView {
+            shared: Some(&shared),
+            local: &send,
+        };
+        // miss in shared, hit in local
+        let mapped = view.get_mapped(local);
+        assert_eq!(RemoteEntityMap::mark_unmapped(mapped), remote);
+    }
+
+    #[test]
+    fn test_receive_view_unmarks_premapped_and_placeholders_misses() {
+        let (_, receive, local, remote) = local_pair();
+        let unknown = Entity::from_raw_u32(3).unwrap();
+        let mut view = ReceiveMapView::local_only(&receive);
+        // pre-mapped on the send side: used as-is without lookup
+        assert_eq!(view.get_mapped(RemoteEntityMap::mark_mapped(local)), local);
+        // hit: resolved through storage
+        assert_eq!(view.get_mapped(remote), local);
+        // miss: placeholder error
+        assert_eq!(view.get_mapped(unknown), Entity::PLACEHOLDER);
+    }
+
+    #[test]
+    fn test_receive_view_prefers_shared_over_local() {
+        let (_, receive, _, remote) = local_pair();
+        let shared_local = Entity::from_raw_u32(9).unwrap();
+        let shared = EntityHashMap::from_iter([(remote, shared_local)]);
+        let mut view = ReceiveMapView {
+            shared: Some(&shared),
+            local: &receive,
+        };
+        // shared hit wins over the local pair
+        assert_eq!(view.get_mapped(remote), shared_local);
+    }
 
     #[test]
     fn test_entity_serde_first_generation() {

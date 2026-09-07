@@ -25,10 +25,10 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{
     Action, ActionMock, ActionOf, ActionValue, MockSpan, TriggerState,
 };
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
-use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
 use std::collections::HashMap;
 use test_log::test;
@@ -459,12 +459,12 @@ fn test_input_only_two_clients() {
             1 => server_player_b,
             _ => unreachable!(),
         };
-        let local_player = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player)
+        let local_player = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player)
+            .copied()
             .expect("client should have received its own player by now");
         configure_local_action_on_client(stepper.client_app(client_id), local_player);
     }
@@ -500,19 +500,19 @@ fn test_input_only_two_clients() {
     );
 
     for client_id in 0..2 {
-        let _c_a = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player_a)
+        let _c_a = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player_a)
+            .copied()
             .expect("client missing player A");
-        let _c_b = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player_b)
+        let _c_b = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player_b)
+            .copied()
             .expect("client missing player B");
         let client_tick = stepper
             .client_app(client_id)
@@ -601,12 +601,12 @@ fn test_input_only_islands_many_colliders_small_box() {
             1 => server_player_b,
             _ => unreachable!(),
         };
-        let local_player = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player)
+        let local_player = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player)
+            .copied()
             .expect("client should have received its own player by now");
         configure_local_action_on_client(stepper.client_app(client_id), local_player);
     }

@@ -6,6 +6,7 @@ use crate::protocol::{
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
 use bevy_replicon::prelude::RepliconTick;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::{ConfirmedHistory, InterpolationTimeline};
 use lightyear_connection::client::{Disconnected, DisconnectedReason};
 use lightyear_connection::network_target::NetworkTarget;
@@ -78,12 +79,12 @@ fn target_entity(
     source_entity: Entity,
 ) -> Option<Entity> {
     match direction {
-        ReplicationDirection::ServerToClient => stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(source_entity),
+        ReplicationDirection::ServerToClient => stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&source_entity)
+            .copied(),
         ReplicationDirection::ClientToServer => stepper
             .client_of(0)
             .get::<MessageManager>()
@@ -172,12 +173,12 @@ fn test_spawn_new_connection() {
         .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper.frame_step(2);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
 
     // second client connects
@@ -185,12 +186,12 @@ fn test_spawn_new_connection() {
     stepper.init();
 
     // make sure the entity is also replicated to the newly connected client
-    stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 }
 
@@ -209,12 +210,12 @@ fn test_spawn_new_connection_respects_replication_target() {
         .spawn((Replicate::to_clients(NetworkTarget::Single(client_0_id)),))
         .id();
     stepper.frame_step(2);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in target client entity map");
 
     // second client connects
@@ -223,12 +224,12 @@ fn test_spawn_new_connection_respects_replication_target() {
 
     // make sure the entity is not replicated to the newly connected client
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity is present in non-target client entity map"
     );
@@ -256,22 +257,22 @@ fn test_no_replication_without_replication_sender() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity is not present in sending client entity map"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity is present in markerless client entity map"
     );
@@ -285,12 +286,12 @@ fn test_no_replication_without_replication_sender() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity is not present in re-admitted client entity map"
     );
@@ -315,22 +316,22 @@ fn test_target_mode_replicates_to_matching_links() {
     stepper.frame_step(2);
 
     assert!(
-        stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_some(),
         "entity is not present in target client entity map"
     );
     assert!(
-        stepper
-            .client(1)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
             .is_none(),
         "entity is present in non-target client entity map"
     );
@@ -493,12 +494,12 @@ fn test_client_owned_entity_rebroadcasts_updates_to_other_clients() {
 
     stepper.frame_step(2);
 
-    let client_1_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_1_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("client 1 should receive the rebroadcast entity");
     assert_eq!(
         stepper.client_apps[1].world().get::<CompA>(client_1_entity),
@@ -545,12 +546,12 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
     );
 
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
     {
         let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
@@ -604,12 +605,12 @@ fn test_manual_interpolated_marker_backfills_existing_replicated_component() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
     assert!(
         stepper.client_apps[0]
@@ -655,12 +656,12 @@ fn test_interpolation_target_removal_removes_receiver_marker() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
     assert!(
         stepper.client_apps[0]
@@ -749,12 +750,12 @@ fn test_late_join_client_gets_predicted_marker_for_prediction_target_all() {
 
     stepper.frame_step(3);
 
-    let client_0_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_0_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
     assert!(
         stepper.client_apps[0]
@@ -775,12 +776,12 @@ fn test_late_join_client_gets_predicted_marker_for_prediction_target_all() {
     stepper.init();
     stepper.frame_step(3);
 
-    let client_1_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_1_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("late-joining client should receive the entity");
     assert!(
         stepper.client_apps[1]
@@ -805,12 +806,12 @@ fn test_prediction_target_removal_removes_receiver_marker() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .unwrap();
     assert!(
         stepper.client_apps[0]
@@ -863,12 +864,12 @@ fn test_late_join_client_gets_latest_state_for_existing_predicted_entity() {
     stepper.init();
     stepper.frame_step(3);
 
-    let client_1_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_1_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("late-joining client should receive the entity");
     assert!(
         stepper.client_apps[1]
@@ -1349,12 +1350,12 @@ fn test_controlled_entity_despawned_on_server_when_client_disconnects() {
 
     // the server entity is replicated to both clients
     stepper.frame_step(2);
-    stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity is not present in entity map");
 
     // client 1 disconnects
@@ -1416,12 +1417,12 @@ fn test_replicated_entities_despawned_on_client_when_client_disconnects() {
     stepper.frame_step(2);
 
     // verify the entity exists on client 0
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be replicated to client 0");
     assert!(
         stepper.client_apps[0]
@@ -1463,12 +1464,12 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
     stepper.frame_step(2);
 
     // verify the entity exists on client 1
-    let client_entity_on_1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity_on_1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be replicated to client 1");
     assert!(
         stepper.client_apps[1]
@@ -1512,19 +1513,19 @@ fn test_persistent_replicated_entity_survives_client_disconnect() {
         .id();
     stepper.frame_step(2);
 
-    let persistent_client_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(persistent_server_entity)
+    let persistent_client_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&persistent_server_entity)
+        .copied()
         .expect("persistent entity should be replicated to client 1");
-    let session_client_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(session_server_entity)
+    let session_client_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&session_server_entity)
+        .copied()
         .expect("session entity should be replicated to client 1");
     stepper.client_apps[1]
         .world_mut()
@@ -1562,12 +1563,12 @@ fn test_persistent_replication_receiver_preserves_entities_on_disconnect() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be replicated to client 1");
     let receiver = stepper.client_entities[1];
     stepper.client_apps[1]
@@ -1604,19 +1605,19 @@ fn test_removing_replication_receiver_cleans_up_replication_state() {
         .id();
     stepper.frame_step(2);
 
-    let persistent_client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(persistent_server_entity)
+    let persistent_client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&persistent_server_entity)
+        .copied()
         .expect("persistent entity should be replicated to the client");
-    let session_client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(session_server_entity)
+    let session_client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&session_server_entity)
+        .copied()
         .expect("session entity should be replicated to the client");
     let checkpoint = RepliconTick::new(123);
     let receiver = stepper.client_entities[0];
@@ -1678,12 +1679,12 @@ fn test_despawning_persistent_replication_receiver_preserves_entities() {
         .id();
     stepper.frame_step(2);
 
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be replicated to the client");
     let checkpoint = RepliconTick::new(123);
     let receiver = stepper.client_entities[0];
@@ -1725,12 +1726,12 @@ fn test_persistent_replicated_entity_honors_remote_despawn() {
         .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be replicated to the client");
     stepper.client_apps[0]
         .world_mut()
@@ -1760,12 +1761,12 @@ fn test_sender_can_despawn_without_replicating_despawn() {
         .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper.frame_step(2);
-    let client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity should be replicated to the client");
 
     stepper
@@ -1827,14 +1828,17 @@ fn test_prediction_target_visibility_with_two_clients() {
     stepper.frame_step(4);
 
     // On client 0:
-    let mm_0 = stepper.client(0).get::<MessageManager>().unwrap();
+    let mm_0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
     let e0_on_client_0 = mm_0
-        .entity_mapper
-        .get_local(entity_for_client_0)
+        .get(&entity_for_client_0)
+        .copied()
         .expect("entity_for_client_0 should be replicated to client 0");
     let e1_on_client_0 = mm_0
-        .entity_mapper
-        .get_local(entity_for_client_1)
+        .get(&entity_for_client_1)
+        .copied()
         .expect("entity_for_client_1 should be replicated to client 0");
 
     // entity_for_client_0 should have Predicted on client 0
@@ -1871,14 +1875,17 @@ fn test_prediction_target_visibility_with_two_clients() {
     );
 
     // On client 1:
-    let mm_1 = stepper.client(1).get::<MessageManager>().unwrap();
+    let mm_1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
     let e0_on_client_1 = mm_1
-        .entity_mapper
-        .get_local(entity_for_client_0)
+        .get(&entity_for_client_0)
+        .copied()
         .expect("entity_for_client_0 should be replicated to client 1");
     let e1_on_client_1 = mm_1
-        .entity_mapper
-        .get_local(entity_for_client_1)
+        .get(&entity_for_client_1)
+        .copied()
         .expect("entity_for_client_1 should be replicated to client 1");
 
     // entity_for_client_1 should have Predicted on client 1
@@ -2004,9 +2011,12 @@ fn test_prediction_target_visibility_sequential_spawn() {
     );
 
     // Verify correct assignment
-    let mm_0 = stepper.client(0).get::<MessageManager>().unwrap();
-    let e0_on_client_0 = mm_0.entity_mapper.get_local(entity_for_client_0).unwrap();
-    let e1_on_client_0 = mm_0.entity_mapper.get_local(entity_for_client_1).unwrap();
+    let mm_0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
+    let e0_on_client_0 = mm_0.get(&entity_for_client_0).copied().unwrap();
+    let e1_on_client_0 = mm_0.get(&entity_for_client_1).copied().unwrap();
     assert!(
         stepper.client_apps[0]
             .world()
@@ -2026,9 +2036,12 @@ fn test_prediction_target_visibility_sequential_spawn() {
             .is_some()
     );
 
-    let mm_1 = stepper.client(1).get::<MessageManager>().unwrap();
-    let e0_on_client_1 = mm_1.entity_mapper.get_local(entity_for_client_0).unwrap();
-    let e1_on_client_1 = mm_1.entity_mapper.get_local(entity_for_client_1).unwrap();
+    let mm_1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
+    let e0_on_client_1 = mm_1.get(&entity_for_client_0).copied().unwrap();
+    let e1_on_client_1 = mm_1.get(&entity_for_client_1).copied().unwrap();
     assert!(
         stepper.client_apps[1]
             .world()
@@ -2109,14 +2122,17 @@ fn test_simple_box_pattern_prediction_visibility() {
     stepper.frame_step(3);
 
     // Check client 0
-    let mm_0 = stepper.client(0).get::<MessageManager>().unwrap();
+    let mm_0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
     let e0_on_c0 = mm_0
-        .entity_mapper
-        .get_local(entity_for_0)
+        .get(&entity_for_0)
+        .copied()
         .expect("entity_for_0 not replicated to client 0");
     let e1_on_c0 = mm_0
-        .entity_mapper
-        .get_local(entity_for_1)
+        .get(&entity_for_1)
+        .copied()
         .expect("entity_for_1 not replicated to client 0");
 
     let e0_predicted = stepper.client_apps[0]
@@ -2168,14 +2184,17 @@ fn test_simple_box_pattern_prediction_visibility() {
     );
 
     // Check client 1
-    let mm_1 = stepper.client(1).get::<MessageManager>().unwrap();
+    let mm_1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client();
     let e0_on_c1 = mm_1
-        .entity_mapper
-        .get_local(entity_for_0)
+        .get(&entity_for_0)
+        .copied()
         .expect("entity_for_0 not replicated to client 1");
     let e1_on_c1 = mm_1
-        .entity_mapper
-        .get_local(entity_for_1)
+        .get(&entity_for_1)
+        .copied()
         .expect("entity_for_1 not replicated to client 1");
 
     let e0_predicted_c1 = stepper.client_apps[1]
@@ -2270,12 +2289,12 @@ fn test_prediction_target_visibility_late_join() {
     stepper.frame_step(3);
 
     // Verify client 0 sees the entity as Predicted
-    let e0_on_c0 = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_0)
+    let e0_on_c0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_0)
+        .copied()
         .unwrap();
     assert!(
         stepper.client_apps[0]
@@ -2310,19 +2329,19 @@ fn test_prediction_target_visibility_late_join() {
     stepper.frame_step(3);
 
     // Check entity_for_0 on client 1 (late joiner)
-    let e0_on_c1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_0)
+    let e0_on_c1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_0)
+        .copied()
         .expect("entity_for_0 should be replicated to client 1");
-    let e1_on_c1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_1)
+    let e1_on_c1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_1)
+        .copied()
         .expect("entity_for_1 should be replicated to client 1");
 
     let e0_pred_c1 = stepper.client_apps[1]
@@ -2366,12 +2385,12 @@ fn test_prediction_target_visibility_late_join() {
     );
 
     // Also check entity_for_1 on client 0
-    let e1_on_c0 = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_1)
+    let e1_on_c0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_1)
+        .copied()
         .expect("entity_for_1 should be replicated to client 0");
 
     let e1_pred_c0 = stepper.client_apps[0]
@@ -2614,19 +2633,19 @@ fn test_server_side_visibility_bits() {
     stepper.frame_step(4);
 
     // Verify on client 0
-    let e0_on_c0 = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_0)
+    let e0_on_c0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_0)
+        .copied()
         .unwrap();
-    let e1_on_c0 = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_1)
+    let e1_on_c0 = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_1)
+        .copied()
         .unwrap();
 
     assert!(
@@ -2659,19 +2678,19 @@ fn test_server_side_visibility_bits() {
     );
 
     // Verify on client 1
-    let e0_on_c1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_0)
+    let e0_on_c1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_0)
+        .copied()
         .unwrap();
-    let e1_on_c1 = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(entity_for_1)
+    let e1_on_c1 = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&entity_for_1)
+        .copied()
         .unwrap();
 
     assert!(

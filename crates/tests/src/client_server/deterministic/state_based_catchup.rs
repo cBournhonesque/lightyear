@@ -25,11 +25,11 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{
     Action, ActionMock, ActionOf, ActionValue, MockSpan, TriggerState,
 };
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::bei::input_message::ActionsSnapshot;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpSnapshotReady;
-use lightyear_messages::MessageManager;
 use lightyear_prediction::rollback::CatchUpGated;
 use std::collections::HashMap;
 use test_log::test;
@@ -609,12 +609,12 @@ fn configure_local_action_after_mapping(
     server_player: Entity,
 ) {
     for _ in 0..120 {
-        if let Some(local_player) = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player)
+        if let Some(local_player) = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player)
+            .copied()
             && local_movement_action(&stepper.client_apps[client_id], local_player).is_some()
         {
             configure_local_action_on_client(stepper.client_app(client_id), local_player);
@@ -689,12 +689,12 @@ fn assert_clean_stepper_player_entities(stepper: &mut DetStepper, expected_peers
 fn assert_server_entity_unmapped(stepper: &mut DetStepper, server_entity: Entity) {
     for client_id in 0..stepper.client_apps.len() {
         assert!(
-            stepper
-                .client(client_id)
-                .get::<MessageManager>()
-                .unwrap()
-                .entity_mapper
-                .get_local(server_entity)
+            stepper.client_apps[client_id]
+                .world()
+                .resource::<ServerEntityMap>()
+                .to_client()
+                .get(&server_entity)
+                .copied()
                 .is_none(),
             "client {client_id} still maps disconnected server entity {server_entity:?}"
         );
@@ -729,12 +729,12 @@ fn assert_clean_stepper_ball_entities(stepper: &mut DetStepper) {
         let client_ball =
             assert_single_ball_entity(stepper.client_app(client_id).world_mut(), &label);
         assert_eq!(
-            stepper
-                .client(client_id)
-                .get::<MessageManager>()
-                .unwrap()
-                .entity_mapper
-                .get_local(server_ball),
+            stepper.client_apps[client_id]
+                .world()
+                .resource::<ServerEntityMap>()
+                .to_client()
+                .get(&server_ball)
+                .copied(),
             Some(client_ball),
             "client {client_id} should map the server ball entity {server_ball:?}"
         );
@@ -779,12 +779,12 @@ fn compare_players_to_server(
     for (server_player, peer) in server_players.iter().copied().zip(peers.iter().copied()) {
         let server_pos = fixed_position_at(stepper.server_app.world(), peer, compare_tick);
         for client_id in 0..stepper.client_apps.len() {
-            let _client_player = stepper
-                .client(client_id)
-                .get::<MessageManager>()
-                .unwrap()
-                .entity_mapper
-                .get_local(server_player)
+            let _client_player = stepper.client_apps[client_id]
+                .world()
+                .resource::<ServerEntityMap>()
+                .to_client()
+                .get(&server_player)
+                .copied()
                 .expect("client missing player entity");
             let client_pos =
                 fixed_position_at(stepper.client_app(client_id).world(), peer, compare_tick);
@@ -1305,12 +1305,12 @@ fn test_state_based_catchup_two_clients() {
             1 => server_player_b,
             _ => unreachable!(),
         };
-        let local_player = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player)
+        let local_player = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player)
+            .copied()
             .expect("client should have received its own player by now");
         configure_local_action_on_client(stepper.client_app(client_id), local_player);
     }
@@ -1349,19 +1349,19 @@ fn test_state_based_catchup_two_clients() {
 
     // Assert that each client's view of both players matches the server.
     for client_id in 0..2 {
-        let _client_player_a = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player_a)
+        let _client_player_a = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player_a)
+            .copied()
             .expect("client missing player A entity");
-        let _client_player_b = stepper
-            .client(client_id)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_player_b)
+        let _client_player_b = stepper.client_apps[client_id]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_player_b)
+            .copied()
             .expect("client missing player B entity");
 
         let client_tick = stepper

@@ -1,8 +1,8 @@
 use crate::protocol::CompFull;
 use crate::stepper::*;
 use bevy::ecs::hierarchy::ChildOf;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use test_log::test;
 use tracing::info;
@@ -42,19 +42,19 @@ fn test_spawn_predicted_with_hierarchy() {
     stepper.frame_step(2);
 
     // check that the parent and child are spawned on the client
-    let predicted_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
+    let predicted_child = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_child)
+        .copied()
         .expect("child entity was not replicated to client");
-    let predicted_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_parent)
+    let predicted_parent = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_parent)
+        .copied()
         .expect("parent entity was not replicated to client");
     info!("parent: {predicted_parent:?}, child: {predicted_child:?}");
 
@@ -96,12 +96,12 @@ fn test_late_server_insert_of_unpredicted_component_reaches_predicted() {
         .id();
     stepper.frame_step(2);
 
-    let predicted = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
+    let predicted = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
         .expect("entity was not replicated to client");
     assert!(
         stepper

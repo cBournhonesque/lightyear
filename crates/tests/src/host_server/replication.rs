@@ -2,12 +2,12 @@ use crate::protocol::CompA;
 use crate::stepper::*;
 use bevy::prelude::{Entity, With};
 use bevy_replicon::prelude::Remote;
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::{client::Connect, server::Start};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::RemoteId;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
-use lightyear_messages::MessageManager;
 use lightyear_replication::control::{Controlled, ControlledBy, ControlledSend};
 use lightyear_replication::prelude::*;
 use lightyear_replication::send::ReplicatedFrom;
@@ -367,12 +367,12 @@ fn test_host_owned_entity_does_not_loop_back_and_can_rebroadcast() {
 
     stepper.frame_step(2);
 
-    let remote_client_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(host_entity)
+    let remote_client_entity = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&host_entity)
+        .copied()
         .expect("remote client should receive the rebroadcast entity");
 
     assert_eq!(
