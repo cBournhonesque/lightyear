@@ -108,6 +108,12 @@ pub struct ServerInputConfig<S> {
 #[deprecated(note = "Use InputSystems instead")]
 pub type InputSet = InputSystems;
 
+/// Server-side input system sets, in run order within a frame.
+///
+/// | Set | Schedule | Ordered relative to | Why |
+/// |---|---|---|---|
+/// | `ValidateInputs` → `ReceiveInputs` | `PreUpdate`, chained after `MessageSystems::Receive` | validators run first | authorization and game validation mutate/drop messages via `retain_messages` before inputs touch the buffers; entity-mapped targets only resolve after `Receive` |
+/// | `UpdateActionState` | `FixedPreUpdate` (after client `BufferClientInputs` in combined host-server apps) | before user `FixedUpdate` simulation | authoritative inputs are applied (and old ticks dropped) before simulation; the host-client's inputs are buffered first so the server side sees them |
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
     /// Validate / sanitize received [`InputMessage`]s before they are applied to

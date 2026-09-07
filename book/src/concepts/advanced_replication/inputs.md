@@ -35,4 +35,19 @@ last ticks with redundancy, `end_tick = now + d`) → `Sync` (adjusts ticks on t
 
 Inputs for remote players arrive via server rebroadcast (or directly from peers in P2P),
 update the per-entity input buffer, and trigger a rollback when they correct an
-already-simulated tick. Details (buffer semantics, scheduling table) land here in E1/E6.
+already-simulated tick.
+
+## Scheduling
+
+Client sets, in run order within a frame:
+
+| Set | Schedule | Why this order |
+|---|---|---|
+| `ReceiveInputMessages` | `PreUpdate` | after message receive (entity-mapped targets resolve), before the rollback check (mismatches must arm it) |
+| `WriteClientInputs` → `BufferClientInputs` | `FixedPreUpdate` | you write first, then lightyear buffers the newest input and loads this sim tick's input |
+| `RestoreInputs` | `FixedPostUpdate` | re-points your state at the newest input after simulation |
+| `PrepareInputMessage` → `Sync` → `SendInputMessage` → `CleanUp` → transport send | `PostUpdate` | prepare before sync so timeline shifts can adjust ticks; send, then drop old ticks |
+| `UpdateRemoteInputTicks` | `PostUpdate`, after sync | rollback decisions use the previous confirmed tick |
+
+Server sets: `ValidateInputs` → `ReceiveInputs` in `PreUpdate` (validate before buffering),
+then `UpdateActionState` in `FixedPreUpdate` (apply authoritative inputs before simulation).

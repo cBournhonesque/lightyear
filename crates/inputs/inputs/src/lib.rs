@@ -1,7 +1,14 @@
-/*! # Lightyear IO
+/*! # Lightyear Inputs (core)
 
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
+Tick-indexed input buffering and input-message plumbing shared by all input
+backends (native, leafwing, BEI).
+
+This crate owns the [`InputBuffer`](input_buffer::InputBuffer) storage, the
+[`ActionStateSequence`](input_message::ActionStateSequence) /
+[`InputSnapshot`](input_message::InputSnapshot) traits that backends implement,
+and the client/server systems that buffer local inputs, exchange
+[`InputMessage`](input_message::InputMessage)s, and restore inputs for
+simulation and rollback. Pick a backend crate for a concrete input type.
 */
 #![no_std]
 

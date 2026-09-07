@@ -83,7 +83,9 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
                     LeafwingSequence<A>,
                 >::new(self.config));
 
-                // see: https://github.com/cBournhonesque/lightyear/pull/820
+                // RestoreInputs must run before leafwing ticks button states
+                // (JustPressed→Pressed): the tick has to advance the restored
+                // delayed input, not the stale pre-restore one.
                 app.configure_sets(
                     FixedPreUpdate,
                     lightyear_inputs::client::InputSystems::RestoreInputs

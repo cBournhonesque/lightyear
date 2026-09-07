@@ -9,11 +9,12 @@
 //!
 //! ### Adding a new input type
 //!
-//! An input type is an enum that implements the `UserAction` trait.
-//! This trait is a marker trait that is used to tell Lightyear that this type can be used as an input.
-//! In particular inputs must be `Serialize`, `Deserialize`, `Clone` and `PartialEq`.
-//!
-//! You can then add the input type by adding the `InputPlugin<InputType>` to your app.
+//! Concrete input types live in the backend crates (`inputs_native`,
+//! `inputs_leafwing`, `input_bei`). Each backend provides an
+//! [`ActionStateSequence`](crate::input_message::ActionStateSequence)
+//! implementation and an `InputPlugin` that wires it into the systems below.
+//! The user payload inside the sequence must be `Serialize`, `Deserialize`,
+//! `Clone` and `PartialEq`.
 //!
 //! ```rust
 //! use bevy_ecs::entity::{EntityMapper, MapEntities};
@@ -36,12 +37,12 @@
 //!
 //! ### Sending inputs
 //!
-//! There are several steps to use the `InputPlugin`:
+//! There are several steps to send inputs:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
-//! - to buffer inputs for each tick. This is done by updating the `ActionState` component in a system.
-//!   That system must run in the [`InputSystems::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
+//! - buffer inputs for each tick. This is done by updating the backend's state component in a system.
+//!   That system must run in the [`InputSystems::WriteClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
-//!   will read the inputs using the [`InputBuffer`] component.
+//!   read the backend's state component (restored from the [`InputBuffer`] each tick).
 
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
@@ -90,6 +91,18 @@ use tracing::{debug, error, info, trace, warn};
 
 #[deprecated(note = "Use InputSystems instead")]
 pub type InputSet = InputSystems;
+/// Client-side input system sets, in run order within a frame.
+///
+/// | Set | Schedule | Ordered relative to | Why |
+/// |---|---|---|---|
+/// | `ReceiveInputMessages` | `PreUpdate` | after `MessageSystems::Receive`, before `RollbackSystems::Check` (and after `BeforeFixedMainLoop`) | entity-mapped targets only resolve after `Receive`; mismatches must arm the rollback check before it runs; backend frame states are swapped in before the fixed loop, so diffs apply to the state the simulation will read |
+/// | `WriteClientInputs` → `BufferClientInputs` | `FixedPreUpdate` | chained; user writes first | buffer the newest input at `now + delay`, then load this sim tick's input (covers input delay, rollback replay, and remote replay) |
+/// | `RestoreInputs` | `FixedPostUpdate` | — | re-point the state component at the newest (`now + delay`) input after simulation, for rendering and next-frame sampling (matters when `FixedUpdate` runs 0 or 2+ times per frame) |
+/// | `PrepareInputMessage` → `Sync` → `SendInputMessage` → `CleanUp` → `MessageSystems::Send` | `PostUpdate` | chained | prepare before sync so a timeline shift can adjust buffered `end_tick`s; send after sync; drop old ticks last; everything before the transport flush |
+/// | `UpdateRemoteInputTicks` | `PostUpdate`, after `Sync` | — | this frame's rollback decision must use the previous confirmed tick, not the one being received now |
+///
+/// Additionally the `receive_local_timeline_shift` observer shifts buffered ticks and staged
+/// message `end_tick`s whenever sync moves the local timeline.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
     // RUN-FIXED-MAIN-LOOP UPDATE
@@ -107,10 +120,10 @@ pub enum InputSystems {
     /// - rollback: we fetch the ActionState value from the InputBuffers
     BufferClientInputs,
 
-    // FIXED POST UPDATE
-    /// Prepare a message for the server with the current tick's inputs.
-    /// (we do this in the FixedUpdate schedule because if the simulation is slow (e.g. 10Hz)
-    /// we don't want to send an InputMessage every frame)
+    // POST UPDATE
+    /// Stage the input message for the server with the current tick's inputs.
+    /// (we do this once per frame in PostUpdate, not once per fixed tick, because if the
+    /// simulation runs slower than the frame rate we don't want to send an InputMessage per tick)
     PrepareInputMessage,
     // TODO: could this run in RunFixedMainLoop::AfterFixedMainLoop?
     /// Restore the ActionState for the correct tick (without InputDelay) from the buffer
@@ -174,11 +187,10 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
         // SETS
 
-        // NOTE: this is subtle! We receive remote players messages after
-        //  RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the local leafwing `states` have
-        //  been switched to the `fixed_update` state (see https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
-        //  We can move this system back in PreUpdate if we drop leafwing support.
-        //  Conveniently, this also ensures that we run this after MessageSet::Receive.
+        // Remote input messages are received after `BeforeFixedMainLoop` for two reasons:
+        // - backend frame states (e.g. leafwing's fixed-update state) have been swapped in by then,
+        //   so buffered snapshots match what the simulation will read;
+        // - this also orders us after `MessageSystems::Receive`, which resolves entity-mapped targets.
         app.configure_sets(
             PreUpdate,
             InputSystems::ReceiveInputMessages
@@ -215,18 +227,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             // The topology is a runtime choice. Conventional clients still return immediately
             // when rebroadcasting is disabled, while P2P peers must always drain direct remote
             // input messages even though their client/server rebroadcast option is false.
-            // NOTE: we do NOT need to run this after RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the
-            //  local leafwing `states` have been switched to the `fixed_update` state (see
-            //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
-            //  because when applying the diffs we manually update the fixed_update_state .
-
-            //  because when we apply the diffs, we start by taking the initial `start_state` snapshot from the message.
-            //  That snapshot has both `state` = `fixed_update_state` since it was buffered by the client
-            //  during FixedUpdate.
-            //  Then, the diffs will update `state`, and that value will be stored in the buffer.
-            //
-            //  The ActionState will only be modified during FixedPreUpdate in `get_action_state`, so we will have
-            //  `state` = `fixed_update_state` in the ActionState component.
+            // Diffs are applied onto the message's `start_state` snapshot (buffered by the sender
+            // during its FixedUpdate) and the result is stored in the InputBuffer; the live state
+            // component is only touched later in `get_action_state`. So the only ordering that
+            // matters here is after `MessageSystems::Receive` (entity mapping) and before
+            // `RollbackSystems::Check` (a mismatch must arm the rollback).
             app.configure_sets(
                 PreUpdate,
                 InputSystems::ReceiveInputMessages
