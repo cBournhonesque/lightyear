@@ -46,9 +46,11 @@
 
 use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
+#[cfg(feature = "prediction")]
+use crate::input_message::resolve_prespawned_target;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
-    PerTargetData, StateMut, StateRef, resolve_prespawned_target,
+    PerTargetData, StateMut, StateRef,
 };
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
@@ -340,6 +342,12 @@ impl<'a> InputRoute<'a> {
         }
     }
 
+    /// Whether the server-side pipeline owns this app's inputs (host-client).
+    ///
+    /// The apply/cleanup/receive systems (`get_action_state`, `clean_buffers`,
+    /// `receive_remote_player_input_messages`) defer unconditionally; the send
+    /// systems use [`InputRoute::client_send_defers_to_server`] instead, since a
+    /// rebroadcasting host client is also an input producer for other clients.
     #[inline]
     fn is_host_client(self) -> bool {
         matches!(
@@ -349,6 +357,24 @@ impl<'a> InputRoute<'a> {
                 ..
             }
         )
+    }
+
+    /// Whether the client-side *send* pipeline must stand down for a host client.
+    ///
+    /// Same as [`InputRoute::is_host_client`], except a rebroadcasting host client
+    /// still stages and sends its inputs so the server can forward them.
+    #[inline]
+    fn client_send_defers_to_server(self, rebroadcast_inputs: bool) -> bool {
+        if !self.is_host_client() {
+            return false;
+        }
+        #[cfg(feature = "prediction")]
+        return !rebroadcast_inputs;
+        #[cfg(not(feature = "prediction"))]
+        return {
+            let _ = rebroadcast_inputs;
+            true
+        };
     }
 
     #[inline]
@@ -374,20 +400,27 @@ impl<'a> InputRoute<'a> {
 /// Conventional client/server links can use their replication-populated entity map. P2P has no
 /// authoritative replication stream to populate those per-Link maps, so every target must use a
 /// stable [`PreSpawned`] hash that the other peers can resolve in their own worlds.
+///
+/// Returns `None` when a P2P target has no resolved hash: the caller skips the
+/// target instead of panicking the app, and peers ignore the gap like any other
+/// missing tick.
 fn input_target(
     route: InputRoute<'_>,
     entity: Entity,
     pre_spawned: Option<&PreSpawned>,
-) -> InputTarget {
+) -> Option<InputTarget> {
     if let Some(hash) = pre_spawned.and_then(|pre_spawned| pre_spawned.hash) {
         debug!(?hash, ?entity, "Sending input for prespawned entity");
-        return InputTarget::PreSpawned(hash);
+        return Some(InputTarget::PreSpawned(hash));
     }
-    assert!(
-        !route.requires_prespawned_targets(),
-        "P2P input target {entity:?} must have a PreSpawned component with a resolved hash"
-    );
-    InputTarget::Entity(entity)
+    if route.requires_prespawned_targets() {
+        error!(
+            ?entity,
+            "Skipping P2P input target without a PreSpawned component with a resolved hash"
+        );
+        return None;
+    }
+    Some(InputTarget::Entity(entity))
 }
 
 // equivalent to &ActionState<S::Action>
@@ -767,16 +800,9 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    #[cfg(not(feature = "prediction"))]
-    if is_host_client {
-        // if there is not prediction, no need to rebroadcast inputs
-        return;
-    }
-
-    #[cfg(feature = "prediction")]
-    if is_host_client && !input_config.rebroadcast_inputs {
-        // the host-client doesn't need to send input messages since the ActionState is already on the entity
-        // unless we want to rebroadcast the HostClient inputs to other clients
+    // The host-client doesn't need to stage input messages since the ActionState
+    // is already on the entity — unless we rebroadcast its inputs to other clients.
+    if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
         return;
     }
 
@@ -819,7 +845,9 @@ fn prepare_input_message<S: ActionStateSequence>(
             input_buffer
         );
 
-        let target = input_target(route, entity, pre_spawned);
+        let Some(target) = input_target(route, entity, pre_spawned) else {
+            continue;
+        };
 
         if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_ticks, tick) {
             trace!(
@@ -1340,15 +1368,9 @@ fn send_input_messages<S: ActionStateSequence>(
     };
     let is_host_client = route.is_host_client();
 
-    #[cfg(not(feature = "prediction"))]
-    if is_host_client {
-        message_buffer.0.clear();
-        return;
-    }
-    #[cfg(feature = "prediction")]
-    if is_host_client && !input_config.rebroadcast_inputs {
-        // the host-client doesn't need to send input messages since the ActionState is already on the entity
-        // unless we want to rebroadcast the HostClient inputs to other clients
+    // See `prepare_input_message`: a non-rebroadcasting host client drops staged
+    // messages instead of sending them.
+    if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
         message_buffer.0.clear();
         return;
     }
@@ -1518,20 +1540,19 @@ mod tests {
 
         assert_eq!(
             input_target(route, target, Some(&prespawned)),
-            InputTarget::PreSpawned(0xCAFE)
+            Some(InputTarget::PreSpawned(0xCAFE))
         );
     }
 
     #[test]
-    #[should_panic(expected = "must have a PreSpawned component with a resolved hash")]
-    fn p2p_input_targets_reject_unmapped_entities() {
+    fn p2p_input_targets_without_hashes_are_skipped() {
         let mut world = World::new();
         let link = world.spawn_empty().id();
         let target = world.spawn_empty().id();
         let topology = NetworkTopology::P2P([link].into_iter().collect());
         let route = InputRoute::from_topology(&topology).unwrap();
 
-        let _ = input_target(route, target, None);
+        assert_eq!(input_target(route, target, None), None);
     }
 
     #[test]
@@ -1544,7 +1565,7 @@ mod tests {
 
         assert_eq!(
             input_target(route, target, None),
-            InputTarget::Entity(target)
+            Some(InputTarget::Entity(target))
         );
     }
 
