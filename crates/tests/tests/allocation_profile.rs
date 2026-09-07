@@ -1,7 +1,7 @@
 use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
 use bevy::prelude::{Entity, FixedUpdate, Query, With};
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::{MessageSender, NetworkTarget, Predicted, PredictionTarget, Replicate};
-use lightyear_messages::MessageManager;
 use lightyear_tests::protocol::{Channel1, CompFull, StringMessage};
 use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
 
@@ -153,12 +153,12 @@ fn wait_for_mapped_client_entity(
 ) -> Entity {
     for _ in 0..50 {
         stepper.frame_step_server_first(1);
-        if let Some(client_entity) = stepper
-            .client(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(server_entity)
+        if let Some(client_entity) = stepper.client_apps[0]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
         {
             return client_entity;
         }
