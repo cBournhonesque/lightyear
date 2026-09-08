@@ -698,6 +698,7 @@ fn update_action_state<S: ActionStateSequence>(
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     timeline: Res<LocalTimeline>,
+    tick_duration: Res<TickDuration>,
     server: Single<(Entity, Has<HostServer>), With<Started>>,
     #[cfg(feature = "metrics")] metric_handles: Res<InputMetricHandles<S>>,
     mut action_state_query: Query<(
@@ -711,10 +712,11 @@ fn update_action_state<S: ActionStateSequence>(
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
         // We only apply the ActionState from the buffer if we have one.
-        // If we don't (because the input packet is late or lost), we won't do anything.
-        // This is equivalent to considering that the player will keep playing the last action they played.
-        if let Some(snapshot) = input_buffer.get_predict(tick) {
-            S::from_snapshot_transitions(S::State::into_inner(action_state), snapshot);
+        // If we don't (because the input packet is late or lost), we predict
+        // from the last confirmed input — recomputed every tick, never stored.
+        // (Unlike the old repeat-last snapshot, this advances button timers.)
+        if let Some(snapshot) = input_buffer.predict(tick, tick_duration.0) {
+            S::from_snapshot_transitions(S::State::into_inner(action_state), &snapshot);
             trace!(
                 ?tick,
                 ?entity,

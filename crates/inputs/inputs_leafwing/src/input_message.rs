@@ -467,9 +467,9 @@ mod tests {
             "get(101) should return None — beyond buffer"
         );
 
-        // get_predict() should return last value for ticks beyond buffer
-        let predicted = receiver_buffer.get_predict(Tick(105));
-        assert!(predicted.is_some(), "get_predict(105) should return Some");
+        // predict() should return last value for ticks beyond buffer
+        let predicted = receiver_buffer.predict(Tick(105), Duration::default());
+        assert!(predicted.is_some(), "predict(105) should return Some");
         assert!(
             predicted.unwrap().pressed(&Action::Jump),
             "predicted should have Jump pressed"

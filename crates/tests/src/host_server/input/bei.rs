@@ -314,7 +314,7 @@ fn buffer_contains_fired_input(buffer: &BEIBuffer<BEIContext>) -> bool {
     };
     let mut tick = start;
     while tick <= end {
-        if let Compressed::Input(snapshot) = buffer.get_raw(tick)
+        if let Some(snapshot) = buffer.get(tick)
             && snapshot.state == TriggerState::Fired
             && snapshot.value == ActionValue::Bool(true)
         {

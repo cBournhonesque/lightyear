@@ -93,15 +93,17 @@ impl<
             .map_or(Compressed::Absent, |input| input.into());
         let mut states = vec![start_state];
 
-        // append the other states until the end tick
-        // (`get_raw` returns `Absent` past the buffer end, matching the old
-        // out-of-range `map_or` fallback.)
+        // Append the other states until the end tick, re-deriving wire
+        // compression by comparing neighbors (`get` returns `None` past the
+        // buffer end, which encodes as `Absent` as before).
         let mut tick = start_tick + 1;
         while tick <= end_tick {
-            let state = match input_buffer.get_raw(tick) {
-                Compressed::Absent => Compressed::Absent,
-                Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-                Compressed::Input(v) => v.into(),
+            let state = match input_buffer.get(tick) {
+                None => Compressed::Absent,
+                Some(value) => match input_buffer.get(tick - 1u32) {
+                    Some(prev) if prev == value => Compressed::SameAsPrecedent,
+                    _ => value.into(),
+                },
             };
             states.push(state);
             tick = tick + 1;

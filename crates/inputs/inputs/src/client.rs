@@ -49,8 +49,8 @@ use crate::input_buffer::InputBuffer;
 #[cfg(feature = "prediction")]
 use crate::input_message::resolve_prespawned_target;
 use crate::input_message::{
-    ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
-    PerTargetData, StateMut, StateRef,
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut,
+    StateRef,
 };
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
@@ -536,7 +536,7 @@ fn get_action_state<S: ActionStateSequence>(
         return;
     }
     // TODO!: if config.rebroadcast = False, we don't need to handle remote players, try to encode that statically!
-    for (entity, action_state, mut input_buffer, is_local) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
         if !is_rollback && is_local && input_delay == 0 {
             // for local clients, if there is no rollback and no input_delay:
             // we just buffered the input for the current tick so the action state is already up to date
@@ -552,13 +552,11 @@ fn get_action_state<S: ActionStateSequence>(
         // - we cannot use `is_lockstep` to check if we receive inputs in the future, because there are cases in non-lockstep where
         //   we could receive some inputs from the future, if we had a high enough input delay.
 
-        // NOTE: we use `get` and not `get_predict ` here.
-        // This means that we try to get the value for this exact tick.
+        // NOTE: confirmed ticks resolve exactly via `get`.
         // - For local inputs with input_delay: our current state is in the future, so we need to fetch the exact value from the buffer
         // - For remote inputs with lockstep: the last input is in the future, so we need to fetch the exact value from the buffer
-        // - For remote inputs without lockstep: we might receive a message that updates our input buffer, and the last input is
-        //   in the past. We already updated the ActionState in `receive_input_message` for that past tick, which means we are
-        //   predicting that the action hasn't changed since. We just need to decay it (for rollback or without rollback)
+        // - For remote inputs without lockstep: the branch below predicts from the
+        //   last confirmed input instead (recomputed every tick, never stored).
         if let Some(snapshot) = input_buffer.get(tick) {
             // TODO: should we decay_tick the snapshot?
             S::from_snapshot(S::State::into_inner(action_state), snapshot);
@@ -594,34 +592,46 @@ fn get_action_state<S: ActionStateSequence>(
             }
             // we are here if:
             // - we are in rollback and we reach a tick further than the last tick we received from the remote
-            // - we are not in rollback, in which case we want to decay the ActionState
-            let mut snapshot = S::to_snapshot(S::State::as_read_only(&action_state));
-            snapshot.decay_tick(tick_duration.0);
-            trace!(
-                ?entity,
-                ?tick,
-                "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}",
-                DebugName::type_name::<S::Action>(),
-                snapshot
-            );
-            trace!(
-                target: "lightyear_debug::input",
-                kind = "decay_missing_remote_action_state",
-                schedule = "FixedPreUpdate",
-                sample_point = "FixedPreUpdate",
-                entity = ?entity,
-                action = ?DebugName::type_name::<S::Action>(),
-                local_tick = tick.0,
-                input_tick = tick.0,
-                is_rollback,
-                snapshot = ?snapshot,
-                buffer_len = input_buffer.len(),
-                "decayed missing remote action state"
-            );
-            // update the action state with decay
-            S::from_snapshot(S::State::into_inner(action_state), &snapshot);
-            // add the new snapshot in the buffer
-            input_buffer.set(tick, snapshot);
+            // - we are not in rollback, in which case we want to predict the remote ActionState.
+            // The prediction is recomputed from the last confirmed input every
+            // tick and never stored: there is nothing to invalidate later.
+            // (With no confirmed input there is no anchor, so the component is
+            // left untouched instead of decaying whatever the live state holds.)
+            if let Some(predicted) = input_buffer.predict(tick, tick_duration.0) {
+                trace!(
+                    ?entity,
+                    ?tick,
+                    "Action = {}, For remote input; no input for tick so we predict the ActionState as: {:?}",
+                    DebugName::type_name::<S::Action>(),
+                    predicted
+                );
+                trace!(
+                    target: "lightyear_debug::input",
+                    kind = "decay_missing_remote_action_state",
+                    schedule = "FixedPreUpdate",
+                    sample_point = "FixedPreUpdate",
+                    entity = ?entity,
+                    action = ?DebugName::type_name::<S::Action>(),
+                    local_tick = tick.0,
+                    input_tick = tick.0,
+                    is_rollback,
+                    snapshot = ?predicted,
+                    buffer_len = input_buffer.len(),
+                    "predicted missing remote action state"
+                );
+                // update the action state with the prediction (buffer untouched)
+                S::from_snapshot(S::State::into_inner(action_state), &predicted);
+            }
+        } else if !is_rollback && is_local && input_delay > 0 {
+            // Input delay: the live state holds a sample for a future tick, so it
+            // must be overwritten with this tick's delayed input. With nothing
+            // buffered (e.g. the entity was just claimed and older delay ticks were
+            // never sampled), the delayed input is neutral — reset instead of
+            // leaving the future sample in place, or a fresh press would fire
+            // before its delay elapses. (Neutral here used to arrive incidentally
+            // via stored remote predictions seeding the buffer; predictions are
+            // recomputed now, so spell it out.)
+            S::from_snapshot(S::State::into_inner(action_state), &S::Snapshot::default());
         }
     }
 }

@@ -7,6 +7,7 @@
 //! - to implement input-delay, we want a button press at tick t to be processed at tick t + delay on the client.
 //!   Therefore, we will store the computed ActionState at tick t + delay, but then we load the ActionState at tick t
 //!   from the buffer
+use super::input_message::InputSnapshot;
 use alloc::{
     format,
     string::{String, ToString},
@@ -16,6 +17,7 @@ use bevy_ecs::component::Component;
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
+use core::time::Duration;
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
@@ -39,10 +41,11 @@ pub struct InputBuffer<S, M> {
     pub start_tick: Option<Tick>,
     /// Fixed ring holding the window `[start_tick, start_tick + len)`, oldest first.
     /// The slot for `tick` is `slots[(head + (tick - start_tick)) % INPUT_BUFFER_CAPACITY]`.
-    /// Dense like the old `VecDeque` (`SameAsPrecedent`/`Absent` markers preserved
-    /// per slot, so `get_raw` observations are unchanged), but bounded: writes
-    /// past capacity evict the oldest ticks instead of growing.
-    slots: [Compressed<S>; INPUT_BUFFER_CAPACITY],
+    /// Slots hold materialized snapshots (`None` = explicit neutral): wire
+    /// compression (`SameAsPrecedent`) is resolved on write, so reads are O(1)
+    /// indexing with no chain walks. Bounded: writes past capacity evict the
+    /// oldest ticks instead of growing.
+    slots: [Option<S>; INPUT_BUFFER_CAPACITY],
     /// Ring index of `start_tick`. Only meaningful when `len > 0`.
     head: usize,
     /// Number of live slots. `end_tick = start_tick + len - 1`.
@@ -78,9 +81,8 @@ impl<T: Debug, M> core::fmt::Display for InputBuffer<T, M> {
             .map(|i| {
                 let item = &self.slots[(self.head + i) % INPUT_BUFFER_CAPACITY];
                 let str = match item {
-                    Compressed::Absent => "Absent".to_string(),
-                    Compressed::SameAsPrecedent => "SameAsPrecedent".to_string(),
-                    Compressed::Input(data) => format!("{data:?}"),
+                    None => "Absent".to_string(),
+                    Some(data) => format!("{data:?}"),
                 };
                 format!("{:?}: {}\n", tick + i as i32, str)
             })
@@ -111,7 +113,7 @@ impl<T> From<Option<T>> for Compressed<T> {
 impl<T, M> Default for InputBuffer<T, M> {
     fn default() -> Self {
         Self {
-            slots: core::array::from_fn(|_| Compressed::Absent),
+            slots: core::array::from_fn(|_| None),
             head: 0,
             len: 0,
             start_tick: None,
@@ -140,18 +142,11 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
     /// Append a slot at the back, evicting the oldest tick once the window is full.
     ///
     /// Eviction only triggers on degenerate windows (see [`INPUT_BUFFER_CAPACITY`]);
-    /// the retention pops keep legitimate windows far smaller.
-    fn push_back(&mut self, value: Compressed<T>) {
+    /// the retention pops keep legitimate windows far smaller. Slots are
+    /// materialized, so eviction drops independent values — no repair needed.
+    fn push_back(&mut self, value: Option<T>) {
         if self.len == INPUT_BUFFER_CAPACITY {
-            // Evicting the oldest tick can orphan a `SameAsPrecedent` chain whose
-            // anchor lived in the dropped slot. Materialize the new oldest slot's
-            // resolved value first so the chain keeps resolving (same repair as `pop`).
-            let new_head = (self.head + 1) % INPUT_BUFFER_CAPACITY;
-            if matches!(self.slots[new_head], Compressed::SameAsPrecedent) {
-                let resolved = self.get(self.start_tick.unwrap() + 1).cloned();
-                self.slots[new_head] = Compressed::from(resolved);
-            }
-            self.head = new_head;
+            self.head = (self.head + 1) % INPUT_BUFFER_CAPACITY;
             if let Some(start) = self.start_tick {
                 self.start_tick = Some(start + 1);
             }
@@ -189,16 +184,11 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
 
     // Note: we expect this to be set every tick?
     //  i.e. there should be an ActionState for every tick, even if the action is None
-    /// Set the ActionState for the given tick in the InputBuffer
+    /// Set the ActionState for the given tick in the InputBuffer.
     ///
-    /// This should be called every tick.
+    /// This should be called every tick. The value is stored as-is; wire
+    /// compression is re-derived at message-build time, not here.
     pub fn set(&mut self, tick: Tick, value: T) {
-        if let Some(precedent) = self.get(tick - 1)
-            && precedent == &value
-        {
-            self.set_raw(tick, Compressed::SameAsPrecedent);
-            return;
-        }
         self.set_raw(tick, Compressed::Input(value));
     }
 
@@ -211,13 +201,24 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         self.set_raw(tick, Compressed::Absent);
     }
 
+    /// Write one tick from the wire, resolving compression against the buffer.
+    ///
+    /// `SameAsPrecedent` repeats the previous tick's stored value (`None` when
+    /// there is none); gaps between the old end and `tick` repeat the last
+    /// stored value the same way. Reads therefore never walk chains.
     pub fn set_raw(&mut self, tick: Tick, value: Compressed<T>) {
+        // Resolve first: only committed slots are read, never the slot being written.
+        let resolved = match value {
+            Compressed::Input(value) => Some(value),
+            Compressed::Absent => None,
+            Compressed::SameAsPrecedent => self.get(tick - 1u32).cloned(),
+        };
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
             self.head = 0;
             self.len = 0;
-            self.push_back(value);
+            self.push_back(resolved);
             return;
         };
 
@@ -228,8 +229,9 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
 
         let end_tick = start_tick + (self.len as i32 - 1);
 
-        // NOTE: we fill the value for the given tick, and we fill the ticks between start_tick and tick
-        // with InputData::SameAsPrecedent (i.e. if there are any gaps, we consider that the user repeated
+        // NOTE: we fill the value for the given tick, and we repeat the last
+        // stored value over the ticks between the old end and `tick`
+        // (i.e. if there are any gaps, we consider that the user repeated
         // their last action)
         if tick > end_tick {
             // TODO: Think about how to fill the buffer between ticks
@@ -239,23 +241,24 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
             //  with monotonically increasing ticks, which I think is the case
             //  maybe that's not correct because the timing information should be different? (i.e. I should tick the action-states myself and set them)
             // fill the ticks between end_tick and tick with a copy of the current ActionState
+            let fill = self.get(end_tick).cloned();
             let mut t = end_tick + 1;
             while t < tick {
                 trace!("fill ticks");
-                self.push_back(Compressed::SameAsPrecedent);
+                self.push_back(fill.clone());
                 t = t + 1;
             }
             // add a new value to the buffer, which we will override below
-            self.push_back(Compressed::Absent);
+            self.push_back(None);
         }
 
         // safety: the tick is in the window (`push_back` eviction keeps the newest ticks)
         let index = self.index(tick).unwrap();
-        self.slots[index] = value;
+        self.slots[index] = resolved;
     }
 
     /// Like [`pop`](Self::pop), but preserves the most recent entry so it
-    /// remains available as a [`get_predict`](Self::get_predict) fallback.
+    /// remains available as a [`predict`](Self::predict) fallback.
     pub fn pop_keeping_last(&mut self, tick: Tick) -> Option<T> {
         let Some((last_tick, _)) = self.get_last_with_tick() else {
             return self.pop(tick);
@@ -282,87 +285,45 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
             return None;
         }
 
-        // popped will represent the last value popped
-        let mut popped = Compressed::Absent;
+        // Slots are materialized, so popping just drops independent values and
+        // returns the last one. No chain repair needed.
+        let mut popped = None;
         for _ in 0..(tick + 1 - start_tick) {
             // front is the oldest value
-            let data = core::mem::replace(&mut self.slots[self.head], Compressed::Absent);
+            popped = self.slots[self.head].take();
             self.head = (self.head + 1) % INPUT_BUFFER_CAPACITY;
             self.len -= 1;
-            match data {
-                Compressed::Absent | Compressed::Input(_) => {
-                    popped = data;
-                }
-                _ => {}
-            }
         }
         self.start_tick = Some(tick + 1);
-
-        // if the next value after we popped was 'SameAsPrecedent', we need to override it with an actual value
-        if self.len > 0 && matches!(self.slots[self.head], Compressed::SameAsPrecedent) {
-            self.slots[self.head] = popped.clone();
-        }
-
-        match popped {
-            Compressed::Input(value) => Some(value),
-            _ => None,
-        }
-    }
-
-    /// Get the raw `InputData` for the given tick, without resolving `SameAsPrecedent`
-    pub fn get_raw(&self, tick: Tick) -> &Compressed<T> {
-        match self.index(tick) {
-            Some(index) => &self.slots[index],
-            None => &Compressed::Absent,
-        }
+        popped
     }
 
     /// Get the `ActionState` for the given tick. This does not apply prediction:
     /// - if the tick is outside the range of the buffer, it returns None
     pub fn get(&self, tick: Tick) -> Option<&T> {
-        let start_tick = self.start_tick?;
-        if self.len == 0 {
-            return None;
-        }
-        if tick < start_tick || tick > start_tick + (self.len as i32 - 1) {
-            return None;
-        }
-        // Resolve `SameAsPrecedent` chains iteratively. The walk is bounded by
-        // the ring capacity and cannot underflow `start_tick`: a leading
-        // `SameAsPrecedent` resolves to None.
-        // (The old recursive version could even diverge on a `SameAsPrecedent`
-        // at Tick(0), where saturating tick arithmetic never goes below start.)
-        let mut offset = tick - start_tick;
-        loop {
-            let index = (self.head + offset as usize) % INPUT_BUFFER_CAPACITY;
-            match &self.slots[index] {
-                Compressed::Absent => return None,
-                Compressed::Input(data) => return Some(data),
-                Compressed::SameAsPrecedent => {
-                    if offset == 0 {
-                        return None;
-                    }
-                    offset -= 1;
-                }
-            }
-        }
+        self.index(tick)
+            .and_then(|index| self.slots[index].as_ref())
     }
 
-    /// Get the `ActionState` for the given tick.
-    /// This applies prediction:
-    /// - if the tick is outside the range of the buffer, we return the last known ActionState (if any)
-    pub fn get_predict(&self, tick: Tick) -> Option<&T> {
-        let start_tick = self.start_tick?;
-        if self.len == 0 {
-            return None;
+    /// Predict the input for `tick` without storing anything.
+    ///
+    /// Ticks inside the window resolve exactly; ticks beyond it decay the newest
+    /// stored (hence confirmed) input. Predictions are recomputed on every read
+    /// from the confirmed anchor, so they can never go stale — unlike stored
+    /// predictions, there is nothing to invalidate when new inputs arrive.
+    pub fn predict(&self, tick: Tick, tick_duration: Duration) -> Option<T>
+    where
+        T: InputSnapshot,
+    {
+        let (last_tick, last) = self.get_last_with_tick()?;
+        if tick <= last_tick {
+            return self.get(tick).cloned();
         }
-        if tick < start_tick {
-            return None;
+        let mut predicted = last.clone();
+        for _ in 0..(tick - last_tick) {
+            predicted.decay_tick(tick_duration);
         }
-        if tick > start_tick + (self.len as i32 - 1) {
-            return self.get_last();
-        }
-        self.get(tick)
+        Some(predicted)
     }
 
     /// Get latest ActionState present in the buffer
@@ -397,6 +358,11 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
 mod tests {
     use super::*;
 
+    /// No-op decay so `predict` on `i32` buffers is deterministic.
+    impl InputSnapshot for i32 {
+        fn decay_tick(&mut self, _tick_duration: Duration) {}
+    }
+
     #[test]
     fn test_get_set_pop() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
@@ -407,34 +373,28 @@ mod tests {
         input_buffer.set(Tick(8), 1);
 
         assert_eq!(input_buffer.get(Tick(4)), Some(&0));
-        // missing ticks are filled with SameAsPrecedent
+        // missing ticks repeat the last stored value
         assert_eq!(input_buffer.get(Tick(5)), Some(&0));
-        assert_eq!(input_buffer.get_raw(Tick(5)), &Compressed::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(6)), Some(&1));
-        // similar values are compressed
-        assert_eq!(input_buffer.get_raw(Tick(7)), &Compressed::SameAsPrecedent);
-        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::SameAsPrecedent);
+        // every slot holds a materialized value
+        assert_eq!(input_buffer.get(Tick(7)), Some(&1));
+        assert_eq!(input_buffer.get(Tick(8)), Some(&1));
         // we get None if we try to get a value outside the buffer
         assert_eq!(input_buffer.get(Tick(9)), None);
 
-        // we get the correct value even if we pop SameAsPrecedent
         assert_eq!(input_buffer.pop(Tick(5)), Some(0));
         assert_eq!(input_buffer.start_tick, Some(Tick(6)));
 
-        // if the next value in the buffer after we pop is SameAsPrecedent, it should
-        // get replaced with a real value
         assert_eq!(input_buffer.pop(Tick(7)), Some(1));
         assert_eq!(input_buffer.start_tick, Some(Tick(8)));
         assert_eq!(input_buffer.get(Tick(8)), Some(&1));
-        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Input(1));
         assert_eq!(input_buffer.len(), 1);
     }
 
     #[test]
-    fn test_set_empty_and_get_raw() {
+    fn test_set_empty_and_get() {
         let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set_empty(Tick(3));
-        assert_eq!(input_buffer.get_raw(Tick(3)), &Compressed::Absent);
         assert_eq!(input_buffer.get(Tick(3)), None);
     }
 
@@ -497,19 +457,19 @@ mod tests {
     }
 
     #[test]
-    fn test_server_pop_pattern_preserves_get_predict_fallback() {
+    fn test_server_pop_pattern_preserves_predict_fallback() {
         let mut buf: InputBuffer<i32, i32> = InputBuffer::default();
         buf.set(Tick(10), 42);
 
-        assert_eq!(buf.get_predict(Tick(13)), Some(&42));
+        assert_eq!(buf.predict(Tick(13), Duration::default()), Some(42));
 
         // Mirror server.rs::update_action_state: advance the buffer floor
         // past the last entry. Plain `pop` would wipe the fallback here.
         buf.pop_keeping_last(Tick(11));
 
         assert_eq!(
-            buf.get_predict(Tick(13)),
-            Some(&42),
+            buf.predict(Tick(13), Duration::default()),
+            Some(42),
             "advancing the floor past the last entry must preserve the fallback",
         );
     }
@@ -556,38 +516,75 @@ mod tests {
     }
 
     /// Verify that `get` returns None for ticks past the buffer end,
-    /// while `get_predict` falls back to the last known input.
+    /// while `predict` falls back to the last known input.
     ///
     /// This matters on the server: when the server tick advances past the
     /// last received input, `get` silently drops the input (returns None)
-    /// while `get_predict` returns the most recent value.
+    /// while `predict` returns the most recent value.
     #[test]
-    fn test_get_vs_get_predict_past_buffer_end() {
+    fn test_get_vs_predict_past_buffer_end() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
         input_buffer.set(Tick(10), 42);
         input_buffer.set(Tick(12), 99);
 
         // Within range: both return the same value
         assert_eq!(input_buffer.get(Tick(10)), Some(&42));
-        assert_eq!(input_buffer.get_predict(Tick(10)), Some(&42));
+        assert_eq!(
+            input_buffer.predict(Tick(10), Duration::default()),
+            Some(42)
+        );
         assert_eq!(input_buffer.get(Tick(12)), Some(&99));
-        assert_eq!(input_buffer.get_predict(Tick(12)), Some(&99));
+        assert_eq!(
+            input_buffer.predict(Tick(12), Duration::default()),
+            Some(99)
+        );
 
-        // Past buffer end: get returns None, get_predict returns last known
+        // Past buffer end: get returns None, predict returns last known
         assert_eq!(input_buffer.get(Tick(15)), None);
         assert_eq!(
-            input_buffer.get_predict(Tick(15)),
-            Some(&99),
-            "get_predict should fall back to the last known input"
+            input_buffer.predict(Tick(15), Duration::default()),
+            Some(99),
+            "predict should fall back to the last known input"
         );
 
         // Before buffer start: both return None
         assert_eq!(input_buffer.get(Tick(5)), None);
-        assert_eq!(input_buffer.get_predict(Tick(5)), None);
+        assert_eq!(input_buffer.predict(Tick(5), Duration::default()), None);
     }
 
-    /// Characterization: long runs of identical inputs compress to one `Input`
-    /// followed by a `SameAsPrecedent` chain, and every tick resolves to the held value.
+    /// Snapshot whose decay visibly accumulates, pinning multi-tick prediction.
+    #[derive(Clone, PartialEq, Debug, Default)]
+    struct CountingSnapshot(u32);
+    impl InputSnapshot for CountingSnapshot {
+        fn decay_tick(&mut self, _tick_duration: Duration) {
+            self.0 += 1;
+        }
+    }
+
+    #[test]
+    fn test_predict_applies_decay_per_tick() {
+        let mut input_buffer = InputBuffer::<CountingSnapshot, i32>::default();
+        input_buffer.set(Tick(10), CountingSnapshot(0));
+        // in-window ticks resolve exactly, no decay applied
+        assert_eq!(
+            input_buffer.predict(Tick(10), Duration::default()),
+            Some(CountingSnapshot(0))
+        );
+        // beyond the window: decay applied once per tick past the anchor
+        assert_eq!(
+            input_buffer.predict(Tick(11), Duration::default()),
+            Some(CountingSnapshot(1))
+        );
+        assert_eq!(
+            input_buffer.predict(Tick(13), Duration::default()),
+            Some(CountingSnapshot(3))
+        );
+        // prediction leaves the buffer untouched
+        assert_eq!(input_buffer.len(), 1);
+        assert_eq!(input_buffer.end_tick(), Some(Tick(10)));
+    }
+
+    /// Long runs of identical inputs store every tick; all resolve to the held value.
     #[test]
     fn test_long_hold_chain() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
@@ -595,20 +592,20 @@ mod tests {
             input_buffer.set(Tick(t), 7);
         }
         assert_eq!(input_buffer.len(), 32);
-        assert_eq!(input_buffer.get_raw(Tick(0)), &Compressed::Input(7));
-        for t in 1..32u32 {
-            assert_eq!(input_buffer.get_raw(Tick(t)), &Compressed::SameAsPrecedent);
+        for t in 0..32u32 {
             assert_eq!(input_buffer.get(Tick(t)), Some(&7));
         }
         assert_eq!(input_buffer.get_last(), Some(&7));
-        assert_eq!(input_buffer.get_predict(Tick(150)), Some(&7));
+        assert_eq!(
+            input_buffer.predict(Tick(150), Duration::default()),
+            Some(7)
+        );
     }
 
     /// The ring caps the window at `INPUT_BUFFER_CAPACITY`, evicting the oldest
-    /// ticks. Eviction materializes the new oldest slot so chains anchored in
-    /// dropped ticks keep resolving to the held value.
+    /// ticks. Every retained slot holds its own value, so eviction needs no repair.
     #[test]
-    fn test_ring_eviction_preserves_chain_resolution() {
+    fn test_ring_eviction_drops_oldest() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
         for t in 0..100u32 {
             input_buffer.set(Tick(t), 7);
@@ -616,8 +613,6 @@ mod tests {
         assert_eq!(input_buffer.len(), INPUT_BUFFER_CAPACITY);
         assert_eq!(input_buffer.start_tick, Some(Tick(36)));
         assert_eq!(input_buffer.end_tick(), Some(Tick(99)));
-        // anchor (tick 0) was evicted; the new oldest slot was materialized
-        assert_eq!(input_buffer.get_raw(Tick(36)), &Compressed::Input(7));
         for t in 36..100u32 {
             assert_eq!(input_buffer.get(Tick(t)), Some(&7));
         }
@@ -625,8 +620,8 @@ mod tests {
         assert_eq!(input_buffer.get_last(), Some(&7));
     }
 
-    /// Characterization: `SameAsPrecedent` chained behind `Absent` resolves to
-    /// None — neutral wins over repeat, including for `get_last`.
+    /// `SameAsPrecedent` written behind `Absent` resolves to None at write time —
+    /// neutral wins over repeat, including for `get_last`.
     #[test]
     fn test_same_as_precedent_behind_absent_resolves_none() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
@@ -634,7 +629,7 @@ mod tests {
         input_buffer.set_empty(Tick(11));
         input_buffer.set_raw(Tick(12), Compressed::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(12)), None);
-        assert_eq!(input_buffer.get_predict(Tick(12)), None);
+        assert_eq!(input_buffer.predict(Tick(12), Duration::default()), None);
         assert_eq!(input_buffer.get_last(), None);
     }
 
@@ -653,16 +648,15 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(10)), None);
     }
 
-    /// Characterization: `set_raw` fills gaps with `SameAsPrecedent` and
+    /// Characterization: `set_raw` repeats the last value over gaps and
     /// silently ignores ticks below `start_tick`.
     #[test]
     fn test_set_raw_gap_fill_and_below_start() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
         input_buffer.set(Tick(10), 1);
         input_buffer.set_raw(Tick(13), Compressed::Input(2));
-        assert_eq!(input_buffer.get_raw(Tick(11)), &Compressed::SameAsPrecedent);
-        assert_eq!(input_buffer.get_raw(Tick(12)), &Compressed::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(11)), Some(&1));
+        assert_eq!(input_buffer.get(Tick(12)), Some(&1));
         assert_eq!(input_buffer.get(Tick(13)), Some(&2));
         input_buffer.set_raw(Tick(5), Compressed::Input(9));
         assert_eq!(input_buffer.start_tick, Some(Tick(10)));

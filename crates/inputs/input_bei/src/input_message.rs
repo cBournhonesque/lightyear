@@ -222,10 +222,11 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         let mut tick = start_tick + 1;
         let (mut cur_state, mut cur_value) = (start_state.state, start_state.value);
         while tick <= end_tick {
-            let diff = match input_buffer.get_raw(tick) {
-                Compressed::Absent => Compressed::Absent,
-                Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-                Compressed::Input(snapshot) => {
+            // Re-derive wire compression by comparing neighbors (`get` returns
+            // `None` past the buffer end, which encodes as `Absent` as before).
+            let diff = match input_buffer.get(tick) {
+                None => Compressed::Absent,
+                Some(snapshot) => {
                     let diff = if snapshot.state == cur_state && snapshot.value == cur_value {
                         Compressed::SameAsPrecedent
                     } else {
@@ -420,8 +421,8 @@ mod tests {
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=5)
         // We predicted continuation of Absent, but got an Input
         assert_eq!(earliest_mismatch, Some(Tick(7)));
-        // Filled the gap with SameAsPrecedent at tick 6, then set the new action at tick 7 and 8
-        assert_eq!(input_buffer.get_raw(Tick(6)), &Compressed::SameAsPrecedent);
+        // Gap at tick 6 repeats the last stored value (Absent here)
+        assert_eq!(input_buffer.get(Tick(6)), None);
         assert_eq!(input_buffer.get(Tick(7)), Some(&state));
         state.events = ActionEvents::FIRE;
         assert_eq!(input_buffer.get(Tick(8)), Some(&state));
@@ -487,13 +488,10 @@ mod tests {
 
         // Should be no mismatch since the action matches our prediction
         assert_eq!(earliest_mismatch, None);
-        assert_eq!(
-            input_buffer.get_raw(Tick(6)),
-            &Compressed::Input(snapshot.clone())
-        );
+        assert_eq!(input_buffer.get(Tick(6)), Some(&snapshot));
         snapshot.decay_tick(Duration::default());
         assert_eq!(input_buffer.get(Tick(7)), Some(&snapshot));
-        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Absent);
+        assert_eq!(input_buffer.get(Tick(8)), None);
     }
 
     #[test]
