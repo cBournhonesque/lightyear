@@ -10,7 +10,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
 use lightyear_inputs::input_message::{
     ActionStateQueryData, ActionStateSequence, InputSnapshot, first_buffered_tick,
-    message_start_tick,
+    message_start_tick, send_window,
 };
 use serde::{Deserialize, Serialize};
 
@@ -205,26 +205,29 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
 
     fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self> {
-        let mut diffs = Vec::new();
         // find the first tick for which we have an `TriggerState` buffered
         let Some(start_tick) = first_buffered_tick(
             input_buffer,
-            message_start_tick(end_tick, num_ticks as usize),
+            message_start_tick(end_tick, num_ticks),
             end_tick,
         ) else {
             // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
             return None;
         };
-        let start_state = *input_buffer.get(start_tick).unwrap();
-        let mut tick = start_tick + 1;
+        // One shared walk materializes the window; neighbors below are indexes
+        // into it — identical values to the per-tick `get`s they replace
+        // (`get` returns `None` past the buffer end, encoding as `Absent`).
+        let slots = send_window(input_buffer, start_tick, end_tick);
+        // `first_buffered_tick` guarantees the anchor slot holds a snapshot.
+        let start_state = *slots[0].unwrap();
         let (mut cur_state, mut cur_value) = (start_state.state, start_state.value);
-        while tick <= end_tick {
-            // Re-derive wire compression by comparing neighbors (`get` returns
-            // `None` past the buffer end, which encodes as `Absent` as before).
-            let diff = match input_buffer.get(tick) {
+        let mut diffs = Vec::with_capacity(slots.len().saturating_sub(1));
+        // Re-derive wire compression by comparing neighbors.
+        for slot in slots.iter().skip(1).copied() {
+            let diff = match slot {
                 None => Compressed::Absent,
                 Some(snapshot) => {
                     let diff = if snapshot.state == cur_state && snapshot.value == cur_value {
@@ -241,7 +244,6 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
                 }
             };
             diffs.push(diff);
-            tick += 1;
         }
         Some(Self {
             start_state,

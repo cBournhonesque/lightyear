@@ -37,7 +37,11 @@ pub struct InputConfig<A> {
     /// If True, the server will rebroadcast a client's inputs to all other clients.
     ///
     /// It could be useful for a client to have access to other client's inputs to be able
-    /// to predict their actions
+    /// to predict their actions.
+    ///
+    /// This is the single resource both sides read: `ServerInputPlugin` stamps
+    /// this flag from its `rebroadcast_inputs` builder field (inserting a
+    /// default `InputConfig` first when the app never added one).
     pub rebroadcast_inputs: bool,
     pub marker: PhantomData<A>,
 }

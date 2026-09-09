@@ -37,7 +37,7 @@ use lightyear_replication::prelude::PreSpawned;
 use tracing::{debug, warn};
 #[cfg(feature = "server")]
 use {
-    lightyear_inputs::server::ServerInputConfig,
+    lightyear_inputs::prelude::InputConfig,
     lightyear_replication::prelude::{InterpolationTarget, PredictionTarget, ReplicateLike},
 };
 
@@ -131,7 +131,7 @@ impl InputRegistryPlugin {
         query: Query<&ActionOf<C>, With<Remote>>,
         mut host: Query<&mut MessageManager, With<HostClient>>,
         _: Single<(), (With<Server>, With<Started>)>,
-        config: Res<ServerInputConfig<C>>,
+        config: Res<InputConfig<C>>,
         mut commands: Commands,
     ) {
         let entity = trigger.entity;

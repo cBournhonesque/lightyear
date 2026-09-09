@@ -7,7 +7,9 @@ use core::fmt::Debug;
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
-use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot, message_start_tick};
+use lightyear_inputs::input_message::{
+    ActionStateSequence, InputSnapshot, message_start_tick, send_window,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -22,22 +24,6 @@ impl<A: Debug + Default + PartialEq + Clone + Send + Sync + 'static> InputSnapsh
     for ActionState<A>
 {
     fn decay_tick(&mut self, tick_duration: Duration) {}
-}
-
-impl<A> IntoIterator for NativeStateSequence<A> {
-    type Item = Compressed<ActionState<A>>;
-    type IntoIter = core::iter::Map<
-        vec::IntoIter<Compressed<A>>,
-        fn(Compressed<A>) -> Compressed<ActionState<A>>,
-    >;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.states.into_iter().map(|input| match input {
-            Compressed::Absent => Compressed::Absent,
-            Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-            Compressed::Input(i) => Compressed::Input(ActionState(i)),
-        })
-    }
 }
 
 impl<
@@ -76,37 +62,44 @@ impl<
 
     fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self> {
         let buffer_start_tick = input_buffer.start_tick?;
         // Clamp the canonical window to the buffered range. (Unlike leafwing/BEI,
         // native tolerates a leading gap: `Absent` is preserved on the wire.)
-        let start_tick = max(
-            message_start_tick(end_tick, num_ticks as usize),
-            buffer_start_tick,
-        );
+        let start_tick = max(message_start_tick(end_tick, num_ticks), buffer_start_tick);
 
-        // find the initial state, (which we convert out of SameAsPrecedent)
-        let start_state = input_buffer
-            .get(start_tick)
-            .map_or(Compressed::Absent, |input| input.into());
+        // One shared walk materializes the window; neighbors below are indexes
+        // into it — identical values to the per-tick `get`s they replace
+        // (`get` returns `None` past the buffer end, encoding as `Absent`).
+        let slots = send_window(input_buffer, start_tick, end_tick);
+        // find the initial state, (which we convert out of SameAsPrecedent).
+        // The direct `get` only fires for a degenerate empty window
+        // (`num_ticks == 0` puts `start_tick` past `end_tick`), preserving the
+        // previous behavior there exactly.
+        let start_state = slots.first().copied().flatten().map_or_else(
+            || {
+                input_buffer
+                    .get(start_tick)
+                    .map_or(Compressed::Absent, |input| input.into())
+            },
+            |snapshot| snapshot.into(),
+        );
         let mut states = vec![start_state];
 
         // Append the other states until the end tick, re-deriving wire
-        // compression by comparing neighbors (`get` returns `None` past the
-        // buffer end, which encodes as `Absent` as before).
-        let mut tick = start_tick + 1;
-        while tick <= end_tick {
-            let state = match input_buffer.get(tick) {
+        // compression by comparing neighbors.
+        for pair in slots.windows(2) {
+            let (prev, current) = (pair[0], pair[1]);
+            let state = match current {
                 None => Compressed::Absent,
-                Some(value) => match input_buffer.get(tick - 1u32) {
+                Some(value) => match prev {
                     Some(prev) if prev == value => Compressed::SameAsPrecedent,
                     _ => value.into(),
                 },
             };
             states.push(state);
-            tick = tick + 1;
         }
         Some(Self { states })
     }
@@ -133,8 +126,7 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::collections::VecDeque;
-    use std::time::Duration;
+    use core::time::Duration;
     use test_log::test;
 
     #[test]
@@ -235,6 +227,36 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(9)), None);
         assert_eq!(input_buffer.get(Tick(8)), None);
         assert_eq!(input_buffer.get(Tick(7)), None);
+    }
+
+    #[test]
+    fn test_update_buffer_stale_message_keeps_frontier() {
+        // A reordered (stale) message ending at or before `last_remote_tick`
+        // writes nothing and must not move the confirmed frontier backward.
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set(Tick(11), ActionState(0));
+        input_buffer.set(Tick(12), ActionState(0));
+        input_buffer.last_remote_tick = Some(Tick(12));
+        // ticks 10..=11, agreeing with the buffer
+        let stale = NativeStateSequence::<usize> {
+            states: vec![Compressed::Input(0), Compressed::SameAsPrecedent],
+        };
+        let mismatch = stale.update_buffer(&mut input_buffer, Tick(11), Duration::default());
+        assert_eq!(mismatch, None);
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(12)));
+        assert_eq!(input_buffer.get(Tick(10)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(11)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(12)), Some(&ActionState(0)));
+        // A newer message carrying a changed value still mismatches (against
+        // the decay-anchored prediction) and advances the frontier.
+        let fresh = NativeStateSequence::<usize> {
+            states: vec![Compressed::Input(1)],
+        };
+        let mismatch = fresh.update_buffer(&mut input_buffer, Tick(13), Duration::default());
+        assert_eq!(mismatch, Some(Tick(13)));
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(13)));
+        assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState(1)));
     }
 
     #[test]

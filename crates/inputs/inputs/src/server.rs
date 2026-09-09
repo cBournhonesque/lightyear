@@ -3,6 +3,7 @@
 use crate::HISTORY_DEPTH;
 #[cfg(feature = "prediction")]
 use crate::InputChannel;
+use crate::config::InputConfig;
 use crate::input_buffer::{InputBuffer, MissPolicy};
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
@@ -19,7 +20,6 @@ use bevy_ecs::{
     entity::{Entity, MapEntities},
     error::Result,
     query::With,
-    resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Res, Single},
 };
@@ -64,8 +64,10 @@ const MAX_INPUT_LOOKAHEAD_TICKS: usize = 64;
 /// Past-direction messages are normally handled harmlessly by
 /// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still rejects
 /// arbitrarily old or malicious tick values before they enter the input pipeline,
-/// while accepting reasonable late inputs (up to ~2 s of network lag at 64 Hz).
-const MAX_INPUT_PAST_TICKS: usize = 128;
+/// while accepting reasonable late inputs (up to ~1 s of network lag at 64 Hz —
+/// the same window as the ring and the lookahead bound, so anything this stale
+/// could no longer be applied anyway).
+const MAX_INPUT_PAST_TICKS: usize = 64;
 
 /// Returns `true` iff `end_tick - server_tick` falls within
 /// `[-MAX_INPUT_PAST_TICKS, MAX_INPUT_LOOKAHEAD_TICKS]`. See those constants
@@ -96,14 +98,6 @@ impl<S> Default for ServerInputPlugin<S> {
             marker: core::marker::PhantomData,
         }
     }
-}
-
-/// Runtime configuration for server-side input handling, inserted as a resource
-/// by [`ServerInputPlugin`].
-#[derive(Resource)]
-pub struct ServerInputConfig<S> {
-    pub rebroadcast_inputs: bool,
-    pub marker: core::marker::PhantomData<S>,
 }
 
 #[deprecated(note = "Use InputSystems instead")]
@@ -263,10 +257,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.insert_resource(ServerInputConfig::<S::Action> {
-            rebroadcast_inputs: self.rebroadcast_inputs,
-            marker: core::marker::PhantomData,
-        });
+        // `InputConfig` is the single tuning resource for both directions: the
+        // plugin only stamps the server-owned flag onto it, inserting a default
+        // first when the user never added client configuration (e.g. in
+        // server-only apps).
+        if !app.world().contains_resource::<InputConfig<S::Action>>() {
+            app.insert_resource(InputConfig::<S::Action>::default());
+        }
+        app.world_mut()
+            .resource_mut::<InputConfig<S::Action>>()
+            .rebroadcast_inputs = self.rebroadcast_inputs;
 
         // SETS
         // TODO:
@@ -308,7 +308,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    config: Res<ServerInputConfig<S::Action>>,
+    config: Res<InputConfig<S::Action>>,
     server: Query<&Server>,
     // make sure to only rebroadcast inputs to connected clients
     #[cfg_attr(not(feature = "prediction"), allow(unused_mut))]

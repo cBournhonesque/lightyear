@@ -13,7 +13,7 @@ use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
 use lightyear_inputs::input_message::{
-    ActionStateSequence, InputSnapshot, first_buffered_tick, message_start_tick,
+    ActionStateSequence, InputSnapshot, first_buffered_tick, message_start_tick, send_window,
 };
 use serde::{Deserialize, Serialize};
 
@@ -89,35 +89,33 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     /// we have an `ActionState`.
     fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self> {
-        let mut diffs = Vec::new();
         // find the first tick for which we have an `ActionState` buffered
         let Some(start_tick) = first_buffered_tick(
             input_buffer,
-            message_start_tick(end_tick, num_ticks as usize),
+            message_start_tick(end_tick, num_ticks),
             end_tick,
         ) else {
             // there are no ticks for which we have an `ActionState` buffered, so we send nothing
             return None;
         };
-        let start_state = input_buffer.get(start_tick).unwrap().clone();
-        let mut tick = start_tick + 1;
-        while tick <= end_tick {
+        // One shared walk materializes the window; neighbors below are indexes
+        // into it — identical values to the per-tick `get`s they replace.
+        let slots = send_window(input_buffer, start_tick, end_tick);
+        // `first_buffered_tick` guarantees the anchor slot holds a snapshot.
+        let start_state = slots[0].unwrap().clone();
+        let mut diffs = Vec::with_capacity(slots.len().saturating_sub(1));
+        for pair in slots.windows(2) {
             let diffs_for_tick = ActionDiff::<A>::create(
                 // Mid-window gaps cannot occur: writes fill them with the
                 // last value, so only the start edge can miss (e.g. right
                 // after an input-delay change) and reads as default there.
-                input_buffer
-                    .get(tick - 1)
-                    .unwrap_or(&LeafwingSnapshot::<A>::default()),
-                input_buffer
-                    .get(tick)
-                    .unwrap_or(&LeafwingSnapshot::<A>::default()),
+                pair[0].unwrap_or(&LeafwingSnapshot::<A>::default()),
+                pair[1].unwrap_or(&LeafwingSnapshot::<A>::default()),
             );
             diffs.push(diffs_for_tick);
-            tick += 1;
         }
         Some(Self {
             start_state: start_state.0,
@@ -385,26 +383,26 @@ mod tests {
         );
     }
 
-    /// Like test_rebroadcast_to_empty_buffer, but the sender's buffer uses
-    /// SameAsPrecedent compression (which happens when set() is called with
-    /// the same value on consecutive ticks — the real-world case).
+    /// Like test_rebroadcast_to_empty_buffer, but the sender's buffer holds the
+    /// same value on consecutive ticks — the real-world case. (The buffer
+    /// stores materialized values; run compression is re-derived on the wire.)
     #[test]
     fn test_rebroadcast_to_empty_buffer_with_compression() {
         let mut sender_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
-        // set() compresses consecutive identical values to SameAsPrecedent
+        // store the same value on consecutive ticks
         for tick in 5..=10 {
             sender_buffer.set(Tick(tick), LeafwingSnapshot(action_state.clone()));
         }
-        // Verify compression is in effect
+        // Verify the setup
         assert!(
             sender_buffer.get(Tick(5)).is_some(),
             "tick 5 should be present"
         );
         assert!(
             sender_buffer.get(Tick(10)).is_some(),
-            "tick 10 should be present (via SameAsPrecedent)"
+            "tick 10 should be present"
         );
 
         let sequence =

@@ -51,8 +51,8 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::{
-            InputRebroadcaster, InputSystems, InputValidationAppExt, ServerInputConfig,
-            ServerInputPlugin, authorize_controlled_targets,
+            InputRebroadcaster, InputSystems, InputValidationAppExt, ServerInputPlugin,
+            authorize_controlled_targets,
         };
     }
 }

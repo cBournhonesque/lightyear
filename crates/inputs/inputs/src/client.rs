@@ -791,11 +791,11 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // Send redundant inputs so that if a packet is lost, we can still recover.
     // The size of the input bundle scales with `send_interval`.
-    let mut num_ticks: u32 = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos())
+    let mut num_ticks: usize = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos())
         + 1)
     .try_into()
     .unwrap();
-    num_ticks *= input_config.packet_redundancy as u32;
+    num_ticks *= input_config.packet_redundancy as usize;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
         if !route.accepts_local_target(controlled_by) {

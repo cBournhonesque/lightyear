@@ -72,6 +72,33 @@ pub fn first_buffered_tick<S: Clone + PartialEq, M>(
     None
 }
 
+/// Materialize the buffered snapshots for `[start_tick, end_tick]` as a borrow
+/// window aligned to `start_tick`: `window[i]` is the snapshot for
+/// `start_tick + i`, or `None` where the buffer holds nothing.
+///
+/// The three [`ActionStateSequence`] encoders share this single buffer walk and
+/// keep their own start selection and wire encoding on top: native clamps the
+/// start to its buffered range (leading gaps stay `Absent` on the wire);
+/// leafwing/BEI advance to the first buffered tick with
+/// [`first_buffered_tick`] and diff from there.
+///
+/// Borrows — never clones — so encoding cost is unchanged: backends clone only
+/// what their wire format actually carries (`start_state`, plus native's
+/// per-tick `Input`s).
+pub fn send_window<S: Clone + PartialEq, M>(
+    buffer: &InputBuffer<S, M>,
+    start_tick: Tick,
+    end_tick: Tick,
+) -> Vec<Option<&S>> {
+    let mut slots = Vec::new();
+    let mut tick = start_tick;
+    while tick <= end_tick {
+        slots.push(buffer.get(tick));
+        tick = tick + 1;
+    }
+    slots
+}
+
 /// Resolve a prespawned-hash input target to a local entity.
 ///
 /// `candidates` are `(entity, hash, receiver)` triples from local `PreSpawned` state.
@@ -274,7 +301,17 @@ pub trait ActionStateSequence:
                 }
             }
         }
-        input_buffer.last_remote_tick = Some(end_tick);
+        // Max-keep: messages can arrive out of order (notably on unordered
+        // channels), and their ticks are only compared against the frontier,
+        // never trusted as the frontier itself. A stale message must not move
+        // the frontier backward, or `check_rollback`/`LastConfirmedInput`
+        // would treat already-confirmed ticks as new again.
+        if input_buffer
+            .last_remote_tick
+            .is_none_or(|last| end_tick > last)
+        {
+            input_buffer.last_remote_tick = Some(end_tick);
+        }
         trace!("input buffer after update: {input_buffer:?}");
         earliest_mismatch
     }
@@ -282,7 +319,7 @@ pub trait ActionStateSequence:
     /// Build the state sequence (which will be sent over the network) from the input buffer
     fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self>
     where
