@@ -46,37 +46,37 @@ use tracing::{debug, error, trace};
 /// `end_tick > server_tick + MAX_INPUT_LOOKAHEAD_TICKS` are dropped before
 /// they are written into the [`InputBuffer`].
 ///
-/// Without this bound, [`InputBuffer::set_raw`] gap-filling extends the internal
-/// ring to fit *any* tick value (filling intermediate entries with
-/// `SameAsPrecedent`, evicting the oldest past capacity). A modified client sending
-/// `end_tick = current + 30_000` would cause a 30 000-entry allocation per
-/// message; repeated across messages and connections, the server is
-/// memory-exhausted.
+/// Without this bound, a modified client sending `end_tick = current + 30_000`
+/// would force [`InputBuffer::set_raw`] gap-filling to churn through 30 000
+/// intermediate ticks per message (CPU burn) and evict the buffer's legitimate
+/// history, replacing it with copies of a stale anchor. (The fixed ring caps
+/// the allocation; this bound protects the history inside it.)
 ///
 /// Legitimate clients run at most a few ticks ahead of the server (typical
 /// `InputDelayConfig` values are 0–3 ticks). 64 ticks (~1 s at 64 Hz) is
-/// generous compared to that range while still bounding attacker memory cost
-/// per message.
-const MAX_INPUT_LOOKAHEAD_TICKS: i32 = 64;
+/// generous compared to that range while still bounding attacker cost per
+/// message.
+const MAX_INPUT_LOOKAHEAD_TICKS: usize = 64;
 
 /// Maximum number of ticks *behind* the server's current tick that an incoming
 /// [`InputMessage::end_tick`] is allowed to be.
 ///
 /// Past-direction messages are normally handled harmlessly by
-/// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still prevents
-/// arbitrarily old or malicious tick values from entering the input pipeline while accepting
-/// reasonable late inputs (up to ~4 s of network lag at 64 Hz).
-const MAX_INPUT_PAST_TICKS: i32 = 256;
+/// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still rejects
+/// arbitrarily old or malicious tick values before they enter the input pipeline,
+/// while accepting reasonable late inputs (up to ~2 s of network lag at 64 Hz).
+const MAX_INPUT_PAST_TICKS: usize = 128;
 
 /// Returns `true` iff `end_tick - server_tick` falls within
 /// `[-MAX_INPUT_PAST_TICKS, MAX_INPUT_LOOKAHEAD_TICKS]`. See those constants
 /// for the threat model behind each bound.
 ///
-/// The subtraction is performed in `i64`, so every pair of ordinary `u32` ticks has an exact,
-/// non-wrapping signed difference.
+/// This uses [`Tick`]'s own difference operator: exact for ordinary ticks.
+/// Differences beyond `i32` range clamp to the extremes, which fall outside
+/// the (tiny) window either way.
 pub(crate) fn is_input_within_lookahead(end_tick: Tick, server_tick: Tick) -> bool {
-    let delta = i64::from(end_tick.0) - i64::from(server_tick.0);
-    (-i64::from(MAX_INPUT_PAST_TICKS)..=i64::from(MAX_INPUT_LOOKAHEAD_TICKS)).contains(&delta)
+    (-(MAX_INPUT_PAST_TICKS as i32)..=MAX_INPUT_LOOKAHEAD_TICKS as i32)
+        .contains(&(end_tick - server_tick))
 }
 
 /// Server-side plugin that receives input messages from clients and applies
@@ -379,8 +379,9 @@ fn receive_input_message<S: ActionStateSequence>(
             // Reject messages whose end_tick is implausibly far from the
             // server's current tick before any buffer write. A modified
             // client sending a far-future end_tick would otherwise force
-            // `InputBuffer::set_raw` to allocate one entry per intermediate
-            // tick (memory-exhaustion DoS). See `is_input_within_lookahead`.
+            // `InputBuffer::set_raw` gap-filling across every intermediate
+            // tick, evicting the legitimate history. See
+            // `is_input_within_lookahead`.
             if !is_input_within_lookahead(message.end_tick, tick) {
                 trace!(
                     ?tick,
@@ -787,7 +788,7 @@ mod lookahead_tests {
         let server = Tick(1_000);
         assert!(is_input_within_lookahead(server, server));
         assert!(is_input_within_lookahead(
-            server + MAX_INPUT_LOOKAHEAD_TICKS,
+            server + Tick(MAX_INPUT_LOOKAHEAD_TICKS as u32),
             server
         ));
     }
@@ -797,7 +798,7 @@ mod lookahead_tests {
     fn rejects_beyond_forward_bound() {
         let server = Tick(1_000);
         assert!(!is_input_within_lookahead(
-            server + (MAX_INPUT_LOOKAHEAD_TICKS + 1),
+            server + Tick(MAX_INPUT_LOOKAHEAD_TICKS as u32 + 1),
             server
         ));
     }
@@ -807,7 +808,17 @@ mod lookahead_tests {
     fn accepts_within_past_bound() {
         let server = Tick(1_000);
         assert!(is_input_within_lookahead(
-            server + (-MAX_INPUT_PAST_TICKS),
+            server - MAX_INPUT_PAST_TICKS as u32,
+            server
+        ));
+    }
+
+    /// One tick past the past bound is rejected.
+    #[test]
+    fn rejects_beyond_past_bound() {
+        let server = Tick(1_000);
+        assert!(!is_input_within_lookahead(
+            server - (MAX_INPUT_PAST_TICKS as u32 + 1),
             server
         ));
     }

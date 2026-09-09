@@ -450,9 +450,10 @@ fn test_leafwing_input_rebroadcast() {
 }
 
 /// End_tick DoS: a forged `InputMessage` with `end_tick = server_tick +
-/// 30_000` causes `InputBuffer::set_raw` to allocate ~30k entries. Goes
-/// end-to-end via the public `MessageSender::send::<InputChannel>` API (no
-/// internal-API hooks) and asserts the server's buffer stays bounded. See
+/// 30_000` would force `InputBuffer::set_raw` gap-filling across ~30k ticks,
+/// evicting the legitimate history. Goes end-to-end via the public
+/// `MessageSender::send::<InputChannel>` API (no internal-API hooks) and
+/// asserts the server's buffer stays bounded. See
 /// `is_input_within_lookahead` in `lightyear_inputs::server` for the defense.
 #[test]
 fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {

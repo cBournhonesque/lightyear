@@ -1192,20 +1192,29 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
-    // TODO: how to handle multiple actions S?
-
-    // find the earliest last_confirmed_tick for each client
-    // The tracker was reset to a high tick, so the first real tick always becomes the minimum.
-    let mut received_for_all_clients = true;
-    predicted_query.iter().for_each(|buffer| {
-        // if we received any messages, we update the LastConfirmedInput
-        // (this is used to determine the last confirmed tick for each client)
-        if let Some(end_tick) = buffer.last_remote_tick {
-            last_confirmed_input.tick.set_if_lower(end_tick);
-        } else {
-            received_for_all_clients = false;
-        }
-    });
+    // Fold this input type's remote streams into one aggregate: the rollback
+    // frontier is the earliest last-remote tick, and every stream must have
+    // contributed. (The tracker was reset to a high tick, so the first real
+    // tick always becomes the minimum. Each generic input type contributes its
+    // own aggregate below via `&=`, which is how multiple actions `S` combine.)
+    let (minimum, received_for_all_clients) =
+        predicted_query
+            .iter()
+            .fold(
+                (None::<Tick>, true),
+                |(minimum, received_all), buffer| match buffer.last_remote_tick {
+                    Some(end_tick) => (
+                        Some(minimum.map_or(end_tick, |current| current.min(end_tick))),
+                        received_all,
+                    ),
+                    None => (minimum, false),
+                },
+            );
+    // if we received any messages, we update the LastConfirmedInput
+    // (this is used to determine the last confirmed tick for each client)
+    if let Some(minimum) = minimum {
+        last_confirmed_input.tick.set_if_lower(minimum);
+    }
     // Several generic input plugins contribute sequentially in the same set. The tracker is reset
     // to true once in PreUpdate, so AND-ing preserves a missing stream reported by any input type.
     last_confirmed_input.received_for_all_clients &= received_for_all_clients;
