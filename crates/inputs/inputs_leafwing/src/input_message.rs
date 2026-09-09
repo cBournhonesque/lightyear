@@ -106,7 +106,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         let mut tick = start_tick + 1;
         while tick <= end_tick {
             let diffs_for_tick = ActionDiff::<A>::create(
-                // TODO: if the input_delay changes, this could leave gaps in the InputBuffer, which we will fill with Default
+                // Mid-window gaps cannot occur: writes fill them with the
+                // last value, so only the start edge can miss (e.g. right
+                // after an input-delay change) and reads as default there.
                 input_buffer
                     .get(tick - 1)
                     .unwrap_or(&LeafwingSnapshot::<A>::default()),

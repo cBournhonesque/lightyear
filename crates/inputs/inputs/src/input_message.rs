@@ -187,7 +187,8 @@ pub trait ActionStateSequence:
 
     /// Register the required components for this ActionStateSequence in the App.
     fn register_required_components(app: &mut App) {
-        // TODO: cannot create cyclic required dependencies in bevy 0.17
+        // NOTE: bevy 0.17 forbids cyclic required dependencies, so the
+        // buffer requires the state (not the reverse, as below).
         // app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
         app.register_required_components::<InputBuffer<Self::Snapshot, Self::Action>, <Self::State as ActionStateQueryData>::Main>();
         app.register_required_components::<Self::Marker, InputBuffer<Self::Snapshot, Self::Action>>();
@@ -225,8 +226,9 @@ pub trait ActionStateSequence:
         for (delta, input) in self.get_snapshots_from_message(tick_duration).enumerate() {
             let tick = start_tick + Tick(delta as u32);
 
-            // if the tick is within the buffer, just fetch from it
-            // TODO: ideally we just clone the last element from the buffer
+            // if the tick is within the buffer, fetch that tick's own stored
+            // value: mismatch detection compares per-tick, so the latest
+            // element would be the wrong anchor here.
             if previous_end_tick.is_some_and(|end_tick| end_tick >= tick) {
                 previous_predicted_input = input_buffer.get(tick).cloned();
             } else {

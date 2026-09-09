@@ -303,8 +303,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
     }
 }
 
-// TODO: why do we need the Server? we could just run this on any receiver.
-//  (apart from rebroadcast inputs)
+// NOTE: the `Server` query exists for rebroadcasting (sending to all except
+// the sender); the receive half would work on any receiver.
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
@@ -340,8 +340,9 @@ fn receive_input_message<S: ActionStateSequence>(
 ) -> Result {
     // TODO: use par_iter_mut
     receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
-        // TODO: this drains the messages... but the user might want to re-broadcast them?
-        //  should we just read instead?
+        // NOTE: draining (not just reading) is what consumes each message
+        // exactly once. Users who need the messages observe them earlier via
+        // input validators, which run before this system.
         let server_entity = link_of.server;
         let tick = timeline.tick();
         receiver.receive().try_for_each(|message| {
@@ -769,7 +770,6 @@ fn update_action_state<S: ActionStateSequence>(
             // if we are a server and not a host-client, there is no need to keep history
             1
         };
-        // TODO: + we also want to keep enough inputs on the client to be able to do prediction effectively!
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value

@@ -510,7 +510,8 @@ fn get_action_state<S: ActionStateSequence>(
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: during rollbacks, we need to fetch the ActionState from the InputBuffer
     // (for the remote players, we update the ActionState as soon as we receive the RemoteMessage.)
-    //  TODO: We could maybe have some decay logic where the input decays to the middle)
+    // NOTE: missing ticks decay from the confirmed anchor inside predict();
+    // per-backend decay_tick defines the policy (e.g. hold vs. center).
     mut action_state_query: Query<
         (
             Entity,
@@ -701,10 +702,9 @@ fn input_history_depth(
         .max(HISTORY_DEPTH)
 }
 
-// TODO: is this actually necessary? The sync happens in PostUpdate,
-//  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
-//  before the sync). If it's not needed, send the messages directly in FixedPostUpdate!
-//  Actually maybe it is, because the send-tick on the server will be updated.
+// NOTE: staging (instead of sending directly in FixedPostUpdate) is deliberate:
+// the sync lands in PostUpdate, and the send-tick the server observes must be
+// post-sync, even though the sampled inputs predate it.
 /// Buffer that will store the InputMessages we want to write this frame.
 ///
 /// We need this because:
@@ -835,8 +835,10 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    // TODO: revisit this; maybe we should not send an empty message?
-    // we send a message even when there are 0 inputs because that itself is information
+    // NOTE: we send a message even when there are 0 inputs. With lag
+    // compensation the send path still attaches the current
+    // interpolation-delay estimate to it; without that, per-target receive
+    // loops skip empty messages entirely.
     debug!(
         ?tick,
         ?num_ticks,

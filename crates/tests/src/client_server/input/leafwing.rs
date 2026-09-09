@@ -450,13 +450,17 @@ fn test_leafwing_input_rebroadcast() {
 }
 
 /// End_tick DoS: a forged `InputMessage` with `end_tick = server_tick +
-/// 30_000` would force `InputBuffer::set_raw` gap-filling across ~30k ticks,
-/// evicting the legitimate history. Goes end-to-end via the public
+/// 30_000` must be dropped by the receive path. Without the
+/// `is_input_within_lookahead` defense it would force
+/// `InputBuffer::set_raw` gap-filling across ~30k ticks, evicting the
+/// legitimate history. Goes end-to-end via the public
 /// `MessageSender::send::<InputChannel>` API (no internal-API hooks) and
-/// asserts the server's buffer stays bounded. See
-/// `is_input_within_lookahead` in `lightyear_inputs::server` for the defense.
+/// asserts the forged content never lands in the buffer. Legitimate flow is
+/// stopped before the attack (see below): follow-up real inputs would heal
+/// the buffer via mismatch-clip and mask a missing defense. See
+/// `is_input_within_lookahead` in `lightyear_inputs::server`.
 #[test]
-fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
+fn test_forged_far_future_end_tick_is_dropped() {
     use lightyear::input::leafwing::input_message::{LeafwingSequence, LeafwingSnapshot};
     use lightyear_inputs::input_buffer::InputBuffer;
     use lightyear_inputs::input_message::{
@@ -482,10 +486,9 @@ fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
         ))
         .id();
 
-    // Warm-up: let the entity replicate down to the client and (if the
-    // target-authorization defense is also present) `ControlledByRemote`
-    // auto-populate, so the forged input is authorized and actually reaches
-    // `set_raw` — exercising the DoS path rather than being filtered first.
+    // Warm-up: let the entity replicate down to the client and establish
+    // legitimate input flow, so the server buffer holds real history before
+    // the attack (and the post-attack continuity assertion is meaningful).
     stepper.frame_step(5);
 
     let target_local = stepper
@@ -513,8 +516,30 @@ fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
         .press(KeyCode::KeyA);
     stepper.frame_step(5);
 
+    // Stop all legitimate input flow: without an InputMap the client sends
+    // empty keepalives, so nothing after this point can extend the buffer.
+    // This matters because real follow-up inputs would HEAL an undefended
+    // buffer — the mismatch detector clips the forged tail on the next real
+    // message — and the attack would be unobservable. Drain in-flight inputs
+    // first so the captured frontier is settled.
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(target_local)
+        .remove::<InputMap<LeafwingInput1>>();
+    stepper.frame_step(3);
+
     let server_tick_before = stepper.server_tick();
     let attack_end_tick = server_tick_before + 30_000;
+
+    // Legitimate frontier before the attack: the buffer holds real inputs.
+    let end_before = stepper
+        .server_app
+        .world()
+        .entity(target_server_entity)
+        .get::<InputBuffer<LeafwingSnapshot<LeafwingInput1>, LeafwingInput1>>()
+        .expect("server should have buffered legitimate inputs before the attack")
+        .end_tick()
+        .expect("buffer should have a frontier before the attack");
 
     // The sequence content doesn't matter — only `end_tick` controls how far
     // `set_raw` extends the server's buffer.
@@ -530,6 +555,10 @@ fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
     )
     .expect("sequence built from non-empty buffer");
 
+    // Forge with the client-local target: the send pipeline maps it to the
+    // server entity on the wire, exactly like legitimate traffic. (Forging
+    // the server-side id directly would arrive as PLACEHOLDER — unmapped on
+    // receive — and never reach the defended path.)
     let mut forged: InputMessage<LeafwingSequence<LeafwingInput1>> =
         InputMessage::new(attack_end_tick);
     forged.inputs.push(PerTargetData {
@@ -566,6 +595,21 @@ fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
          single forged InputMessage with end_tick = server_tick + 30000. The \
          receive path does not bound the message's end_tick — see \
          `is_input_within_lookahead` in lightyear_inputs::server.",
+    );
+    let end_after = buffer
+        .end_tick()
+        .expect("buffer should retain a frontier after the attack");
+    assert!(
+        end_after < attack_end_tick,
+        "DoS: forged end_tick {attack_end_tick:?} landed in the server buffer \
+         (frontier {end_after:?}); the message was not dropped.",
+    );
+    assert_eq!(
+        end_after, end_before,
+        "DoS: buffer frontier moved across the attack window \
+         ({end_before:?} -> {end_after:?}). Either the forged tail was stored \
+         (defense broken) or legitimate flow was not actually stopped (drain \
+         broken) — both invalidate the drop assertion above.",
     );
 }
 

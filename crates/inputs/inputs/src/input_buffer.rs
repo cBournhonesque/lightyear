@@ -95,7 +95,9 @@ impl<T: Debug, M> core::fmt::Display for InputBuffer<T, M> {
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
 pub enum Compressed<T> {
-    // TODO: maybe we don't need Absent? because if the Input is missing we just predict that it was the SameAsPrecedent (with some decay)
+    // NOTE: Absent stays: storage needs an explicit neutral (a missing tick
+    // is not a repeat). Prediction-from-nothing happens at read time in
+    // predict(), not by overloading the stored marker.
     Absent,
     SameAsPrecedent,
     Input(T),
@@ -277,12 +279,10 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         // (i.e. if there are any gaps, we consider that the user repeated
         // their last action)
         if tick > end_tick {
-            // TODO: Think about how to fill the buffer between ticks
-            //  - we want: if an input is missing, we consider that the user did the same action (RocketLeague or Overwatch GDC)
-
-            // TODO: think about whether this is correct or not, it is correct if we always call set()
-            //  with monotonically increasing ticks, which I think is the case
-            //  maybe that's not correct because the timing information should be different? (i.e. I should tick the action-states myself and set them)
+            // Policy: a missing tick repeats the last stored action
+            // (RocketLeague/Overwatch hold-last). Button timers do NOT advance
+            // here — predict() applies decay_tick per tick past the anchor at
+            // read time instead, so stored values stay exact.
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             let fill = self.get(end_tick).cloned();
             let mut t = end_tick + 1;

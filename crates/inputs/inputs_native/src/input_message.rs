@@ -159,8 +159,9 @@ mod tests {
                     Compressed::SameAsPrecedent,
                     Compressed::SameAsPrecedent,
                     Compressed::Input(2),
-                    // TODO: why is it marked as absent instead of SameAsPrecedent??
-                    //  by default, when inputs are absent should we mark them as SameAsPrecedent?
+                    // Past the buffer end the input is genuinely unknown, so
+                    // it encodes as Absent — SameAsPrecedent would claim a
+                    // repeat we never observed.
                     Compressed::Absent,
                     Compressed::Absent,
                     Compressed::Absent,
