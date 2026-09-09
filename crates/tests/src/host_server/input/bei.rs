@@ -6,7 +6,6 @@ use bevy_enhanced_input::action::{Action, TriggerState};
 use bevy_enhanced_input::prelude::{ActionOf, ActionValue, Actions, Fire};
 use lightyear::input::bei::input_message::BEIBuffer;
 use lightyear::input::bei::prelude::InputMarker;
-use lightyear::input::input_buffer::Compressed;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned, PredictionTarget, Replicate};

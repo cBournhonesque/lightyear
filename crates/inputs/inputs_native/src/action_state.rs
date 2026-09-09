@@ -5,7 +5,7 @@ use bevy_ecs::query::QueryData;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use lightyear_inputs::input_buffer::Compressed;
+use lightyear_inputs::input_message::Compressed;
 
 use lightyear_inputs::input_message::ActionStateQueryData;
 use serde::{Deserialize, Serialize};

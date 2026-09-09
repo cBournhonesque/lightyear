@@ -19,7 +19,6 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_core::tick::Tick;
-use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{error, info, trace};
 
@@ -41,9 +40,10 @@ pub struct InputBuffer<S, M> {
     pub start_tick: Option<Tick>,
     /// Fixed ring holding the window `[start_tick, start_tick + len)`, oldest first.
     /// The slot for `tick` is `slots[(head + (tick - start_tick)) % INPUT_BUFFER_CAPACITY]`.
-    /// Slots hold materialized snapshots (`None` = explicit neutral): wire
-    /// compression (`SameAsPrecedent`) is resolved on write, so reads are O(1)
-    /// indexing with no chain walks. Bounded: writes past capacity evict the
+    /// Slots hold materialized snapshots (`None` = explicit neutral): run
+    /// compression (`SameAsPrecedent`) exists only in messages and is resolved
+    /// before writing, so reads are O(1) indexing with no chain walks.
+    /// Bounded: writes past capacity evict the
     /// oldest ticks instead of growing.
     slots: [Option<S>; INPUT_BUFFER_CAPACITY],
     /// Ring index of `start_tick`. Only meaningful when `len > 0`.
@@ -89,26 +89,6 @@ impl<T: Debug, M> core::fmt::Display for InputBuffer<T, M> {
             .collect::<Vec<String>>()
             .join("");
         write!(f, "InputBuffer<{ty:?}>:\n {buffer_str}")
-    }
-}
-
-/// We use this structure to efficiently compress the inputs that we send to the server
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
-pub enum Compressed<T> {
-    // NOTE: Absent stays: storage needs an explicit neutral (a missing tick
-    // is not a repeat). Prediction-from-nothing happens at read time in
-    // predict(), not by overloading the stored marker.
-    Absent,
-    SameAsPrecedent,
-    Input(T),
-}
-
-impl<T> From<Option<T>> for Compressed<T> {
-    fn from(value: Option<T>) -> Self {
-        match value {
-            Some(value) => Compressed::Input(value),
-            _ => Compressed::Absent,
-        }
     }
 }
 
@@ -234,7 +214,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
     /// This should be called every tick. The value is stored as-is; wire
     /// compression is re-derived at message-build time, not here.
     pub fn set(&mut self, tick: Tick, value: T) {
-        self.set_raw(tick, Compressed::Input(value));
+        self.set_raw(tick, Some(value));
     }
 
     // Note: we expect this to be set every tick?
@@ -243,27 +223,22 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
     ///
     /// This should be called every tick.
     pub fn set_empty(&mut self, tick: Tick) {
-        self.set_raw(tick, Compressed::Absent);
+        self.set_raw(tick, None);
     }
 
-    /// Write one tick from the wire, resolving compression against the buffer.
+    /// Write one materialized tick. Callers pass runs already resolved: wire
+    /// compression (`SameAsPrecedent`) is decoded by [`update_buffer`](crate::input_message::ActionStateSequence::update_buffer),
+    /// never stored.
     ///
-    /// `SameAsPrecedent` repeats the previous tick's stored value (`None` when
-    /// there is none); gaps between the old end and `tick` repeat the last
-    /// stored value the same way. Reads therefore never walk chains.
-    pub fn set_raw(&mut self, tick: Tick, value: Compressed<T>) {
-        // Resolve first: only committed slots are read, never the slot being written.
-        let resolved = match value {
-            Compressed::Input(value) => Some(value),
-            Compressed::Absent => None,
-            Compressed::SameAsPrecedent => self.get(tick - 1u32).cloned(),
-        };
+    /// Gaps between the old end and `tick` repeat the last stored value
+    /// (hold-last); ticks below `start_tick` are ignored.
+    pub fn set_raw(&mut self, tick: Tick, value: Option<T>) {
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
             self.head = 0;
             self.len = 0;
-            self.push_back(resolved);
+            self.push_back(value);
             return;
         };
 
@@ -280,9 +255,10 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         // their last action)
         if tick > end_tick {
             // Policy: a missing tick repeats the last stored action
-            // (RocketLeague/Overwatch hold-last). Button timers do NOT advance
-            // here — predict() applies decay_tick per tick past the anchor at
-            // read time instead, so stored values stay exact.
+            // (RocketLeague/Overwatch hold-last). The copies keep the
+            // anchor's timers: each tick past the anchor is decayed exactly
+            // once, at read time inside predict(), so re-predicting is
+            // idempotent and stored values stay exact.
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             let fill = self.get(end_tick).cloned();
             let mut t = end_tick + 1;
@@ -297,7 +273,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
 
         // safety: the tick is in the window (`push_back` eviction keeps the newest ticks)
         let index = self.index(tick).unwrap();
-        self.slots[index] = resolved;
+        self.slots[index] = value;
     }
 
     /// Like [`pop`](Self::pop), but preserves the most recent entry so it
@@ -479,10 +455,11 @@ mod tests {
     #[test]
     fn test_set_raw_and_get() {
         let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
-        input_buffer.set_raw(Tick(2), Compressed::Input(7));
+        input_buffer.set_raw(Tick(2), Some(7));
         assert_eq!(input_buffer.get(Tick(2)), Some(&7));
-        input_buffer.set_raw(Tick(3), Compressed::SameAsPrecedent);
-        assert_eq!(input_buffer.get(Tick(3)), Some(&7));
+        // neutral overwrites a stored value
+        input_buffer.set_raw(Tick(2), None);
+        assert_eq!(input_buffer.get(Tick(2)), None);
     }
 
     #[test]
@@ -777,19 +754,6 @@ mod tests {
         assert_eq!(input_buffer.get_last(), Some(&7));
     }
 
-    /// `SameAsPrecedent` written behind `Absent` resolves to None at write time —
-    /// neutral wins over repeat, including for `get_last`.
-    #[test]
-    fn test_same_as_precedent_behind_absent_resolves_none() {
-        let mut input_buffer = InputBuffer::<i32, i32>::default();
-        input_buffer.set(Tick(10), 5);
-        input_buffer.set_empty(Tick(11));
-        input_buffer.set_raw(Tick(12), Compressed::SameAsPrecedent);
-        assert_eq!(input_buffer.get(Tick(12)), None);
-        assert_eq!(input_buffer.predict(Tick(12), Duration::default()), None);
-        assert_eq!(input_buffer.get_last(), None);
-    }
-
     /// Characterization: `clip_after` below start clears the buffer;
     /// at/above end is a noop.
     #[test]
@@ -811,11 +775,11 @@ mod tests {
     fn test_set_raw_gap_fill_and_below_start() {
         let mut input_buffer = InputBuffer::<i32, i32>::default();
         input_buffer.set(Tick(10), 1);
-        input_buffer.set_raw(Tick(13), Compressed::Input(2));
+        input_buffer.set_raw(Tick(13), Some(2));
         assert_eq!(input_buffer.get(Tick(11)), Some(&1));
         assert_eq!(input_buffer.get(Tick(12)), Some(&1));
         assert_eq!(input_buffer.get(Tick(13)), Some(&2));
-        input_buffer.set_raw(Tick(5), Compressed::Input(9));
+        input_buffer.set_raw(Tick(5), Some(9));
         assert_eq!(input_buffer.start_tick, Some(Tick(10)));
         assert_eq!(input_buffer.get(Tick(5)), None);
     }

@@ -11,9 +11,10 @@ use leafwing_input_manager::InputControlKind;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
+use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::{
-    ActionStateSequence, InputSnapshot, first_buffered_tick, message_start_tick, send_window,
+    ActionStateSequence, Compressed, InputSnapshot, first_buffered_tick, message_start_tick,
+    send_window,
 };
 use serde::{Deserialize, Serialize};
 

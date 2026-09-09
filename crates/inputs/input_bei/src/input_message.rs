@@ -7,9 +7,9 @@ use bevy_enhanced_input::prelude::{ActionEvents, ActionValue, TriggerState};
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
+use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::{
-    ActionStateQueryData, ActionStateSequence, InputSnapshot, first_buffered_tick,
+    ActionStateQueryData, ActionStateSequence, Compressed, InputSnapshot, first_buffered_tick,
     message_start_tick, send_window,
 };
 use serde::{Deserialize, Serialize};

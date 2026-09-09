@@ -668,11 +668,7 @@ fn detect_input_history_rewrite<S: ActionStateSequence>(
     let mut incoming = None;
     for (delta, input) in states.get_snapshots_from_message(tick_duration).enumerate() {
         let tick = start_tick + lightyear_core::tick::Tick(delta as u32);
-        match input {
-            crate::input_buffer::Compressed::Absent => incoming = None,
-            crate::input_buffer::Compressed::Input(value) => incoming = Some(value),
-            crate::input_buffer::Compressed::SameAsPrecedent => {}
-        }
+        incoming = input.resolve(incoming);
         if tick <= last_remote_tick {
             // The server keeps very little input history after simulating a
             // tick, so ordinary redundant input packets can mention older

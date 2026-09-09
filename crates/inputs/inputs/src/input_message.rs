@@ -1,7 +1,7 @@
 // crates/inputs/inputs/src/input_message.rs
 #![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
-use crate::input_buffer::{Compressed, InputBuffer};
+use crate::input_buffer::InputBuffer;
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_app::App;
 use bevy_ecs::bundle::Bundle;
@@ -50,6 +50,50 @@ pub enum InputTarget {
 /// (which additionally clamp or search to their buffered range).
 pub fn message_start_tick(end_tick: Tick, len: usize) -> Tick {
     end_tick + 1 - len as u32
+}
+
+/// One tick of the wire encoding: either an explicit neutral, a repeat of the
+/// previous tick's value, or a fresh snapshot.
+///
+/// This exists **only in the message layer**. [`InputBuffer`] stores
+/// materialized `Option<Snapshot>` values; runs are resolved while applying a
+/// message in [`update_buffer`](ActionStateSequence::update_buffer) and
+/// re-derived while building one in
+/// [`build_from_input_buffer`](ActionStateSequence::build_from_input_buffer).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
+pub enum Compressed<T> {
+    /// No input for this tick. (Storage still needs an explicit neutral: a
+    /// missing tick is not a repeat. Prediction-from-nothing happens at read
+    /// time in `predict()`, not by overloading the stored marker.)
+    Absent,
+    /// Repeat the previous tick's resolved value (`None` when there is none).
+    SameAsPrecedent,
+    Input(T),
+}
+
+impl<T> From<Option<T>> for Compressed<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Compressed::Input(value),
+            _ => Compressed::Absent,
+        }
+    }
+}
+
+impl<T> Compressed<T> {
+    /// Resolve one wire tick against the running value: `Absent` clears it,
+    /// `Input` replaces it, `SameAsPrecedent` repeats it.
+    ///
+    /// Shared by [`update_buffer`](ActionStateSequence::update_buffer) (which
+    /// materializes runs while applying a message) and the server-side
+    /// authoritative re-check, so the two can never disagree on run semantics.
+    pub fn resolve(self, previous: Option<T>) -> Option<T> {
+        match self {
+            Compressed::Absent => None,
+            Compressed::Input(value) => Some(value),
+            Compressed::SameAsPrecedent => previous,
+        }
+    }
 }
 
 /// First tick in `[start, end]` that actually has a buffered input, if any.
@@ -183,10 +227,6 @@ pub(crate) type StateRefItem<'w, 's, S: ActionStateSequence> =
 // equivalent to &mut ActionState<S::Action>
 pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQueryData>::Mut;
 
-// equivalent to Mut<'w, ActionState<S::Action>>
-pub(crate) type StateMutItem<'w, 's, S: ActionStateSequence> =
-    <StateMut<S> as QueryData>::Item<'w, 's>;
-
 pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
     <S::State as ActionStateQueryData>::MutItemInner<'w>;
 
@@ -267,15 +307,13 @@ pub trait ActionStateSequence:
                 });
             };
 
+            // Resolve wire compression first: the buffer stores materialized
+            // values only (`SameAsPrecedent` repeats the running value).
+            latest_received_input = input.resolve(latest_received_input);
             // after the mismatch, we just fill with the data from the message
             if earliest_mismatch.is_some() {
-                input_buffer.set_raw(tick, input);
+                input_buffer.set_raw(tick, latest_received_input.clone());
             } else {
-                match input {
-                    Compressed::Absent => latest_received_input = None,
-                    Compressed::Input(latest) => latest_received_input = Some(latest),
-                    _ => {}
-                }
                 // Inputs at or before last_remote_tick were already received. Messages include
                 // overlapping history for reliability, but those inputs are immutable.
                 if last_remote_tick.is_none_or(|t| tick > t) {
@@ -285,8 +323,7 @@ pub trait ActionStateSequence:
                         _ => false,
                     } {
                         if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
-                            input_buffer
-                                .set_raw(tick, Compressed::from(latest_received_input.clone()));
+                            input_buffer.set_raw(tick, latest_received_input.clone());
                         }
                         continue;
                     }
@@ -294,7 +331,7 @@ pub trait ActionStateSequence:
                     debug!(
                         "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
                     );
-                    input_buffer.set_raw(tick, Compressed::from(latest_received_input.clone()));
+                    input_buffer.set_raw(tick, latest_received_input.clone());
                     // remove all existing inputs in the buffer that come after `tick`
                     input_buffer.clip_after(tick);
                     earliest_mismatch = Some(tick);
@@ -347,17 +384,6 @@ pub trait ActionStateSequence:
         snapshot: &Self::Snapshot,
     ) {
         Self::from_snapshot(state, snapshot);
-    }
-
-    /// Apply decay to the given state for the given tick duration.
-    fn decay_tick(state: StateMutItem<Self>, tick_duration: Duration) {
-        let mut snapshot =
-            Self::to_snapshot(<Self::State as ActionStateQueryData>::as_read_only(&state));
-        snapshot.decay_tick(tick_duration);
-        Self::from_snapshot(
-            <Self::State as ActionStateQueryData>::into_inner(state),
-            &snapshot,
-        );
     }
 }
 

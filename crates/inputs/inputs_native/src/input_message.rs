@@ -6,9 +6,9 @@ use core::cmp::max;
 use core::fmt::Debug;
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
+use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::{
-    ActionStateSequence, InputSnapshot, message_start_tick, send_window,
+    ActionStateSequence, Compressed, InputSnapshot, message_start_tick, send_window,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -261,11 +261,12 @@ mod tests {
 
     #[test]
     fn test_update_buffer_from_sequence_absent() {
-        // Logical contents: start 10, [Input(0), Absent, SameAsPrecedent]
+        // Logical contents: start 10, [Input(0), Absent, Absent] (runs are
+        // stored materialized; `SameAsPrecedent` exists only on the wire).
         let mut input_buffer = InputBuffer::default();
         input_buffer.set(Tick(10), ActionState(0));
         input_buffer.set_empty(Tick(11));
-        input_buffer.set_raw(Tick(12), Compressed::SameAsPrecedent);
+        input_buffer.set_empty(Tick(12));
         input_buffer.last_remote_tick = Some(Tick(12));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
@@ -283,10 +284,11 @@ mod tests {
 
     #[test]
     fn test_update_buffer_from_sequence_present() {
-        // Logical contents: start 10, [Absent, SameAsPrecedent]
+        // Logical contents: start 10, [Absent, Absent] (runs are stored
+        // materialized; `SameAsPrecedent` exists only on the wire).
         let mut input_buffer = InputBuffer::default();
         input_buffer.set_empty(Tick(10));
-        input_buffer.set_raw(Tick(11), Compressed::SameAsPrecedent);
+        input_buffer.set_empty(Tick(11));
         input_buffer.last_remote_tick = Some(Tick(11));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
@@ -303,6 +305,45 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);
         assert_eq!(input_buffer.get(Tick(9)), None);
+    }
+
+    #[test]
+    fn test_update_buffer_resolves_wire_runs() {
+        // Wire runs resolve while applying: the buffer stores materialized
+        // values, never `SameAsPrecedent`.
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.last_remote_tick = Some(Tick(10));
+        // Tick 11 repeats tick 10 on the wire and agrees with prediction.
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 10
+                Compressed::Input(0),
+                // Tick 11
+                Compressed::SameAsPrecedent,
+            ],
+        };
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(11), Duration::default());
+        assert_eq!(mismatch, None);
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(11)));
+        // materialized copy, not a stored run marker
+        assert_eq!(input_buffer.get(Tick(11)), Some(&ActionState(0)));
+
+        // `SameAsPrecedent` behind `Absent` resolves to neutral.
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set_empty(Tick(11));
+        input_buffer.last_remote_tick = Some(Tick(11));
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 12
+                Compressed::SameAsPrecedent,
+            ],
+        };
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(12), Duration::default());
+        assert_eq!(mismatch, None);
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(12)));
+        assert_eq!(input_buffer.get(Tick(12)), None);
     }
 
     /// Build → send → update roundtrip preserves every tick.
