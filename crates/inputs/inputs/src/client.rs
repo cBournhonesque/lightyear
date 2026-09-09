@@ -45,7 +45,7 @@
 //!   read the backend's state component (restored from the [`InputBuffer`] each tick).
 
 use crate::config::InputConfig;
-use crate::input_buffer::InputBuffer;
+use crate::input_buffer::{InputBuffer, MissPolicy, Resolution};
 #[cfg(feature = "prediction")]
 use crate::input_message::resolve_prespawned_target;
 use crate::input_message::{
@@ -515,7 +515,7 @@ fn get_action_state<S: ActionStateSequence>(
         (
             Entity,
             StateMut<S>,
-            &mut InputBuffer<S::Snapshot, S::Action>,
+            &InputBuffer<S::Snapshot, S::Action>,
             Has<S::Marker>,
         ),
         Allow<PredictionDisable>,
@@ -542,103 +542,61 @@ fn get_action_state<S: ActionStateSequence>(
             // we just buffered the input for the current tick so the action state is already up to date
             continue;
         }
-
-        // NOTE: for remote players:
-        // - if we receive a remote input from an older tick (because of prediction), then upon receipt we update the ActionState
-        //   immediately so that we can trigger a rollback (in `receive_input_message`) and the ActionState is correctly set
-        //   to the past state for the rollback
-        // - we cannot just rely on that, because in some cases (lockstep), we receive the remote input in the future, so we need
-        //   to read from the buffer to restore the ActionState to the correct tick.
-        // - we cannot use `is_lockstep` to check if we receive inputs in the future, because there are cases in non-lockstep where
-        //   we could receive some inputs from the future, if we had a high enough input delay.
-
-        // NOTE: confirmed ticks resolve exactly via `get`.
-        // - For local inputs with input_delay: our current state is in the future, so we need to fetch the exact value from the buffer
-        // - For remote inputs with lockstep: the last input is in the future, so we need to fetch the exact value from the buffer
-        // - For remote inputs without lockstep: the branch below predicts from the
-        //   last confirmed input instead (recomputed every tick, never stored).
-        if let Some(snapshot) = input_buffer.get(tick) {
-            // TODO: should we decay_tick the snapshot?
+        // Local entities restore this tick's delayed input; remote entities
+        // restore confirmed ticks and predict the rest. (A remote input that
+        // arrives late updates the live state on receipt in
+        // `receive_input_message`, which is what arms the rollback; lockstep is
+        // the exception, where inputs can arrive from the future and the exact
+        // buffered value is required.)
+        let miss = if is_local {
+            // With input delay the live state holds a sample for a future tick,
+            // so a tick that was never sampled (e.g. the entity was just
+            // claimed) reads as neutral — otherwise a fresh press would fire
+            // before its delay elapses. During rollback the restored state wins.
+            if !is_rollback && input_delay > 0 {
+                MissPolicy::Neutral
+            } else {
+                MissPolicy::Keep
+            }
+        } else if config.rebroadcast_inputs || matches!(route, InputRoute::P2P(_)) {
+            MissPolicy::Predict {
+                lockstep: input_timeline_config.is_lockstep(),
+            }
+        } else {
+            MissPolicy::Keep
+        };
+        let resolution = input_buffer.resolve(tick, tick_duration.0, miss);
+        // Exact confirmed ticks apply as-is; decay only happens inside
+        // predict() for misses.
+        if let Some(snapshot) = resolution.snapshot() {
             S::from_snapshot(S::State::into_inner(action_state), snapshot);
-            trace!(
-                ?entity,
-                ?tick,
-                ?is_local,
-                ?snapshot,
-                // ?action_state,
-                "fetched action state from input buffer: {:?}",
-                // action_state.get_pressed(),
-                input_buffer
-            );
-            trace!(
-                target: "lightyear_debug::input",
-                kind = "get_action_state",
-                schedule = "FixedPreUpdate",
-                sample_point = "FixedPreUpdate",
-                entity = ?entity,
-                action = ?DebugName::type_name::<S::Action>(),
-                local_tick = tick.0,
-                input_tick = tick.0,
-                is_local,
-                is_rollback,
-                snapshot = ?snapshot,
-                buffer_len = input_buffer.len(),
-                input_buffer = %*input_buffer,
-                "restored action state from input buffer"
-            );
-        } else if !is_local && (config.rebroadcast_inputs || matches!(route, InputRoute::P2P(_))) {
-            if input_timeline_config.is_lockstep() {
-                error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
-            }
-            // we are here if:
-            // - we are in rollback and we reach a tick further than the last tick we received from the remote
-            // - we are not in rollback, in which case we want to predict the remote ActionState.
-            // The prediction is recomputed from the last confirmed input every
-            // tick and never stored: there is nothing to invalidate later.
-            // (With no confirmed input there is no anchor, so the component is
-            // left untouched instead of decaying whatever the live state holds.)
-            if let Some(predicted) = input_buffer.predict(tick, tick_duration.0) {
-                trace!(
-                    ?entity,
-                    ?tick,
-                    "Action = {}, For remote input; no input for tick so we predict the ActionState as: {:?}",
-                    DebugName::type_name::<S::Action>(),
-                    predicted
-                );
-                trace!(
-                    target: "lightyear_debug::input",
-                    kind = "decay_missing_remote_action_state",
-                    schedule = "FixedPreUpdate",
-                    sample_point = "FixedPreUpdate",
-                    entity = ?entity,
-                    action = ?DebugName::type_name::<S::Action>(),
-                    local_tick = tick.0,
-                    input_tick = tick.0,
-                    is_rollback,
-                    snapshot = ?predicted,
-                    buffer_len = input_buffer.len(),
-                    "predicted missing remote action state"
-                );
-                // update the action state with the prediction (buffer untouched)
-                S::from_snapshot(S::State::into_inner(action_state), &predicted);
-            }
-        } else if !is_rollback && is_local && input_delay > 0 {
-            // Input delay: the live state holds a sample for a future tick, so it
-            // must be overwritten with this tick's delayed input. With nothing
-            // buffered (e.g. the entity was just claimed and older delay ticks were
-            // never sampled), the delayed input is neutral — reset instead of
-            // leaving the future sample in place, or a fresh press would fire
-            // before its delay elapses. (Neutral here used to arrive incidentally
-            // via stored remote predictions seeding the buffer; predictions are
-            // recomputed now, so spell it out.)
+        } else if resolution == Resolution::Neutral {
             S::from_snapshot(S::State::into_inner(action_state), &S::Snapshot::default());
         }
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "get_action_state",
+            schedule = "FixedPreUpdate",
+            sample_point = "FixedPreUpdate",
+            entity = ?entity,
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = tick.0,
+            input_tick = tick.0,
+            is_local,
+            is_rollback,
+            snapshot = ?resolution.snapshot(),
+            resolution = ?resolution,
+            buffer_len = input_buffer.len(),
+            input_buffer = %input_buffer,
+            "resolved action state from input buffer"
+        );
     }
 }
 
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
+    tick_duration: Res<TickDuration>,
     timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     rollback: Option<Res<Rollback>>,
@@ -667,33 +625,29 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         if !route.accepts_local_target(controlled_by) {
             continue;
         }
-        // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
-        //  the problem is that the Leafwing Plugin works on ActionState directly...
-        if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
+        // Re-point the live state at the newest (`now + delay`) input for
+        // rendering and next-frame sampling. A miss keeps the just-simulated
+        // value, which is the correct render input; it only happens when this
+        // frame didn't buffer (e.g. ownership changed mid-frame), never in
+        // steady state — so no reset to default.
+        let resolution = input_buffer.resolve(delayed_tick, tick_duration.0, MissPolicy::Keep);
+        if let Some(delayed_action_state) = resolution.snapshot() {
             S::from_snapshot(S::State::into_inner(action_state), delayed_action_state);
-            trace!(
-                ?entity,
-                ?delayed_tick,
-                // ?action_state,
-                "fetched delayed action state from input buffer: {}",
-                input_buffer
-            );
-            trace!(
-                target: "lightyear_debug::input",
-                kind = "get_delayed_action_state",
-                schedule = "RunFixedMainLoop",
-                sample_point = "RunFixedMainLoop",
-                entity = ?entity,
-                action = ?DebugName::type_name::<S::Action>(),
-                local_tick = tick.0,
-                input_tick = delayed_tick.0,
-                snapshot = ?delayed_action_state,
-                buffer_len = input_buffer.len(),
-                input_buffer = %input_buffer,
-                "restored delayed action state"
-            );
         }
-        // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "get_delayed_action_state",
+            schedule = "RunFixedMainLoop",
+            sample_point = "RunFixedMainLoop",
+            entity = ?entity,
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = tick.0,
+            input_tick = delayed_tick.0,
+            snapshot = ?resolution.snapshot(),
+            buffer_len = input_buffer.len(),
+            input_buffer = %input_buffer,
+            "restored delayed action state"
+        );
     }
 }
 

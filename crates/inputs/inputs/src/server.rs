@@ -3,7 +3,7 @@
 use crate::HISTORY_DEPTH;
 #[cfg(feature = "prediction")]
 use crate::InputChannel;
-use crate::input_buffer::InputBuffer;
+use crate::input_buffer::{InputBuffer, MissPolicy};
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
     message_start_tick, resolve_prespawned_target,
@@ -714,9 +714,15 @@ fn update_action_state<S: ActionStateSequence>(
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we predict
         // from the last confirmed input — recomputed every tick, never stored.
-        // (Unlike the old repeat-last snapshot, this advances button timers.)
-        if let Some(snapshot) = input_buffer.predict(tick, tick_duration.0) {
-            S::from_snapshot_transitions(S::State::into_inner(action_state), &snapshot);
+        // (Unlike the old repeat-last snapshot, this advances button timers.
+        // Without any confirmed anchor the live state is left alone.)
+        let resolution = input_buffer.resolve(
+            tick,
+            tick_duration.0,
+            MissPolicy::Predict { lockstep: false },
+        );
+        if let Some(snapshot) = resolution.snapshot() {
+            S::from_snapshot_transitions(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?tick,
                 ?entity,

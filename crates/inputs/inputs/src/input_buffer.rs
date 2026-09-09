@@ -21,7 +21,7 @@ use core::time::Duration;
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
-use tracing::{info, trace};
+use tracing::{error, info, trace};
 
 /// Maximum number of ticks retained in an [`InputBuffer`].
 ///
@@ -119,6 +119,49 @@ impl<T, M> Default for InputBuffer<T, M> {
             start_tick: None,
             last_remote_tick: None,
             marker: Default::default(),
+        }
+    }
+}
+
+/// What to do when a tick has no confirmed input in the buffer.
+///
+/// This is the per-caller half of [`InputBuffer::resolve`]: the buffer always
+/// resolves confirmed ticks exactly, and the caller picks one of these for
+/// the miss case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissPolicy {
+    /// Leave the live state alone.
+    Keep,
+    /// Reset the live state to the neutral snapshot.
+    Neutral,
+    /// Recompute a prediction from the last confirmed input (buffer untouched).
+    Predict {
+        /// Log an error on a miss: lockstep must never predict.
+        lockstep: bool,
+    },
+}
+
+/// How a buffer read resolves for one tick. See [`InputBuffer::resolve`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum Resolution<'a, T> {
+    /// Confirmed input for the tick.
+    Exact(&'a T),
+    /// Recomputed prediction; the buffer was not modified.
+    Predicted(T),
+    /// No input: the caller should apply the neutral snapshot.
+    Neutral,
+    /// No input: the caller should leave the live state alone.
+    Untouched,
+}
+
+impl<T> Resolution<'_, T> {
+    /// The snapshot to write into the live state, if the resolution carries one.
+    /// (`Neutral` intentionally returns `None`: the caller supplies the default.)
+    pub fn snapshot(&self) -> Option<&T> {
+        match self {
+            Resolution::Exact(snapshot) => Some(snapshot),
+            Resolution::Predicted(snapshot) => Some(snapshot),
+            Resolution::Neutral | Resolution::Untouched => None,
         }
     }
 }
@@ -324,6 +367,41 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
             predicted.decay_tick(tick_duration);
         }
         Some(predicted)
+    }
+
+    /// Resolve what the live action state should become for `tick`.
+    ///
+    /// This is the single decision point shared by the client, server, and
+    /// render-restore paths: confirmed ticks always resolve exactly, and the
+    /// miss policy says what happens otherwise. Predictions are recomputed
+    /// from the confirmed anchor and never stored.
+    pub fn resolve(
+        &self,
+        tick: Tick,
+        tick_duration: Duration,
+        miss: MissPolicy,
+    ) -> Resolution<'_, T>
+    where
+        T: InputSnapshot,
+    {
+        if let Some(snapshot) = self.get(tick) {
+            return Resolution::Exact(snapshot);
+        }
+        match miss {
+            MissPolicy::Keep => Resolution::Untouched,
+            MissPolicy::Neutral => Resolution::Neutral,
+            MissPolicy::Predict { lockstep } => {
+                if lockstep {
+                    error!(
+                        "We are in lockstep mode but didn't receive an input for tick {tick:?}!"
+                    );
+                }
+                match self.predict(tick, tick_duration) {
+                    Some(predicted) => Resolution::Predicted(predicted),
+                    None => Resolution::Untouched,
+                }
+            }
+        }
     }
 
     /// Get latest ActionState present in the buffer
@@ -550,6 +628,85 @@ mod tests {
         // Before buffer start: both return None
         assert_eq!(input_buffer.get(Tick(5)), None);
         assert_eq!(input_buffer.predict(Tick(5), Duration::default()), None);
+    }
+
+    /// `resolve` always returns confirmed ticks exactly; the miss policy only
+    /// governs unknown ticks. (Uses no-op-decay `i32` snapshots, so a prediction
+    /// past the end repeats the anchor.)
+    #[test]
+    fn test_resolve_policy_matrix() {
+        let mut input_buffer = InputBuffer::<i32, i32>::default();
+        input_buffer.set(Tick(10), 42);
+        input_buffer.set(Tick(12), 99);
+
+        // Confirmed ticks resolve exactly under every policy (11 was gap-filled
+        // with 42 at write time).
+        for miss in [
+            MissPolicy::Keep,
+            MissPolicy::Neutral,
+            MissPolicy::Predict { lockstep: false },
+        ] {
+            assert_eq!(
+                input_buffer.resolve(Tick(10), Duration::default(), miss),
+                Resolution::Exact(&42)
+            );
+            assert_eq!(
+                input_buffer.resolve(Tick(11), Duration::default(), miss),
+                Resolution::Exact(&42)
+            );
+            assert_eq!(
+                input_buffer.resolve(Tick(12), Duration::default(), miss),
+                Resolution::Exact(&99)
+            );
+        }
+
+        // Unknown ticks follow the miss policy ...
+        // ... past the end: prediction repeats the anchor ...
+        assert_eq!(
+            input_buffer.resolve(
+                Tick(15),
+                Duration::default(),
+                MissPolicy::Predict { lockstep: false }
+            ),
+            Resolution::Predicted(99)
+        );
+        // ... lockstep still predicts (after logging); the policy only adds the error.
+        assert_eq!(
+            input_buffer.resolve(
+                Tick(15),
+                Duration::default(),
+                MissPolicy::Predict { lockstep: true }
+            ),
+            Resolution::Predicted(99)
+        );
+        // ... Neutral asks the caller to apply the default ...
+        assert_eq!(
+            input_buffer.resolve(Tick(15), Duration::default(), MissPolicy::Neutral),
+            Resolution::Neutral
+        );
+        // ... Keep leaves the live state alone ...
+        assert_eq!(
+            input_buffer.resolve(Tick(15), Duration::default(), MissPolicy::Keep),
+            Resolution::Untouched
+        );
+        // ... and with no confirmed anchor at all, even prediction is Untouched.
+        assert_eq!(
+            input_buffer.resolve(Tick(5), Duration::default(), MissPolicy::Neutral),
+            Resolution::Neutral
+        );
+        assert_eq!(
+            input_buffer.resolve(
+                Tick(5),
+                Duration::default(),
+                MissPolicy::Predict { lockstep: false }
+            ),
+            Resolution::Untouched
+        );
+
+        // Resolving never mutates the buffer.
+        assert_eq!(input_buffer.len(), 3);
+        assert_eq!(input_buffer.start_tick, Some(Tick(10)));
+        assert_eq!(input_buffer.end_tick(), Some(Tick(12)));
     }
 
     /// Snapshot whose decay visibly accumulates, pinning multi-tick prediction.
