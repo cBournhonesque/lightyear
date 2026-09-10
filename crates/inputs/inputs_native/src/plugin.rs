@@ -35,9 +35,6 @@ impl<
         app.register_type::<InputBuffer<ActionState<A>, A>>();
         app.register_type::<ActionState<A>>();
 
-        // NOTE: role is a runtime topology choice, so both plugins are
-        // registered whenever their features are enabled; each system
-        // self-gates via InputRoute instead.
         #[cfg(feature = "client")]
         {
             use lightyear_inputs::client::ClientInputPlugin;

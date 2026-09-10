@@ -1,14 +1,9 @@
-/*! # Lightyear Inputs (core)
+/*! # Lightyear Inputs
 
-Tick-indexed input buffering and input-message plumbing shared by all input
+Provides plugins to replicate inputs between peers (usually from the client to the server).
+
+The code (systems, InputBuffer, InputMessage, etc.) is shared by all input
 backends (native, leafwing, BEI).
-
-This crate owns the [`InputBuffer`](input_buffer::InputBuffer) storage, the
-[`ActionStateSequence`](input_message::ActionStateSequence) /
-[`InputSnapshot`](input_message::InputSnapshot) traits that backends implement,
-and the client/server systems that buffer local inputs, exchange
-[`InputMessage`](input_message::InputMessage)s, and restore inputs for
-simulation and rollback. Pick a backend crate for a concrete input type.
 */
 #![no_std]
 

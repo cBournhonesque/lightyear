@@ -44,10 +44,6 @@ pub enum InputTarget {
 }
 
 /// First tick covered by a message/sequence spanning `len` ticks ending at `end_tick`.
-///
-/// Canonical range form (`end_tick + 1 - len`, saturating at zero), shared by
-/// buffer updates, history-rewrite detection, and the backends' message builders
-/// (which additionally clamp or search to their buffered range).
 pub fn message_start_tick(end_tick: Tick, len: usize) -> Tick {
     end_tick + 1 - len as u32
 }
@@ -56,10 +52,7 @@ pub fn message_start_tick(end_tick: Tick, len: usize) -> Tick {
 /// previous tick's value, or a fresh snapshot.
 ///
 /// This exists **only in the message layer**. [`InputBuffer`] stores
-/// materialized `Option<Snapshot>` values; runs are resolved while applying a
-/// message in [`update_buffer`](ActionStateSequence::update_buffer) and
-/// re-derived while building one in
-/// [`build_from_input_buffer`](ActionStateSequence::build_from_input_buffer).
+/// materialized `Option<Snapshot>` values.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
 pub enum Compressed<T> {
     /// No input for this tick. (Storage still needs an explicit neutral: a
@@ -81,12 +74,7 @@ impl<T> From<Option<T>> for Compressed<T> {
 }
 
 impl<T> Compressed<T> {
-    /// Resolve one wire tick against the running value: `Absent` clears it,
-    /// `Input` replaces it, `SameAsPrecedent` repeats it.
-    ///
-    /// Shared by [`update_buffer`](ActionStateSequence::update_buffer) (which
-    /// materializes runs while applying a message) and the server-side
-    /// authoritative re-check, so the two can never disagree on run semantics.
+    /// Resolve one wire tick against the previous value
     pub fn resolve(self, previous: Option<T>) -> Option<T> {
         match self {
             Compressed::Absent => None,
@@ -114,33 +102,6 @@ pub fn first_buffered_tick<S: Clone + PartialEq, M>(
         tick = tick + 1;
     }
     None
-}
-
-/// Materialize the buffered snapshots for `[start_tick, end_tick]` as a borrow
-/// window aligned to `start_tick`: `window[i]` is the snapshot for
-/// `start_tick + i`, or `None` where the buffer holds nothing.
-///
-/// The three [`ActionStateSequence`] encoders share this single buffer walk and
-/// keep their own start selection and wire encoding on top: native clamps the
-/// start to its buffered range (leading gaps stay `Absent` on the wire);
-/// leafwing/BEI advance to the first buffered tick with
-/// [`first_buffered_tick`] and diff from there.
-///
-/// Borrows — never clones — so encoding cost is unchanged: backends clone only
-/// what their wire format actually carries (`start_state`, plus native's
-/// per-tick `Input`s).
-pub fn send_window<S: Clone + PartialEq, M>(
-    buffer: &InputBuffer<S, M>,
-    start_tick: Tick,
-    end_tick: Tick,
-) -> Vec<Option<&S>> {
-    let mut slots = Vec::new();
-    let mut tick = start_tick;
-    while tick <= end_tick {
-        slots.push(buffer.get(tick));
-        tick = tick + 1;
-    }
-    slots
 }
 
 /// Resolve a prespawned-hash input target to a local entity.

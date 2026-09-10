@@ -4,7 +4,7 @@ use crate::HISTORY_DEPTH;
 #[cfg(feature = "prediction")]
 use crate::InputChannel;
 use crate::config::InputConfig;
-use crate::input_buffer::{InputBuffer, MissPolicy};
+use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
     message_start_tick, resolve_prespawned_target,
@@ -64,18 +64,12 @@ const MAX_INPUT_LOOKAHEAD_TICKS: usize = 64;
 /// Past-direction messages are normally handled harmlessly by
 /// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still rejects
 /// arbitrarily old or malicious tick values before they enter the input pipeline,
-/// while accepting reasonable late inputs (up to ~1 s of network lag at 64 Hz —
-/// the same window as the ring and the lookahead bound, so anything this stale
-/// could no longer be applied anyway).
+/// while accepting reasonable late inputs (up to ~1 s of network lag at 64 Hz)
 const MAX_INPUT_PAST_TICKS: usize = 64;
 
 /// Returns `true` iff `end_tick - server_tick` falls within
 /// `[-MAX_INPUT_PAST_TICKS, MAX_INPUT_LOOKAHEAD_TICKS]`. See those constants
 /// for the threat model behind each bound.
-///
-/// This uses [`Tick`]'s own difference operator: exact for ordinary ticks.
-/// Differences beyond `i32` range clamp to the extremes, which fall outside
-/// the (tiny) window either way.
 pub(crate) fn is_input_within_lookahead(end_tick: Tick, server_tick: Tick) -> bool {
     (-(MAX_INPUT_PAST_TICKS as i32)..=MAX_INPUT_LOOKAHEAD_TICKS as i32)
         .contains(&(end_tick - server_tick))
@@ -103,12 +97,6 @@ impl<S> Default for ServerInputPlugin<S> {
 #[deprecated(note = "Use InputSystems instead")]
 pub type InputSet = InputSystems;
 
-/// Server-side input system sets, in run order within a frame.
-///
-/// | Set | Schedule | Ordered relative to | Why |
-/// |---|---|---|---|
-/// | `ValidateInputs` → `ReceiveInputs` | `PreUpdate`, chained after `MessageSystems::Receive` | validators run first | authorization and game validation mutate/drop messages via `retain_messages` before inputs touch the buffers; entity-mapped targets only resolve after `Receive` |
-/// | `UpdateActionState` | `FixedPreUpdate` (after client `BufferClientInputs` in combined host-server apps) | before user `FixedUpdate` simulation | authoritative inputs are applied (and old ticks dropped) before simulation; the host-client's inputs are buffered first so the server side sees them |
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
     /// Validate / sanitize received [`InputMessage`]s before they are applied to
@@ -340,11 +328,11 @@ fn receive_input_message<S: ActionStateSequence>(
 ) -> Result {
     // TODO: use par_iter_mut
     receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
-        // NOTE: draining (not just reading) is what consumes each message
-        // exactly once. Users who need the messages observe them earlier via
-        // input validators, which run before this system.
+
         let server_entity = link_of.server;
         let tick = timeline.tick();
+        // NOTE: receive drains the messages. Users who need the messages can observe them earlier via
+        // input validators, which run before this system.
         receiver.receive().try_for_each(|message| {
             #[cfg(feature = "prediction")]
             let mut message = message;
@@ -378,11 +366,7 @@ fn receive_input_message<S: ActionStateSequence>(
             );
 
             // Reject messages whose end_tick is implausibly far from the
-            // server's current tick before any buffer write. A modified
-            // client sending a far-future end_tick would otherwise force
-            // `InputBuffer::set_raw` gap-filling across every intermediate
-            // tick, evicting the legitimate history. See
-            // `is_input_within_lookahead`.
+            // server's current tick before any buffer write. See `is_input_within_lookahead`.
             if !is_input_within_lookahead(message.end_tick, tick) {
                 trace!(
                     ?tick,
@@ -661,9 +645,6 @@ fn detect_input_history_rewrite<S: ActionStateSequence>(
     let buffer_start_tick = input_buffer.start_tick?;
     let buffer_end_tick = input_buffer.end_tick()?;
     // NOTE: this deliberately shares only the range math with `update_buffer`.
-    // The comparison cores stay separate: here raw incoming vs stored buffer at
-    // confirmed ticks (logging only), there decayed-prediction vs incoming for
-    // new ticks (drives rollback). Merging them would couple the two purposes.
     let start_tick = message_start_tick(end_tick, states.len());
     let mut incoming = None;
     for (delta, input) in states.get_snapshots_from_message(tick_duration).enumerate() {
@@ -711,15 +692,10 @@ fn update_action_state<S: ActionStateSequence>(
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
         // We only apply the ActionState from the buffer if we have one.
         // If we don't (because the input packet is late or lost), we predict
-        // from the last confirmed input — recomputed every tick, never stored.
-        // (Unlike the old repeat-last snapshot, this advances button timers.
-        // Without any confirmed anchor the live state is left alone.)
-        let resolution = input_buffer.resolve(
-            tick,
-            tick_duration.0,
-            MissPolicy::Predict { lockstep: false },
-        );
-        if let Some(snapshot) = resolution.snapshot() {
+        // from the last confirmed input.
+        // Stored inputs apply as-is (borrowed: no clone on this hot path);
+        // otherwise predict from the last confirmed input.
+        if let Some(snapshot) = input_buffer.get(tick) {
             S::from_snapshot_transitions(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?tick,
@@ -738,7 +714,7 @@ fn update_action_state<S: ActionStateSequence>(
                 local_tick = tick.0,
                 input_tick = tick.0,
                 host_client,
-                snapshot = ?snapshot,
+                snapshot = ?Some(snapshot),
                 buffer_len = input_buffer.len(),
                 input_buffer = %input_buffer.as_ref(),
                 "server applied input buffer to action state"
@@ -746,6 +722,35 @@ fn update_action_state<S: ActionStateSequence>(
 
             // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
             // so that we can handle lost messages
+            #[cfg(feature = "metrics")]
+            metric_handles
+                .buffer_size(entity)
+                .set(input_buffer.len() as f64);
+        } else if let Some(predicted) = input_buffer.predict(tick, tick_duration.0) {
+            S::from_snapshot_transitions(S::State::into_inner(action_state), &predicted);
+            trace!(
+                ?tick,
+                ?entity,
+                "action state after update. Input Buffer: {}",
+                input_buffer.as_ref()
+            );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_update_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                server_entity = ?server,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                host_client,
+                snapshot = ?Some(&predicted),
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer.as_ref(),
+                "server applied input buffer to action state"
+            );
+
             #[cfg(feature = "metrics")]
             metric_handles
                 .buffer_size(entity)

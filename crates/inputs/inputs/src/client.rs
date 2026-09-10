@@ -13,8 +13,6 @@
 //! `inputs_leafwing`, `input_bei`). Each backend provides an
 //! [`ActionStateSequence`](crate::input_message::ActionStateSequence)
 //! implementation and an `InputPlugin` that wires it into the systems below.
-//! The user payload inside the sequence must be `Serialize`, `Deserialize`,
-//! `Clone` and `PartialEq`.
 //!
 //! ```rust
 //! use bevy_ecs::entity::{EntityMapper, MapEntities};
@@ -45,7 +43,7 @@
 //!   read the backend's state component (restored from the [`InputBuffer`] each tick).
 
 use crate::config::InputConfig;
-use crate::input_buffer::{InputBuffer, MissPolicy, Resolution};
+use crate::input_buffer::InputBuffer;
 #[cfg(feature = "prediction")]
 use crate::input_message::resolve_prespawned_target;
 use crate::input_message::{
@@ -93,18 +91,6 @@ use tracing::{debug, error, info, trace, warn};
 
 #[deprecated(note = "Use InputSystems instead")]
 pub type InputSet = InputSystems;
-/// Client-side input system sets, in run order within a frame.
-///
-/// | Set | Schedule | Ordered relative to | Why |
-/// |---|---|---|---|
-/// | `ReceiveInputMessages` | `PreUpdate` | after `MessageSystems::Receive`, before `RollbackSystems::Check` (and after `BeforeFixedMainLoop`) | entity-mapped targets only resolve after `Receive`; mismatches must arm the rollback check before it runs; backend frame states are swapped in before the fixed loop, so diffs apply to the state the simulation will read |
-/// | `WriteClientInputs` → `BufferClientInputs` | `FixedPreUpdate` | chained; user writes first | buffer the newest input at `now + delay`, then load this sim tick's input (covers input delay, rollback replay, and remote replay) |
-/// | `RestoreInputs` | `FixedPostUpdate` | — | re-point the state component at the newest (`now + delay`) input after simulation, for rendering and next-frame sampling (matters when `FixedUpdate` runs 0 or 2+ times per frame) |
-/// | `PrepareInputMessage` → `Sync` → `SendInputMessage` → `CleanUp` → `MessageSystems::Send` | `PostUpdate` | chained | prepare before sync so a timeline shift can adjust buffered `end_tick`s; send after sync; drop old ticks last; everything before the transport flush |
-/// | `UpdateRemoteInputTicks` | `PostUpdate`, after `Sync` | — | this frame's rollback decision must use the previous confirmed tick, not the one being received now |
-///
-/// Additionally the `receive_local_timeline_shift` observer shifts buffered ticks and staged
-/// message `end_tick`s whenever sync moves the local timeline.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
     // RUN-FIXED-MAIN-LOOP UPDATE
@@ -124,8 +110,6 @@ pub enum InputSystems {
 
     // POST UPDATE
     /// Stage the input message for the server with the current tick's inputs.
-    /// (we do this once per frame in PostUpdate, not once per fixed tick, because if the
-    /// simulation runs slower than the frame rate we don't want to send an InputMessage per tick)
     PrepareInputMessage,
     // TODO: could this run in RunFixedMainLoop::AfterFixedMainLoop?
     /// Restore the ActionState for the correct tick (without InputDelay) from the buffer
@@ -228,11 +212,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             // The topology is a runtime choice. Conventional clients still return immediately
             // when rebroadcasting is disabled, while P2P peers must always drain direct remote
             // input messages even though their client/server rebroadcast option is false.
-            // Diffs are applied onto the message's `start_state` snapshot (buffered by the sender
-            // during its FixedUpdate) and the result is stored in the InputBuffer; the live state
-            // component is only touched later in `get_action_state`. So the only ordering that
-            // matters here is after `MessageSystems::Receive` (entity mapping) and before
-            // `RollbackSystems::Check` (a mismatch must arm the rollback).
             app.configure_sets(
                 PreUpdate,
                 InputSystems::ReceiveInputMessages
@@ -358,7 +337,8 @@ impl<'a> InputRoute<'a> {
         )
     }
 
-    /// Whether the client-side *send* pipeline must stand down for a host client.
+    /// Whether to skip the send systems on the client since the server plugin
+    /// will run them (in host server mode)
     ///
     /// Same as [`InputRoute::is_host_client`], except a rebroadcasting host client
     /// still stages and sends its inputs so the server can forward them.
@@ -543,36 +523,62 @@ fn get_action_state<S: ActionStateSequence>(
             // we just buffered the input for the current tick so the action state is already up to date
             continue;
         }
+        // NOTE: for remote players:
+        // - if we receive a remote input from an older tick (because of prediction), then upon receipt we update the ActionState
+        //   immediately so that we can trigger a rollback (in `receive_input_message`) and the ActionState is correctly set
+        //   to the past state for the rollback
+        // - we cannot just rely on that, because in some cases (lockstep), we receive the remote input in the future, so we need
+        //   to read from the buffer to restore the ActionState to the correct tick.
+        // - we cannot use `is_lockstep` to check if we receive inputs in the future, because there are cases in non-lockstep where
+        //   we could receive some inputs from the future, if we had a high enough input delay.
+
         // Local entities restore this tick's delayed input; remote entities
         // restore confirmed ticks and predict the rest. (A remote input that
         // arrives late updates the live state on receipt in
         // `receive_input_message`, which is what arms the rollback; lockstep is
         // the exception, where inputs can arrive from the future and the exact
         // buffered value is required.)
-        let miss = if is_local {
-            // With input delay the live state holds a sample for a future tick,
-            // so a tick that was never sampled (e.g. the entity was just
-            // claimed) reads as neutral — otherwise a fresh press would fire
-            // before its delay elapses. During rollback the restored state wins.
+        if let Some(snapshot) = input_buffer.get(tick) {
+            // Exact confirmed ticks apply as-is.
+            S::from_snapshot(S::State::into_inner(action_state), snapshot);
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "get_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                is_local,
+                is_rollback,
+                snapshot = ?Some(snapshot),
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer,
+                "resolved action state from input buffer"
+            );
+            continue;
+        }
+        // Miss handling depends on the entity: local entities either read
+        // neutral (with input delay the live state holds a sample for a
+        // future tick, so a tick that was never sampled reads as neutral
+        // before its delay elapses; during rollback the restored state wins)
+        // or keep the live state; remote entities predict, unless the server
+        // doesn't rebroadcast. Decay only happens inside predict().
+        let mut applied: Option<S::Snapshot> = None;
+        if is_local {
             if !is_rollback && input_delay > 0 {
-                MissPolicy::Neutral
-            } else {
-                MissPolicy::Keep
+                applied = Some(S::Snapshot::default());
             }
         } else if config.rebroadcast_inputs || matches!(route, InputRoute::P2P(_)) {
-            MissPolicy::Predict {
-                lockstep: input_timeline_config.is_lockstep(),
+            if input_timeline_config.is_lockstep() {
+                error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
             }
-        } else {
-            MissPolicy::Keep
-        };
-        let resolution = input_buffer.resolve(tick, tick_duration.0, miss);
-        // Exact confirmed ticks apply as-is; decay only happens inside
-        // predict() for misses.
-        if let Some(snapshot) = resolution.snapshot() {
+            applied = input_buffer.predict(tick, tick_duration.0);
+        }
+        // else leave the live state alone.
+        if let Some(snapshot) = applied.as_ref() {
             S::from_snapshot(S::State::into_inner(action_state), snapshot);
-        } else if resolution == Resolution::Neutral {
-            S::from_snapshot(S::State::into_inner(action_state), &S::Snapshot::default());
         }
         trace!(
             target: "lightyear_debug::input",
@@ -585,8 +591,7 @@ fn get_action_state<S: ActionStateSequence>(
             input_tick = tick.0,
             is_local,
             is_rollback,
-            snapshot = ?resolution.snapshot(),
-            resolution = ?resolution,
+            snapshot = ?applied.as_ref(),
             buffer_len = input_buffer.len(),
             input_buffer = %input_buffer,
             "resolved action state from input buffer"
@@ -626,13 +631,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         if !route.accepts_local_target(controlled_by) {
             continue;
         }
-        // Re-point the live state at the newest (`now + delay`) input for
-        // rendering and next-frame sampling. A miss keeps the just-simulated
-        // value, which is the correct render input; it only happens when this
-        // frame didn't buffer (e.g. ownership changed mid-frame), never in
-        // steady state — so no reset to default.
-        let resolution = input_buffer.resolve(delayed_tick, tick_duration.0, MissPolicy::Keep);
-        if let Some(delayed_action_state) = resolution.snapshot() {
+        if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
             S::from_snapshot(S::State::into_inner(action_state), delayed_action_state);
         }
         trace!(
@@ -644,7 +643,8 @@ fn get_delayed_action_state<S: ActionStateSequence>(
             action = ?DebugName::type_name::<S::Action>(),
             local_tick = tick.0,
             input_tick = delayed_tick.0,
-            snapshot = ?resolution.snapshot(),
+            // Second O(1) lookup keeps the log shape stable without cloning.
+            snapshot = ?input_buffer.get(delayed_tick),
             buffer_len = input_buffer.len(),
             input_buffer = %input_buffer,
             "restored delayed action state"
@@ -763,8 +763,8 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    // The host-client doesn't need to stage input messages since the ActionState
-    // is already on the entity — unless we rebroadcast its inputs to other clients.
+    // The host-client doesn't need to send input messages since the ActionState
+    // is already on the entity; unless we rebroadcast its inputs to other clients.
     if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
         return;
     }
@@ -835,10 +835,8 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    // NOTE: we send a message even when there are 0 inputs. With lag
-    // compensation the send path still attaches the current
-    // interpolation-delay estimate to it; without that, per-target receive
-    // loops skip empty messages entirely.
+    // NOTE: we send a message even when there are 0 inputs to provide interpolation-delay data for lag compensation.
+    // we could not send anything if there is no lag compensation.
     debug!(
         ?tick,
         ?num_ticks,
@@ -1194,29 +1192,18 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
-    // Fold this input type's remote streams into one aggregate: the rollback
-    // frontier is the earliest last-remote tick, and every stream must have
-    // contributed. (The tracker was reset to a high tick, so the first real
-    // tick always becomes the minimum. Each generic input type contributes its
-    // own aggregate below via `&=`, which is how multiple actions `S` combine.)
-    let (minimum, received_for_all_clients) =
-        predicted_query
-            .iter()
-            .fold(
-                (None::<Tick>, true),
-                |(minimum, received_all), buffer| match buffer.last_remote_tick {
-                    Some(end_tick) => (
-                        Some(minimum.map_or(end_tick, |current| current.min(end_tick))),
-                        received_all,
-                    ),
-                    None => (minimum, false),
-                },
-            );
-    // if we received any messages, we update the LastConfirmedInput
-    // (this is used to determine the last confirmed tick for each client)
-    if let Some(minimum) = minimum {
-        last_confirmed_input.tick.set_if_lower(minimum);
-    }
+    // find the earliest last_confirmed_tick for each client
+    // The tracker was reset to a high tick, so the first real tick always becomes the minimum.
+    let mut received_for_all_clients = true;
+    predicted_query.iter().for_each(|buffer| {
+        // if we received any messages, we update the LastConfirmedInput
+        // (this is used to determine the last confirmed tick for each client)
+        if let Some(end_tick) = buffer.last_remote_tick {
+            last_confirmed_input.tick.set_if_lower(end_tick);
+        } else {
+            received_for_all_clients = false;
+        }
+    });
     // Several generic input plugins contribute sequentially in the same set. The tracker is reset
     // to true once in PreUpdate, so AND-ing preserves a missing stream reported by any input type.
     last_confirmed_input.received_for_all_clients &= received_for_all_clients;
@@ -1342,8 +1329,8 @@ fn send_input_messages<S: ActionStateSequence>(
     };
     let is_host_client = route.is_host_client();
 
-    // See `prepare_input_message`: a non-rebroadcasting host client drops staged
-    // messages instead of sending them.
+    // the host-client doesn't need to send input messages since the ActionState is already on the entity
+    // unless we want to rebroadcast the HostClient inputs to other clients
     if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
         message_buffer.0.clear();
         return;

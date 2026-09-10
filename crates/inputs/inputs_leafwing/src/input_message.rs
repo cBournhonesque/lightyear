@@ -14,7 +14,6 @@ use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::{
     ActionStateSequence, Compressed, InputSnapshot, first_buffered_tick, message_start_tick,
-    send_window,
 };
 use serde::{Deserialize, Serialize};
 
@@ -88,7 +87,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     ///
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
-    fn build_from_input_buffer<'w, 's>(
+    fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
         num_ticks: usize,
         end_tick: Tick,
@@ -102,21 +101,25 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
             // there are no ticks for which we have an `ActionState` buffered, so we send nothing
             return None;
         };
-        // One shared walk materializes the window; neighbors below are indexes
-        // into it — identical values to the per-tick `get`s they replace.
-        let slots = send_window(input_buffer, start_tick, end_tick);
-        // `first_buffered_tick` guarantees the anchor slot holds a snapshot.
-        let start_state = slots[0].unwrap().clone();
-        let mut diffs = Vec::with_capacity(slots.len().saturating_sub(1));
-        for pair in slots.windows(2) {
+        let start_state = input_buffer.get(start_tick).unwrap().clone();
+        // Pre-size for the full window minus the anchor, so this never
+        // reallocates.
+        let mut diffs = Vec::with_capacity((end_tick - start_tick).max(0) as usize);
+        let mut tick = start_tick + 1;
+        while tick <= end_tick {
             let diffs_for_tick = ActionDiff::<A>::create(
                 // Mid-window gaps cannot occur: writes fill them with the
                 // last value, so only the start edge can miss (e.g. right
                 // after an input-delay change) and reads as default there.
-                pair[0].unwrap_or(&LeafwingSnapshot::<A>::default()),
-                pair[1].unwrap_or(&LeafwingSnapshot::<A>::default()),
+                input_buffer
+                    .get(tick - 1)
+                    .unwrap_or(&LeafwingSnapshot::<A>::default()),
+                input_buffer
+                    .get(tick)
+                    .unwrap_or(&LeafwingSnapshot::<A>::default()),
             );
             diffs.push(diffs_for_tick);
+            tick += 1;
         }
         Some(Self {
             start_state: start_state.0,

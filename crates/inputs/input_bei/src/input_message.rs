@@ -10,7 +10,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::{
     ActionStateQueryData, ActionStateSequence, Compressed, InputSnapshot, first_buffered_tick,
-    message_start_tick, send_window,
+    message_start_tick,
 };
 use serde::{Deserialize, Serialize};
 
@@ -203,7 +203,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         start_iter.chain(diffs_iter)
     }
 
-    fn build_from_input_buffer<'w, 's>(
+    fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
         num_ticks: usize,
         end_tick: Tick,
@@ -217,17 +217,12 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
             // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
             return None;
         };
-        // One shared walk materializes the window; neighbors below are indexes
-        // into it — identical values to the per-tick `get`s they replace
-        // (`get` returns `None` past the buffer end, encoding as `Absent`).
-        let slots = send_window(input_buffer, start_tick, end_tick);
-        // `first_buffered_tick` guarantees the anchor slot holds a snapshot.
-        let start_state = *slots[0].unwrap();
+        let start_state = *input_buffer.get(start_tick).unwrap();
         let (mut cur_state, mut cur_value) = (start_state.state, start_state.value);
-        let mut diffs = Vec::with_capacity(slots.len().saturating_sub(1));
-        // Re-derive wire compression by comparing neighbors.
-        for slot in slots.iter().skip(1).copied() {
-            let diff = match slot {
+        let mut diffs = Vec::with_capacity((end_tick - start_tick).max(0) as usize);
+        let mut tick = start_tick + 1;
+        while tick <= end_tick {
+            let diff = match input_buffer.get(tick) {
                 None => Compressed::Absent,
                 Some(snapshot) => {
                     let diff = if snapshot.state == cur_state && snapshot.value == cur_value {
@@ -244,6 +239,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
                 }
             };
             diffs.push(diff);
+            tick += 1;
         }
         Some(Self {
             start_state,

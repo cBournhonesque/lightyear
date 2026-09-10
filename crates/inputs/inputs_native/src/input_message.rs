@@ -1,5 +1,5 @@
 use crate::action_state::{ActionState, InputMarker};
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
@@ -8,7 +8,7 @@ use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::InputBuffer;
 use lightyear_inputs::input_message::{
-    ActionStateSequence, Compressed, InputSnapshot, message_start_tick, send_window,
+    ActionStateSequence, Compressed, InputSnapshot, message_start_tick,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ impl<
         })
     }
 
-    fn build_from_input_buffer<'w, 's>(
+    fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
         num_ticks: usize,
         end_tick: Tick,
@@ -70,36 +70,30 @@ impl<
         // native tolerates a leading gap: `Absent` is preserved on the wire.)
         let start_tick = max(message_start_tick(end_tick, num_ticks), buffer_start_tick);
 
-        // One shared walk materializes the window; neighbors below are indexes
-        // into it — identical values to the per-tick `get`s they replace
-        // (`get` returns `None` past the buffer end, encoding as `Absent`).
-        let slots = send_window(input_buffer, start_tick, end_tick);
-        // find the initial state, (which we convert out of SameAsPrecedent).
-        // The direct `get` only fires for a degenerate empty window
-        // (`num_ticks == 0` puts `start_tick` past `end_tick`), preserving the
-        // previous behavior there exactly.
-        let start_state = slots.first().copied().flatten().map_or_else(
-            || {
-                input_buffer
-                    .get(start_tick)
-                    .map_or(Compressed::Absent, |input| input.into())
-            },
-            |snapshot| snapshot.into(),
-        );
-        let mut states = vec![start_state];
+        // find the initial state, (which we convert out of SameAsPrecedent)
+        let start_state = input_buffer
+            .get(start_tick)
+            .map_or(Compressed::Absent, |input| input.into());
+        // Pre-size for the full window: one state per tick, so this never
+        // reallocates.
+        let mut states =
+            Vec::with_capacity((end_tick - start_tick).saturating_add(1).max(0) as usize);
+        states.push(start_state);
 
         // Append the other states until the end tick, re-deriving wire
-        // compression by comparing neighbors.
-        for pair in slots.windows(2) {
-            let (prev, current) = (pair[0], pair[1]);
-            let state = match current {
+        // compression by comparing neighbors (`get` returns `None` past the
+        // buffer end, which encodes as `Absent`).
+        let mut tick = start_tick + 1;
+        while tick <= end_tick {
+            let state = match input_buffer.get(tick) {
                 None => Compressed::Absent,
-                Some(value) => match prev {
+                Some(value) => match input_buffer.get(tick - 1u32) {
                     Some(prev) if prev == value => Compressed::SameAsPrecedent,
                     _ => value.into(),
                 },
             };
             states.push(state);
+            tick = tick + 1;
         }
         Some(Self { states })
     }
@@ -126,6 +120,7 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
     use core::time::Duration;
     use test_log::test;
 
