@@ -19,7 +19,8 @@ use bevy::prelude::*;
 use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::prelude::*;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::server::{InputSystems as ServerInputSystems, ServerInputConfig};
+use lightyear::input::prelude::InputConfig;
+use lightyear::input::server::InputSystems as ServerInputSystems;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
@@ -159,7 +160,7 @@ fn spawn_global_control(mut commands: Commands) {
 
 fn apply_initial_input_config(
     timeline: Single<&TimelinePolicy, With<ClientContext>>,
-    mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
+    mut input_config: ResMut<InputConfig<PlayerContext>>,
 ) {
     input_config.rebroadcast_inputs = **timeline == TimelinePolicy::AllPredicted;
 }
@@ -193,7 +194,7 @@ fn apply_global_actions_and_reset_arena(
     representation_actions: Query<&ActionEvents, With<Action<CycleRepresentation>>>,
     hit_actions: Query<&ActionEvents, With<Action<CycleHitPolicy>>>,
     timeline_actions: Query<&ActionEvents, With<Action<CycleTimeline>>>,
-    mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
+    mut input_config: ResMut<InputConfig<PlayerContext>>,
     arena_entities: Query<
         Entity,
         Or<(
