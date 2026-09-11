@@ -33,10 +33,22 @@ pub struct Connect {
     pub entity: Entity,
 }
 
+impl From<Entity> for Connect {
+    fn from(entity: Entity) -> Self {
+        Self { entity }
+    }
+}
+
 /// Trigger to disconnect the client
 #[derive(EntityEvent)]
 pub struct Disconnect {
     pub entity: Entity,
+}
+
+impl From<Entity> for Disconnect {
+    fn from(entity: Entity) -> Self {
+        Self { entity }
+    }
 }
 
 // TODO: it looks like in some cases, we want Connected.peer_id to return the local peer_id (when client connects to server)
