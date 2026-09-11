@@ -1,13 +1,15 @@
 use crate::action_state::{ActionState, InputMarker};
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_reflect::{FromReflect, Reflect, Reflectable};
 use core::cmp::max;
 use core::fmt::Debug;
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
-use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
+use lightyear_inputs::input_buffer::InputBuffer;
+use lightyear_inputs::input_message::{
+    ActionStateSequence, Compressed, InputSnapshot, message_start_tick,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -22,22 +24,6 @@ impl<A: Debug + Default + PartialEq + Clone + Send + Sync + 'static> InputSnapsh
     for ActionState<A>
 {
     fn decay_tick(&mut self, tick_duration: Duration) {}
-}
-
-impl<A> IntoIterator for NativeStateSequence<A> {
-    type Item = Compressed<ActionState<A>>;
-    type IntoIter = core::iter::Map<
-        vec::IntoIter<Compressed<A>>,
-        fn(Compressed<A>) -> Compressed<ActionState<A>>,
-    >;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.states.into_iter().map(|input| match input {
-            Compressed::Absent => Compressed::Absent,
-            Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-            Compressed::Input(i) => Compressed::Input(ActionState(i)),
-        })
-    }
 }
 
 impl<
@@ -74,35 +60,40 @@ impl<
         })
     }
 
-    fn build_from_input_buffer<'w, 's>(
+    fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self> {
         let buffer_start_tick = input_buffer.start_tick?;
-        // find the first tick for which we have an `ActionState` buffered
-        let start_tick = max(end_tick - num_ticks + 1, buffer_start_tick);
+        // Clamp the canonical window to the buffered range. (Unlike leafwing/BEI,
+        // native tolerates a leading gap: `Absent` is preserved on the wire.)
+        let start_tick = max(message_start_tick(end_tick, num_ticks), buffer_start_tick);
 
         // find the initial state, (which we convert out of SameAsPrecedent)
         let start_state = input_buffer
             .get(start_tick)
             .map_or(Compressed::Absent, |input| input.into());
-        let mut states = vec![start_state];
+        // Pre-size for the full window: one state per tick, so this never
+        // reallocates.
+        let mut states =
+            Vec::with_capacity((end_tick - start_tick).saturating_add(1).max(0) as usize);
+        states.push(start_state);
 
-        // append the other states until the end tick
-        let buffer_start = (start_tick + 1 - buffer_start_tick) as usize;
-        let buffer_end = (end_tick + 1 - buffer_start_tick) as usize;
-        for idx in buffer_start..buffer_end {
-            let state =
-                input_buffer
-                    .buffer
-                    .get(idx)
-                    .map_or(Compressed::Absent, |input| match input {
-                        Compressed::Absent => Compressed::Absent,
-                        Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-                        Compressed::Input(v) => v.into(),
-                    });
+        // Append the other states until the end tick, re-deriving wire
+        // compression by comparing neighbors (`get` returns `None` past the
+        // buffer end, which encodes as `Absent`).
+        let mut tick = start_tick + 1;
+        while tick <= end_tick {
+            let state = match input_buffer.get(tick) {
+                None => Compressed::Absent,
+                Some(value) => match input_buffer.get(tick - 1u32) {
+                    Some(prev) if prev == value => Compressed::SameAsPrecedent,
+                    _ => value.into(),
+                },
+            };
             states.push(state);
+            tick = tick + 1;
         }
         Some(Self { states })
     }
@@ -129,8 +120,8 @@ impl<A: MapEntities> MapEntities for NativeStateSequence<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::collections::VecDeque;
-    use std::time::Duration;
+    use alloc::vec;
+    use core::time::Duration;
     use test_log::test;
 
     #[test]
@@ -155,8 +146,9 @@ mod tests {
                     Compressed::SameAsPrecedent,
                     Compressed::SameAsPrecedent,
                     Compressed::Input(2),
-                    // TODO: why is it marked as absent instead of SameAsPrecedent??
-                    //  by default, when inputs are absent should we mark them as SameAsPrecedent?
+                    // Past the buffer end the input is genuinely unknown, so
+                    // it encodes as Absent — SameAsPrecedent would claim a
+                    // repeat we never observed.
                     Compressed::Absent,
                     Compressed::Absent,
                     Compressed::Absent,
@@ -200,16 +192,12 @@ mod tests {
     /// buffer's start tick
     #[test]
     fn test_update_buffer_from_sequence_lower_start_tick() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([
-                Compressed::Input(ActionState(0)),
-                Compressed::SameAsPrecedent,
-                Compressed::SameAsPrecedent,
-            ]),
-            last_remote_tick: Some(Tick(12)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Input(0), SameAsPrecedent, SameAsPrecedent]
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set(Tick(11), ActionState(0));
+        input_buffer.set(Tick(12), ActionState(0));
+        input_buffer.last_remote_tick = Some(Tick(12));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // tick 7
@@ -237,17 +225,44 @@ mod tests {
     }
 
     #[test]
-    fn test_update_buffer_from_sequence_absent() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([
-                Compressed::Input(ActionState(0)),
-                Compressed::Absent,
-                Compressed::SameAsPrecedent,
-            ]),
-            last_remote_tick: Some(Tick(12)),
-            marker: core::marker::PhantomData,
+    fn test_update_buffer_stale_message_keeps_frontier() {
+        // A reordered (stale) message ending at or before `last_remote_tick`
+        // writes nothing and must not move the confirmed frontier backward.
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set(Tick(11), ActionState(0));
+        input_buffer.set(Tick(12), ActionState(0));
+        input_buffer.last_remote_tick = Some(Tick(12));
+        // ticks 10..=11, agreeing with the buffer
+        let stale = NativeStateSequence::<usize> {
+            states: vec![Compressed::Input(0), Compressed::SameAsPrecedent],
         };
+        let mismatch = stale.update_buffer(&mut input_buffer, Tick(11), Duration::default());
+        assert_eq!(mismatch, None);
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(12)));
+        assert_eq!(input_buffer.get(Tick(10)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(11)), Some(&ActionState(0)));
+        assert_eq!(input_buffer.get(Tick(12)), Some(&ActionState(0)));
+        // A newer message carrying a changed value still mismatches (against
+        // the decay-anchored prediction) and advances the frontier.
+        let fresh = NativeStateSequence::<usize> {
+            states: vec![Compressed::Input(1)],
+        };
+        let mismatch = fresh.update_buffer(&mut input_buffer, Tick(13), Duration::default());
+        assert_eq!(mismatch, Some(Tick(13)));
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(13)));
+        assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState(1)));
+    }
+
+    #[test]
+    fn test_update_buffer_from_sequence_absent() {
+        // Logical contents: start 10, [Input(0), Absent, Absent] (runs are
+        // stored materialized; `SameAsPrecedent` exists only on the wire).
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set_empty(Tick(11));
+        input_buffer.set_empty(Tick(12));
+        input_buffer.last_remote_tick = Some(Tick(12));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // Tick 11
@@ -264,12 +279,12 @@ mod tests {
 
     #[test]
     fn test_update_buffer_from_sequence_present() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([Compressed::Absent, Compressed::SameAsPrecedent]),
-            last_remote_tick: Some(Tick(11)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Absent, Absent] (runs are stored
+        // materialized; `SameAsPrecedent` exists only on the wire).
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set_empty(Tick(10));
+        input_buffer.set_empty(Tick(11));
+        input_buffer.last_remote_tick = Some(Tick(11));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // Tick 9
@@ -287,15 +302,72 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(9)), None);
     }
 
+    #[test]
+    fn test_update_buffer_resolves_wire_runs() {
+        // Wire runs resolve while applying: the buffer stores materialized
+        // values, never `SameAsPrecedent`.
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.last_remote_tick = Some(Tick(10));
+        // Tick 11 repeats tick 10 on the wire and agrees with prediction.
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 10
+                Compressed::Input(0),
+                // Tick 11
+                Compressed::SameAsPrecedent,
+            ],
+        };
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(11), Duration::default());
+        assert_eq!(mismatch, None);
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(11)));
+        // materialized copy, not a stored run marker
+        assert_eq!(input_buffer.get(Tick(11)), Some(&ActionState(0)));
+
+        // `SameAsPrecedent` behind `Absent` resolves to neutral.
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set(Tick(10), ActionState(0));
+        input_buffer.set_empty(Tick(11));
+        input_buffer.last_remote_tick = Some(Tick(11));
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 12
+                Compressed::SameAsPrecedent,
+            ],
+        };
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(12), Duration::default());
+        assert_eq!(mismatch, None);
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(12)));
+        assert_eq!(input_buffer.get(Tick(12)), None);
+    }
+
+    /// Build → send → update roundtrip preserves every tick.
+    #[test]
+    fn test_build_update_roundtrip() {
+        let mut sender = InputBuffer::default();
+        sender.set(Tick(5), ActionState(0));
+        sender.set(Tick(6), ActionState(0));
+        sender.set(Tick(7), ActionState(1));
+        sender.set(Tick(8), ActionState(1));
+        let sequence =
+            NativeStateSequence::<i32>::build_from_input_buffer(&sender, 4, Tick(8)).unwrap();
+
+        let mut receiver = InputBuffer::default();
+        let mismatch = sequence.update_buffer(&mut receiver, Tick(8), Duration::default());
+        assert_eq!(mismatch, Some(Tick(5)));
+        for (tick, value) in [(5u32, 0), (6, 0), (7, 1), (8, 1)] {
+            assert_eq!(receiver.get(Tick(tick)), Some(&ActionState(value)));
+        }
+    }
+
     /// Check that everything after the mismatch is cleared
     #[test]
     fn test_update_buffer_from_sequence_clip_after() {
-        let mut input_buffer = InputBuffer {
-            start_tick: Some(Tick(10)),
-            buffer: VecDeque::from([Compressed::Absent, Compressed::Input(ActionState(3))]),
-            last_remote_tick: Some(Tick(9)),
-            marker: core::marker::PhantomData,
-        };
+        // Logical contents: start 10, [Absent, Input(3)]
+        let mut input_buffer = InputBuffer::default();
+        input_buffer.set_empty(Tick(10));
+        input_buffer.set(Tick(11), ActionState(3));
+        input_buffer.last_remote_tick = Some(Tick(9));
         let sequence = NativeStateSequence::<usize> {
             states: vec![
                 // Tick 10

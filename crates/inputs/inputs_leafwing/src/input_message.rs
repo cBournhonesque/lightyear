@@ -11,8 +11,10 @@ use leafwing_input_manager::InputControlKind;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
-use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
+use lightyear_inputs::input_buffer::InputBuffer;
+use lightyear_inputs::input_message::{
+    ActionStateSequence, Compressed, InputSnapshot, first_buffered_tick, message_start_tick,
+};
 use serde::{Deserialize, Serialize};
 
 pub type LeafwingBuffer<A> = InputBuffer<LeafwingSnapshot<A>, A>;
@@ -85,30 +87,30 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     ///
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
-    fn build_from_input_buffer<'w, 's>(
+    fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self> {
-        let mut diffs = Vec::new();
         // find the first tick for which we have an `ActionState` buffered
-        let mut start_tick = end_tick - num_ticks + 1;
-        while start_tick <= end_tick {
-            if input_buffer.get(start_tick).is_some() {
-                break;
-            }
-            start_tick += 1;
-        }
-
-        // there are no ticks for which we have an `ActionState` buffered, so we send nothing
-        if start_tick > end_tick {
+        let Some(start_tick) = first_buffered_tick(
+            input_buffer,
+            message_start_tick(end_tick, num_ticks),
+            end_tick,
+        ) else {
+            // there are no ticks for which we have an `ActionState` buffered, so we send nothing
             return None;
-        }
+        };
         let start_state = input_buffer.get(start_tick).unwrap().clone();
+        // Pre-size for the full window minus the anchor, so this never
+        // reallocates.
+        let mut diffs = Vec::with_capacity((end_tick - start_tick).max(0) as usize);
         let mut tick = start_tick + 1;
         while tick <= end_tick {
             let diffs_for_tick = ActionDiff::<A>::create(
-                // TODO: if the input_delay changes, this could leave gaps in the InputBuffer, which we will fill with Default
+                // Mid-window gaps cannot occur: writes fill them with the
+                // last value, so only the start edge can miss (e.g. right
+                // after an input-delay change) and reads as default there.
                 input_buffer
                     .get(tick - 1)
                     .unwrap_or(&LeafwingSnapshot::<A>::default()),
@@ -385,26 +387,26 @@ mod tests {
         );
     }
 
-    /// Like test_rebroadcast_to_empty_buffer, but the sender's buffer uses
-    /// SameAsPrecedent compression (which happens when set() is called with
-    /// the same value on consecutive ticks — the real-world case).
+    /// Like test_rebroadcast_to_empty_buffer, but the sender's buffer holds the
+    /// same value on consecutive ticks — the real-world case. (The buffer
+    /// stores materialized values; run compression is re-derived on the wire.)
     #[test]
     fn test_rebroadcast_to_empty_buffer_with_compression() {
         let mut sender_buffer = InputBuffer::default();
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
-        // set() compresses consecutive identical values to SameAsPrecedent
+        // store the same value on consecutive ticks
         for tick in 5..=10 {
             sender_buffer.set(Tick(tick), LeafwingSnapshot(action_state.clone()));
         }
-        // Verify compression is in effect
+        // Verify the setup
         assert!(
             sender_buffer.get(Tick(5)).is_some(),
             "tick 5 should be present"
         );
         assert!(
             sender_buffer.get(Tick(10)).is_some(),
-            "tick 10 should be present (via SameAsPrecedent)"
+            "tick 10 should be present"
         );
 
         let sequence =
@@ -469,9 +471,9 @@ mod tests {
             "get(101) should return None — beyond buffer"
         );
 
-        // get_predict() should return last value for ticks beyond buffer
-        let predicted = receiver_buffer.get_predict(Tick(105));
-        assert!(predicted.is_some(), "get_predict(105) should return Some");
+        // predict() should return last value for ticks beyond buffer
+        let predicted = receiver_buffer.predict(Tick(105), Duration::default());
+        assert!(predicted.is_some(), "predict(105) should return Some");
         assert!(
             predicted.unwrap().pressed(&Action::Jump),
             "predicted should have Jump pressed"
@@ -591,5 +593,30 @@ mod tests {
 
         assert_eq!(mismatch, Some(Tick(3)));
         assert_eq!(input_buffer.get(Tick(2)).unwrap().0, confirmed);
+    }
+
+    /// Build → send → update roundtrip preserves pressed actions.
+    #[test]
+    fn test_build_update_roundtrip() {
+        let mut sender = InputBuffer::default();
+        let mut pressed = ActionState::<Action>::default();
+        pressed.press(&Action::Jump);
+        for tick in 5..=8u32 {
+            sender.set(Tick(tick), pressed.clone().into());
+        }
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&sender, 4, Tick(8)).unwrap();
+
+        let mut receiver = InputBuffer::default();
+        sequence.update_buffer(&mut receiver, Tick(8), Duration::default());
+        for tick in 5..=8u32 {
+            let snapshot = receiver
+                .get(Tick(tick))
+                .unwrap_or_else(|| panic!("missing input at tick {tick}"));
+            assert!(
+                snapshot.pressed(&Action::Jump),
+                "Jump should be pressed at tick {tick}"
+            );
+        }
     }
 }

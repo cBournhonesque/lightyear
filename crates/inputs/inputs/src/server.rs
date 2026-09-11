@@ -3,9 +3,11 @@
 use crate::HISTORY_DEPTH;
 #[cfg(feature = "prediction")]
 use crate::InputChannel;
+use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
+    message_start_tick, resolve_prespawned_target,
 };
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
@@ -18,7 +20,6 @@ use bevy_ecs::{
     entity::{Entity, MapEntities},
     error::Result,
     query::With,
-    resource::Resource,
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Res, Single},
 };
@@ -45,37 +46,33 @@ use tracing::{debug, error, trace};
 /// `end_tick > server_tick + MAX_INPUT_LOOKAHEAD_TICKS` are dropped before
 /// they are written into the [`InputBuffer`].
 ///
-/// Without this bound, [`InputBuffer::extend_to_range`] / [`InputBuffer::set_raw`]
-/// extend the internal `VecDeque` to fit *any* tick value (filling intermediate
-/// entries with `Absent` / `SameAsPrecedent`). A modified client sending
-/// `end_tick = current + 30_000` would cause a 30 000-entry allocation per
-/// message; repeated across messages and connections, the server is
-/// memory-exhausted.
+/// Without this bound, a modified client sending `end_tick = current + 30_000`
+/// would force [`InputBuffer::set_raw`] gap-filling to churn through 30 000
+/// intermediate ticks per message (CPU burn) and evict the buffer's legitimate
+/// history, replacing it with copies of a stale anchor. (The fixed ring caps
+/// the allocation; this bound protects the history inside it.)
 ///
 /// Legitimate clients run at most a few ticks ahead of the server (typical
 /// `InputDelayConfig` values are 0–3 ticks). 64 ticks (~1 s at 64 Hz) is
-/// generous compared to that range while still bounding attacker memory cost
-/// per message.
-const MAX_INPUT_LOOKAHEAD_TICKS: i32 = 64;
+/// generous compared to that range while still bounding attacker cost per
+/// message.
+const MAX_INPUT_LOOKAHEAD_TICKS: usize = 64;
 
 /// Maximum number of ticks *behind* the server's current tick that an incoming
 /// [`InputMessage::end_tick`] is allowed to be.
 ///
 /// Past-direction messages are normally handled harmlessly by
-/// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still prevents
-/// arbitrarily old or malicious tick values from entering the input pipeline while accepting
-/// reasonable late inputs (up to ~4 s of network lag at 64 Hz).
-const MAX_INPUT_PAST_TICKS: i32 = 256;
+/// [`InputBuffer::set_raw`]'s start-tick guard. The explicit bound still rejects
+/// arbitrarily old or malicious tick values before they enter the input pipeline,
+/// while accepting reasonable late inputs (up to ~1 s of network lag at 64 Hz)
+const MAX_INPUT_PAST_TICKS: usize = 64;
 
 /// Returns `true` iff `end_tick - server_tick` falls within
 /// `[-MAX_INPUT_PAST_TICKS, MAX_INPUT_LOOKAHEAD_TICKS]`. See those constants
 /// for the threat model behind each bound.
-///
-/// The subtraction is performed in `i64`, so every pair of ordinary `u32` ticks has an exact,
-/// non-wrapping signed difference.
 pub(crate) fn is_input_within_lookahead(end_tick: Tick, server_tick: Tick) -> bool {
-    let delta = i64::from(end_tick.0) - i64::from(server_tick.0);
-    (-i64::from(MAX_INPUT_PAST_TICKS)..=i64::from(MAX_INPUT_LOOKAHEAD_TICKS)).contains(&delta)
+    (-(MAX_INPUT_PAST_TICKS as i32)..=MAX_INPUT_LOOKAHEAD_TICKS as i32)
+        .contains(&(end_tick - server_tick))
 }
 
 /// Server-side plugin that receives input messages from clients and applies
@@ -95,14 +92,6 @@ impl<S> Default for ServerInputPlugin<S> {
             marker: core::marker::PhantomData,
         }
     }
-}
-
-/// Runtime configuration for server-side input handling, inserted as a resource
-/// by [`ServerInputPlugin`].
-#[derive(Resource)]
-pub struct ServerInputConfig<S> {
-    pub rebroadcast_inputs: bool,
-    pub marker: core::marker::PhantomData<S>,
 }
 
 #[deprecated(note = "Use InputSystems instead")]
@@ -256,10 +245,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.insert_resource(ServerInputConfig::<S::Action> {
-            rebroadcast_inputs: self.rebroadcast_inputs,
-            marker: core::marker::PhantomData,
-        });
+        // `InputConfig` is the single tuning resource for both directions: the
+        // plugin only stamps the server-owned flag onto it, inserting a default
+        // first when the user never added client configuration (e.g. in
+        // server-only apps).
+        if !app.world().contains_resource::<InputConfig<S::Action>>() {
+            app.insert_resource(InputConfig::<S::Action>::default());
+        }
+        app.world_mut()
+            .resource_mut::<InputConfig<S::Action>>()
+            .rebroadcast_inputs = self.rebroadcast_inputs;
 
         // SETS
         // TODO:
@@ -296,12 +291,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
     }
 }
 
-// TODO: why do we need the Server? we could just run this on any receiver.
-//  (apart from rebroadcast inputs)
+// NOTE: the `Server` query exists for rebroadcasting (sending to all except
+// the sender); the receive half would work on any receiver.
 
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
-    config: Res<ServerInputConfig<S::Action>>,
+    config: Res<InputConfig<S::Action>>,
     server: Query<&Server>,
     // make sure to only rebroadcast inputs to connected clients
     #[cfg_attr(not(feature = "prediction"), allow(unused_mut))]
@@ -333,10 +328,11 @@ fn receive_input_message<S: ActionStateSequence>(
 ) -> Result {
     // TODO: use par_iter_mut
     receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
-        // TODO: this drains the messages... but the user might want to re-broadcast them?
-        //  should we just read instead?
+
         let server_entity = link_of.server;
         let tick = timeline.tick();
+        // NOTE: receive drains the messages. Users who need the messages can observe them earlier via
+        // input validators, which run before this system.
         receiver.receive().try_for_each(|message| {
             #[cfg(feature = "prediction")]
             let mut message = message;
@@ -370,10 +366,7 @@ fn receive_input_message<S: ActionStateSequence>(
             );
 
             // Reject messages whose end_tick is implausibly far from the
-            // server's current tick before any buffer write. A modified
-            // client sending a far-future end_tick would otherwise force
-            // `InputBuffer::set_raw` to allocate one entry per intermediate
-            // tick (memory-exhaustion DoS). See `is_input_within_lookahead`.
+            // server's current tick before any buffer write. See `is_input_within_lookahead`.
             if !is_input_within_lookahead(message.end_tick, tick) {
                 trace!(
                     ?tick,
@@ -402,8 +395,11 @@ fn receive_input_message<S: ActionStateSequence>(
                     // so that other clients can resolve them via normal entity mapping.
                     for input in message.inputs.iter_mut() {
                         if let InputTarget::PreSpawned(hash) = input.target
-                            && let Some(server_e) = prespawned.iter()
-                                .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                            && let Some(server_e) = resolve_prespawned_target(
+                                prespawned.iter().map(|(e, p)| (e, p.hash, p.receiver)),
+                                hash,
+                                None,
+                            )
                         {
                             input.target = InputTarget::Entity(server_e);
                         }
@@ -464,9 +460,11 @@ fn receive_input_message<S: ActionStateSequence>(
                         debug!(?hash, "Received input for prespawned entity");
                         // PreSpawnedReceiver only stores lifecycle ticks and entities, so resolve
                         // the hash against server-side input entities.
-                        prespawned
-                            .iter()
-                            .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()
+                        resolve_prespawned_target(
+                            prespawned.iter().map(|(e, p)| (e, p.hash, p.receiver)),
+                            hash,
+                            None,
+                        )
                     }
                 }) else {
                     debug!(?data.states, ?data.target, end_tick = ?message.end_tick, "received input message for unrecognized entity");
@@ -646,15 +644,12 @@ fn detect_input_history_rewrite<S: ActionStateSequence>(
     let last_remote_tick = input_buffer.last_remote_tick?;
     let buffer_start_tick = input_buffer.start_tick?;
     let buffer_end_tick = input_buffer.end_tick()?;
-    let start_tick = end_tick + 1 - states.len() as u32;
+    // NOTE: this deliberately shares only the range math with `update_buffer`.
+    let start_tick = message_start_tick(end_tick, states.len());
     let mut incoming = None;
     for (delta, input) in states.get_snapshots_from_message(tick_duration).enumerate() {
         let tick = start_tick + lightyear_core::tick::Tick(delta as u32);
-        match input {
-            crate::input_buffer::Compressed::Absent => incoming = None,
-            crate::input_buffer::Compressed::Input(value) => incoming = Some(value),
-            crate::input_buffer::Compressed::SameAsPrecedent => {}
-        }
+        incoming = input.resolve(incoming);
         if tick <= last_remote_tick {
             // The server keeps very little input history after simulating a
             // tick, so ordinary redundant input packets can mention older
@@ -682,6 +677,7 @@ fn update_action_state<S: ActionStateSequence>(
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     timeline: Res<LocalTimeline>,
+    tick_duration: Res<TickDuration>,
     server: Single<(Entity, Has<HostServer>), With<Started>>,
     #[cfg(feature = "metrics")] metric_handles: Res<InputMetricHandles<S>>,
     mut action_state_query: Query<(
@@ -695,9 +691,11 @@ fn update_action_state<S: ActionStateSequence>(
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");
         // We only apply the ActionState from the buffer if we have one.
-        // If we don't (because the input packet is late or lost), we won't do anything.
-        // This is equivalent to considering that the player will keep playing the last action they played.
-        if let Some(snapshot) = input_buffer.get_predict(tick) {
+        // If we don't (because the input packet is late or lost), we predict
+        // from the last confirmed input.
+        // Stored inputs apply as-is (borrowed: no clone on this hot path);
+        // otherwise predict from the last confirmed input.
+        if let Some(snapshot) = input_buffer.get(tick) {
             S::from_snapshot_transitions(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?tick,
@@ -716,7 +714,7 @@ fn update_action_state<S: ActionStateSequence>(
                 local_tick = tick.0,
                 input_tick = tick.0,
                 host_client,
-                snapshot = ?snapshot,
+                snapshot = ?Some(snapshot),
                 buffer_len = input_buffer.len(),
                 input_buffer = %input_buffer.as_ref(),
                 "server applied input buffer to action state"
@@ -724,6 +722,35 @@ fn update_action_state<S: ActionStateSequence>(
 
             // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
             // so that we can handle lost messages
+            #[cfg(feature = "metrics")]
+            metric_handles
+                .buffer_size(entity)
+                .set(input_buffer.len() as f64);
+        } else if let Some(predicted) = input_buffer.predict(tick, tick_duration.0) {
+            S::from_snapshot_transitions(S::State::into_inner(action_state), &predicted);
+            trace!(
+                ?tick,
+                ?entity,
+                "action state after update. Input Buffer: {}",
+                input_buffer.as_ref()
+            );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_update_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                server_entity = ?server,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                host_client,
+                snapshot = ?Some(&predicted),
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer.as_ref(),
+                "server applied input buffer to action state"
+            );
+
             #[cfg(feature = "metrics")]
             metric_handles
                 .buffer_size(entity)
@@ -744,7 +771,6 @@ fn update_action_state<S: ActionStateSequence>(
             // if we are a server and not a host-client, there is no need to keep history
             1
         };
-        // TODO: + we also want to keep enough inputs on the client to be able to do prediction effectively!
         // remove all the previous values
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
@@ -763,7 +789,7 @@ mod lookahead_tests {
         let server = Tick(1_000);
         assert!(is_input_within_lookahead(server, server));
         assert!(is_input_within_lookahead(
-            server + MAX_INPUT_LOOKAHEAD_TICKS,
+            server + Tick(MAX_INPUT_LOOKAHEAD_TICKS as u32),
             server
         ));
     }
@@ -773,7 +799,7 @@ mod lookahead_tests {
     fn rejects_beyond_forward_bound() {
         let server = Tick(1_000);
         assert!(!is_input_within_lookahead(
-            server + (MAX_INPUT_LOOKAHEAD_TICKS + 1),
+            server + Tick(MAX_INPUT_LOOKAHEAD_TICKS as u32 + 1),
             server
         ));
     }
@@ -783,7 +809,17 @@ mod lookahead_tests {
     fn accepts_within_past_bound() {
         let server = Tick(1_000);
         assert!(is_input_within_lookahead(
-            server + (-MAX_INPUT_PAST_TICKS),
+            server - MAX_INPUT_PAST_TICKS as u32,
+            server
+        ));
+    }
+
+    /// One tick past the past bound is rejected.
+    #[test]
+    fn rejects_beyond_past_bound() {
+        let server = Tick(1_000);
+        assert!(!is_input_within_lookahead(
+            server - (MAX_INPUT_PAST_TICKS as u32 + 1),
             server
         ));
     }

@@ -1,7 +1,7 @@
 // crates/inputs/inputs/src/input_message.rs
 #![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
-use crate::input_buffer::{Compressed, InputBuffer};
+use crate::input_buffer::InputBuffer;
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_app::App;
 use bevy_ecs::bundle::Bundle;
@@ -41,6 +41,87 @@ pub enum InputTarget {
     /// Direct P2P input also uses this stable hash because every peer has its own local ECS entity
     /// and no authoritative replication stream exists to establish an entity map.
     PreSpawned(u64),
+}
+
+/// First tick covered by a message/sequence spanning `len` ticks ending at `end_tick`.
+pub fn message_start_tick(end_tick: Tick, len: usize) -> Tick {
+    end_tick + 1 - len as u32
+}
+
+/// One tick of the wire encoding: either an explicit neutral, a repeat of the
+/// previous tick's value, or a fresh snapshot.
+///
+/// This exists **only in the message layer**. [`InputBuffer`] stores
+/// materialized `Option<Snapshot>` values.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
+pub enum Compressed<T> {
+    /// No input for this tick. (Storage still needs an explicit neutral: a
+    /// missing tick is not a repeat. Prediction-from-nothing happens at read
+    /// time in `predict()`, not by overloading the stored marker.)
+    Absent,
+    /// Repeat the previous tick's resolved value (`None` when there is none).
+    SameAsPrecedent,
+    Input(T),
+}
+
+impl<T> From<Option<T>> for Compressed<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Compressed::Input(value),
+            _ => Compressed::Absent,
+        }
+    }
+}
+
+impl<T> Compressed<T> {
+    /// Resolve one wire tick against the previous value
+    pub fn resolve(self, previous: Option<T>) -> Option<T> {
+        match self {
+            Compressed::Absent => None,
+            Compressed::Input(value) => Some(value),
+            Compressed::SameAsPrecedent => previous,
+        }
+    }
+}
+
+/// First tick in `[start, end]` that actually has a buffered input, if any.
+///
+/// Leafwing/BEI builders need a real snapshot as `start_state` and cannot start
+/// from an `Absent` gap, so they advance past unbuffered ticks with this.
+/// (Native tolerates a leading gap instead: its wire preserves `Absent`.)
+pub fn first_buffered_tick<S: Clone + PartialEq, M>(
+    buffer: &InputBuffer<S, M>,
+    start: Tick,
+    end: Tick,
+) -> Option<Tick> {
+    let mut tick = start;
+    while tick <= end {
+        if buffer.get(tick).is_some() {
+            return Some(tick);
+        }
+        tick = tick + 1;
+    }
+    None
+}
+
+/// Resolve a prespawned-hash input target to a local entity.
+///
+/// `candidates` are `(entity, hash, receiver)` triples from local `PreSpawned` state.
+/// `link` scopes the match: direct P2P inputs (`Some`) only resolve hashes owned
+/// by the sending link, while server-side handling (`None`) matches any hash —
+/// the rebroadcast path already scoped the sender, so that asymmetry is preserved as-is.
+pub fn resolve_prespawned_target(
+    candidates: impl IntoIterator<Item = (Entity, Option<u64>, Option<Entity>)>,
+    hash: u64,
+    link: Option<Entity>,
+) -> Option<Entity> {
+    candidates
+        .into_iter()
+        .find_map(|(entity, candidate, receiver)| {
+            (candidate.is_some_and(|candidate| candidate == hash)
+                && link.is_none_or(|link| receiver == Some(link)))
+            .then_some(entity)
+        })
 }
 
 /// Contains the input data for a specific target entity over a range of ticks.
@@ -107,10 +188,6 @@ pub(crate) type StateRefItem<'w, 's, S: ActionStateSequence> =
 // equivalent to &mut ActionState<S::Action>
 pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQueryData>::Mut;
 
-// equivalent to Mut<'w, ActionState<S::Action>>
-pub(crate) type StateMutItem<'w, 's, S: ActionStateSequence> =
-    <StateMut<S> as QueryData>::Item<'w, 's>;
-
 pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
     <S::State as ActionStateQueryData>::MutItemInner<'w>;
 
@@ -138,7 +215,8 @@ pub trait ActionStateSequence:
 
     /// Register the required components for this ActionStateSequence in the App.
     fn register_required_components(app: &mut App) {
-        // TODO: cannot create cyclic required dependencies in bevy 0.17
+        // NOTE: bevy 0.17 forbids cyclic required dependencies, so the
+        // buffer requires the state (not the reverse, as below).
         // app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
         app.register_required_components::<InputBuffer<Self::Snapshot, Self::Action>, <Self::State as ActionStateQueryData>::Main>();
         app.register_required_components::<Self::Marker, InputBuffer<Self::Snapshot, Self::Action>>();
@@ -169,15 +247,16 @@ pub trait ActionStateSequence:
         let mut previous_predicted_input =
             last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
         let mut earliest_mismatch: Option<Tick> = None;
-        let start_tick = end_tick + 1 - self.len() as u32;
+        let start_tick = message_start_tick(end_tick, self.len());
         let mut latest_received_input = None;
 
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in self.get_snapshots_from_message(tick_duration).enumerate() {
             let tick = start_tick + Tick(delta as u32);
 
-            // if the tick is within the buffer, just fetch from it
-            // TODO: ideally we just clone the last element from the buffer
+            // if the tick is within the buffer, fetch that tick's own stored
+            // value: mismatch detection compares per-tick, so the latest
+            // element would be the wrong anchor here.
             if previous_end_tick.is_some_and(|end_tick| end_tick >= tick) {
                 previous_predicted_input = input_buffer.get(tick).cloned();
             } else {
@@ -189,15 +268,13 @@ pub trait ActionStateSequence:
                 });
             };
 
+            // Resolve wire compression first: the buffer stores materialized
+            // values only (`SameAsPrecedent` repeats the running value).
+            latest_received_input = input.resolve(latest_received_input);
             // after the mismatch, we just fill with the data from the message
             if earliest_mismatch.is_some() {
-                input_buffer.set_raw(tick, input);
+                input_buffer.set_raw(tick, latest_received_input.clone());
             } else {
-                match input {
-                    Compressed::Absent => latest_received_input = None,
-                    Compressed::Input(latest) => latest_received_input = Some(latest),
-                    _ => {}
-                }
                 // Inputs at or before last_remote_tick were already received. Messages include
                 // overlapping history for reliability, but those inputs are immutable.
                 if last_remote_tick.is_none_or(|t| tick > t) {
@@ -207,8 +284,7 @@ pub trait ActionStateSequence:
                         _ => false,
                     } {
                         if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
-                            input_buffer
-                                .set_raw(tick, Compressed::from(latest_received_input.clone()));
+                            input_buffer.set_raw(tick, latest_received_input.clone());
                         }
                         continue;
                     }
@@ -216,14 +292,24 @@ pub trait ActionStateSequence:
                     debug!(
                         "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
                     );
-                    input_buffer.set_raw(tick, Compressed::from(latest_received_input.clone()));
+                    input_buffer.set_raw(tick, latest_received_input.clone());
                     // remove all existing inputs in the buffer that come after `tick`
                     input_buffer.clip_after(tick);
                     earliest_mismatch = Some(tick);
                 }
             }
         }
-        input_buffer.last_remote_tick = Some(end_tick);
+        // Max-keep: messages can arrive out of order (notably on unordered
+        // channels), and their ticks are only compared against the frontier,
+        // never trusted as the frontier itself. A stale message must not move
+        // the frontier backward, or `check_rollback`/`LastConfirmedInput`
+        // would treat already-confirmed ticks as new again.
+        if input_buffer
+            .last_remote_tick
+            .is_none_or(|last| end_tick > last)
+        {
+            input_buffer.last_remote_tick = Some(end_tick);
+        }
         trace!("input buffer after update: {input_buffer:?}");
         earliest_mismatch
     }
@@ -231,7 +317,7 @@ pub trait ActionStateSequence:
     /// Build the state sequence (which will be sent over the network) from the input buffer
     fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self>
     where
@@ -259,17 +345,6 @@ pub trait ActionStateSequence:
         snapshot: &Self::Snapshot,
     ) {
         Self::from_snapshot(state, snapshot);
-    }
-
-    /// Apply decay to the given state for the given tick duration.
-    fn decay_tick(state: StateMutItem<Self>, tick_duration: Duration) {
-        let mut snapshot =
-            Self::to_snapshot(<Self::State as ActionStateQueryData>::as_read_only(&state));
-        snapshot.decay_tick(tick_duration);
-        Self::from_snapshot(
-            <Self::State as ActionStateQueryData>::into_inner(state),
-            &snapshot,
-        );
     }
 }
 

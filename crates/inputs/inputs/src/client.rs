@@ -9,11 +9,10 @@
 //!
 //! ### Adding a new input type
 //!
-//! An input type is an enum that implements the `UserAction` trait.
-//! This trait is a marker trait that is used to tell Lightyear that this type can be used as an input.
-//! In particular inputs must be `Serialize`, `Deserialize`, `Clone` and `PartialEq`.
-//!
-//! You can then add the input type by adding the `InputPlugin<InputType>` to your app.
+//! Concrete input types live in the backend crates (`inputs_native`,
+//! `inputs_leafwing`, `input_bei`). Each backend provides an
+//! [`ActionStateSequence`](crate::input_message::ActionStateSequence)
+//! implementation and an `InputPlugin` that wires it into the systems below.
 //!
 //! ```rust
 //! use bevy_ecs::entity::{EntityMapper, MapEntities};
@@ -36,18 +35,20 @@
 //!
 //! ### Sending inputs
 //!
-//! There are several steps to use the `InputPlugin`:
+//! There are several steps to send inputs:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
-//! - to buffer inputs for each tick. This is done by updating the `ActionState` component in a system.
-//!   That system must run in the [`InputSystems::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
+//! - buffer inputs for each tick. This is done by updating the backend's state component in a system.
+//!   That system must run in the [`InputSystems::WriteClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
-//!   will read the inputs using the [`InputBuffer`] component.
+//!   read the backend's state component (restored from the [`InputBuffer`] each tick).
 
-use crate::config::{InputConfig, SharedInputConfig};
+use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
+#[cfg(feature = "prediction")]
+use crate::input_message::resolve_prespawned_target;
 use crate::input_message::{
-    ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
-    PerTargetData, StateMut, StateRef,
+    ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut,
+    StateRef,
 };
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
@@ -107,10 +108,8 @@ pub enum InputSystems {
     /// - rollback: we fetch the ActionState value from the InputBuffers
     BufferClientInputs,
 
-    // FIXED POST UPDATE
-    /// Prepare a message for the server with the current tick's inputs.
-    /// (we do this in the FixedUpdate schedule because if the simulation is slow (e.g. 10Hz)
-    /// we don't want to send an InputMessage every frame)
+    // POST UPDATE
+    /// Stage the input message for the server with the current tick's inputs.
     PrepareInputMessage,
     // TODO: could this run in RunFixedMainLoop::AfterFixedMainLoop?
     /// Restore the ActionState for the correct tick (without InputDelay) from the buffer
@@ -157,7 +156,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         if !app.is_plugin_added::<InputPlugin<S>>() {
             app.add_plugins(InputPlugin::<S>::default());
         }
-        app.init_resource::<SharedInputConfig>();
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
         // Client input systems may be installed in a combined client/server app. Keep their
@@ -174,11 +172,10 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
         // SETS
 
-        // NOTE: this is subtle! We receive remote players messages after
-        //  RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the local leafwing `states` have
-        //  been switched to the `fixed_update` state (see https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
-        //  We can move this system back in PreUpdate if we drop leafwing support.
-        //  Conveniently, this also ensures that we run this after MessageSet::Receive.
+        // Remote input messages are received after `BeforeFixedMainLoop` for two reasons:
+        // - backend frame states (e.g. leafwing's fixed-update state) have been swapped in by then,
+        //   so buffered snapshots match what the simulation will read;
+        // - this also orders us after `MessageSystems::Receive`, which resolves entity-mapped targets.
         app.configure_sets(
             PreUpdate,
             InputSystems::ReceiveInputMessages
@@ -215,18 +212,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             // The topology is a runtime choice. Conventional clients still return immediately
             // when rebroadcasting is disabled, while P2P peers must always drain direct remote
             // input messages even though their client/server rebroadcast option is false.
-            // NOTE: we do NOT need to run this after RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the
-            //  local leafwing `states` have been switched to the `fixed_update` state (see
-            //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
-            //  because when applying the diffs we manually update the fixed_update_state .
-
-            //  because when we apply the diffs, we start by taking the initial `start_state` snapshot from the message.
-            //  That snapshot has both `state` = `fixed_update_state` since it was buffered by the client
-            //  during FixedUpdate.
-            //  Then, the diffs will update `state`, and that value will be stored in the buffer.
-            //
-            //  The ActionState will only be modified during FixedPreUpdate in `get_action_state`, so we will have
-            //  `state` = `fixed_update_state` in the ActionState component.
             app.configure_sets(
                 PreUpdate,
                 InputSystems::ReceiveInputMessages
@@ -335,6 +320,12 @@ impl<'a> InputRoute<'a> {
         }
     }
 
+    /// Whether the server-side pipeline owns this app's inputs (host-client).
+    ///
+    /// The apply/cleanup/receive systems (`get_action_state`, `clean_buffers`,
+    /// `receive_remote_player_input_messages`) defer unconditionally; the send
+    /// systems use [`InputRoute::client_send_defers_to_server`] instead, since a
+    /// rebroadcasting host client is also an input producer for other clients.
     #[inline]
     fn is_host_client(self) -> bool {
         matches!(
@@ -344,6 +335,25 @@ impl<'a> InputRoute<'a> {
                 ..
             }
         )
+    }
+
+    /// Whether to skip the send systems on the client since the server plugin
+    /// will run them (in host server mode)
+    ///
+    /// Same as [`InputRoute::is_host_client`], except a rebroadcasting host client
+    /// still stages and sends its inputs so the server can forward them.
+    #[inline]
+    fn client_send_defers_to_server(self, rebroadcast_inputs: bool) -> bool {
+        if !self.is_host_client() {
+            return false;
+        }
+        #[cfg(feature = "prediction")]
+        return !rebroadcast_inputs;
+        #[cfg(not(feature = "prediction"))]
+        return {
+            let _ = rebroadcast_inputs;
+            true
+        };
     }
 
     #[inline]
@@ -369,30 +379,27 @@ impl<'a> InputRoute<'a> {
 /// Conventional client/server links can use their replication-populated entity map. P2P has no
 /// authoritative replication stream to populate those per-Link maps, so every target must use a
 /// stable [`PreSpawned`] hash that the other peers can resolve in their own worlds.
+///
+/// Returns `None` when a P2P target has no resolved hash: the caller skips the
+/// target instead of panicking the app, and peers ignore the gap like any other
+/// missing tick.
 fn input_target(
     route: InputRoute<'_>,
     entity: Entity,
     pre_spawned: Option<&PreSpawned>,
-) -> InputTarget {
+) -> Option<InputTarget> {
     if let Some(hash) = pre_spawned.and_then(|pre_spawned| pre_spawned.hash) {
         debug!(?hash, ?entity, "Sending input for prespawned entity");
-        return InputTarget::PreSpawned(hash);
+        return Some(InputTarget::PreSpawned(hash));
     }
-    assert!(
-        !route.requires_prespawned_targets(),
-        "P2P input target {entity:?} must have a PreSpawned component with a resolved hash"
-    );
-    InputTarget::Entity(entity)
-}
-
-#[inline]
-fn matches_prespawned_target(
-    hash: u64,
-    p2p_link: Option<Entity>,
-    pre_spawned: &PreSpawned,
-) -> bool {
-    pre_spawned.hash.is_some_and(|candidate| candidate == hash)
-        && p2p_link.is_none_or(|link| pre_spawned.receiver == Some(link))
+    if route.requires_prespawned_targets() {
+        error!(
+            ?entity,
+            "Skipping P2P input target without a PreSpawned component with a resolved hash"
+        );
+        return None;
+    }
+    Some(InputTarget::Entity(entity))
 }
 
 // equivalent to &ActionState<S::Action>
@@ -483,12 +490,13 @@ fn get_action_state<S: ActionStateSequence>(
     // - local player: we need to get the input from the InputBuffer because of input delay
     // - remote player: during rollbacks, we need to fetch the ActionState from the InputBuffer
     // (for the remote players, we update the ActionState as soon as we receive the RemoteMessage.)
-    //  TODO: We could maybe have some decay logic where the input decays to the middle)
+    // NOTE: missing ticks decay from the confirmed anchor inside predict();
+    // per-backend decay_tick defines the policy (e.g. hold vs. center).
     mut action_state_query: Query<
         (
             Entity,
             StateMut<S>,
-            &mut InputBuffer<S::Snapshot, S::Action>,
+            &InputBuffer<S::Snapshot, S::Action>,
             Has<S::Marker>,
         ),
         Allow<PredictionDisable>,
@@ -509,13 +517,12 @@ fn get_action_state<S: ActionStateSequence>(
         return;
     }
     // TODO!: if config.rebroadcast = False, we don't need to handle remote players, try to encode that statically!
-    for (entity, action_state, mut input_buffer, is_local) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
         if !is_rollback && is_local && input_delay == 0 {
             // for local clients, if there is no rollback and no input_delay:
             // we just buffered the input for the current tick so the action state is already up to date
             continue;
         }
-
         // NOTE: for remote players:
         // - if we receive a remote input from an older tick (because of prediction), then upon receipt we update the ActionState
         //   immediately so that we can trigger a rollback (in `receive_input_message`) and the ActionState is correctly set
@@ -525,26 +532,15 @@ fn get_action_state<S: ActionStateSequence>(
         // - we cannot use `is_lockstep` to check if we receive inputs in the future, because there are cases in non-lockstep where
         //   we could receive some inputs from the future, if we had a high enough input delay.
 
-        // NOTE: we use `get` and not `get_predict ` here.
-        // This means that we try to get the value for this exact tick.
-        // - For local inputs with input_delay: our current state is in the future, so we need to fetch the exact value from the buffer
-        // - For remote inputs with lockstep: the last input is in the future, so we need to fetch the exact value from the buffer
-        // - For remote inputs without lockstep: we might receive a message that updates our input buffer, and the last input is
-        //   in the past. We already updated the ActionState in `receive_input_message` for that past tick, which means we are
-        //   predicting that the action hasn't changed since. We just need to decay it (for rollback or without rollback)
+        // Local entities restore this tick's delayed input; remote entities
+        // restore confirmed ticks and predict the rest. (A remote input that
+        // arrives late updates the live state on receipt in
+        // `receive_input_message`, which is what arms the rollback; lockstep is
+        // the exception, where inputs can arrive from the future and the exact
+        // buffered value is required.)
         if let Some(snapshot) = input_buffer.get(tick) {
-            // TODO: should we decay_tick the snapshot?
+            // Exact confirmed ticks apply as-is.
             S::from_snapshot(S::State::into_inner(action_state), snapshot);
-            trace!(
-                ?entity,
-                ?tick,
-                ?is_local,
-                ?snapshot,
-                // ?action_state,
-                "fetched action state from input buffer: {:?}",
-                // action_state.get_pressed(),
-                input_buffer
-            );
             trace!(
                 target: "lightyear_debug::input",
                 kind = "get_action_state",
@@ -556,52 +552,57 @@ fn get_action_state<S: ActionStateSequence>(
                 input_tick = tick.0,
                 is_local,
                 is_rollback,
-                snapshot = ?snapshot,
+                snapshot = ?Some(snapshot),
                 buffer_len = input_buffer.len(),
-                input_buffer = %*input_buffer,
-                "restored action state from input buffer"
+                input_buffer = %input_buffer,
+                "resolved action state from input buffer"
             );
-        } else if !is_local && (config.rebroadcast_inputs || matches!(route, InputRoute::P2P(_))) {
+            continue;
+        }
+        // Miss handling depends on the entity: local entities either read
+        // neutral (with input delay the live state holds a sample for a
+        // future tick, so a tick that was never sampled reads as neutral
+        // before its delay elapses; during rollback the restored state wins)
+        // or keep the live state; remote entities predict, unless the server
+        // doesn't rebroadcast. Decay only happens inside predict().
+        let mut applied: Option<S::Snapshot> = None;
+        if is_local {
+            if !is_rollback && input_delay > 0 {
+                applied = Some(S::Snapshot::default());
+            }
+        } else if config.rebroadcast_inputs || matches!(route, InputRoute::P2P(_)) {
             if input_timeline_config.is_lockstep() {
                 error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
             }
-            // we are here if:
-            // - we are in rollback and we reach a tick further than the last tick we received from the remote
-            // - we are not in rollback, in which case we want to decay the ActionState
-            let mut snapshot = S::to_snapshot(S::State::as_read_only(&action_state));
-            snapshot.decay_tick(tick_duration.0);
-            trace!(
-                ?entity,
-                ?tick,
-                "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}",
-                DebugName::type_name::<S::Action>(),
-                snapshot
-            );
-            trace!(
-                target: "lightyear_debug::input",
-                kind = "decay_missing_remote_action_state",
-                schedule = "FixedPreUpdate",
-                sample_point = "FixedPreUpdate",
-                entity = ?entity,
-                action = ?DebugName::type_name::<S::Action>(),
-                local_tick = tick.0,
-                input_tick = tick.0,
-                is_rollback,
-                snapshot = ?snapshot,
-                buffer_len = input_buffer.len(),
-                "decayed missing remote action state"
-            );
-            // update the action state with decay
-            S::from_snapshot(S::State::into_inner(action_state), &snapshot);
-            // add the new snapshot in the buffer
-            input_buffer.set(tick, snapshot);
+            applied = input_buffer.predict(tick, tick_duration.0);
         }
+        // else leave the live state alone.
+        if let Some(snapshot) = applied.as_ref() {
+            S::from_snapshot(S::State::into_inner(action_state), snapshot);
+        }
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "get_action_state",
+            schedule = "FixedPreUpdate",
+            sample_point = "FixedPreUpdate",
+            entity = ?entity,
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = tick.0,
+            input_tick = tick.0,
+            is_local,
+            is_rollback,
+            snapshot = ?applied.as_ref(),
+            buffer_len = input_buffer.len(),
+            input_buffer = %input_buffer,
+            "resolved action state from input buffer"
+        );
     }
 }
 
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
+    tick_duration: Res<TickDuration>,
     timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     rollback: Option<Res<Rollback>>,
@@ -630,33 +631,24 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         if !route.accepts_local_target(controlled_by) {
             continue;
         }
-        // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
-        //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
             S::from_snapshot(S::State::into_inner(action_state), delayed_action_state);
-            trace!(
-                ?entity,
-                ?delayed_tick,
-                // ?action_state,
-                "fetched delayed action state from input buffer: {}",
-                input_buffer
-            );
-            trace!(
-                target: "lightyear_debug::input",
-                kind = "get_delayed_action_state",
-                schedule = "RunFixedMainLoop",
-                sample_point = "RunFixedMainLoop",
-                entity = ?entity,
-                action = ?DebugName::type_name::<S::Action>(),
-                local_tick = tick.0,
-                input_tick = delayed_tick.0,
-                snapshot = ?delayed_action_state,
-                buffer_len = input_buffer.len(),
-                input_buffer = %input_buffer,
-                "restored delayed action state"
-            );
         }
-        // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "get_delayed_action_state",
+            schedule = "RunFixedMainLoop",
+            sample_point = "RunFixedMainLoop",
+            entity = ?entity,
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = tick.0,
+            input_tick = delayed_tick.0,
+            // Second O(1) lookup keeps the log shape stable without cloning.
+            snapshot = ?input_buffer.get(delayed_tick),
+            buffer_len = input_buffer.len(),
+            input_buffer = %input_buffer,
+            "restored delayed action state"
+        );
     }
 }
 
@@ -710,10 +702,9 @@ fn input_history_depth(
         .max(HISTORY_DEPTH)
 }
 
-// TODO: is this actually necessary? The sync happens in PostUpdate,
-//  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
-//  before the sync). If it's not needed, send the messages directly in FixedPostUpdate!
-//  Actually maybe it is, because the send-tick on the server will be updated.
+// NOTE: staging (instead of sending directly in FixedPostUpdate) is deliberate:
+// the sync lands in PostUpdate, and the send-tick the server observes must be
+// post-sync, even though the sampled inputs predate it.
 /// Buffer that will store the InputMessages we want to write this frame.
 ///
 /// We need this because:
@@ -772,16 +763,9 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    #[cfg(not(feature = "prediction"))]
-    if is_host_client {
-        // if there is not prediction, no need to rebroadcast inputs
-        return;
-    }
-
-    #[cfg(feature = "prediction")]
-    if is_host_client && !input_config.rebroadcast_inputs {
-        // the host-client doesn't need to send input messages since the ActionState is already on the entity
-        // unless we want to rebroadcast the HostClient inputs to other clients
+    // The host-client doesn't need to send input messages since the ActionState
+    // is already on the entity; unless we rebroadcast its inputs to other clients.
+    if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
         return;
     }
 
@@ -807,11 +791,11 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // Send redundant inputs so that if a packet is lost, we can still recover.
     // The size of the input bundle scales with `send_interval`.
-    let mut num_ticks: u32 = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos())
+    let mut num_ticks: usize = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos())
         + 1)
     .try_into()
     .unwrap();
-    num_ticks *= input_config.packet_redundancy as u32;
+    num_ticks *= input_config.packet_redundancy as usize;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
         if !route.accepts_local_target(controlled_by) {
@@ -824,7 +808,9 @@ fn prepare_input_message<S: ActionStateSequence>(
             input_buffer
         );
 
-        let target = input_target(route, entity, pre_spawned);
+        let Some(target) = input_target(route, entity, pre_spawned) else {
+            continue;
+        };
 
         if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_ticks, tick) {
             trace!(
@@ -849,8 +835,8 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    // TODO: revisit this; maybe we should not send an empty message?
-    // we send a message even when there are 0 inputs because that itself is information
+    // NOTE: we send a message even when there are 0 inputs to provide interpolation-delay data for lag compensation.
+    // we could not send anything if there is no lag compensation.
     debug!(
         ?tick,
         ?num_ticks,
@@ -1044,11 +1030,15 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
                     );
                     None
                 }
-                InputTarget::PreSpawned(hash) => {
-                    prespawned.iter().find_map(|(entity, pre_spawned)| {
-                        matches_prespawned_target(hash, p2p_link, pre_spawned).then_some(entity)
-                    })
-                }
+                InputTarget::PreSpawned(hash) => resolve_prespawned_target(
+                    prespawned
+                        .iter()
+                        .map(|(entity, pre_spawned)| {
+                            (entity, pre_spawned.hash, pre_spawned.receiver)
+                        }),
+                    hash,
+                    p2p_link,
+                ),
             }) else {
                 if message.rebroadcast {
                     debug!(
@@ -1202,8 +1192,6 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
-    // TODO: how to handle multiple actions S?
-
     // find the earliest last_confirmed_tick for each client
     // The tracker was reset to a high tick, so the first real tick always becomes the minimum.
     let mut received_for_all_clients = true;
@@ -1341,15 +1329,9 @@ fn send_input_messages<S: ActionStateSequence>(
     };
     let is_host_client = route.is_host_client();
 
-    #[cfg(not(feature = "prediction"))]
-    if is_host_client {
-        message_buffer.0.clear();
-        return;
-    }
-    #[cfg(feature = "prediction")]
-    if is_host_client && !input_config.rebroadcast_inputs {
-        // the host-client doesn't need to send input messages since the ActionState is already on the entity
-        // unless we want to rebroadcast the HostClient inputs to other clients
+    // the host-client doesn't need to send input messages since the ActionState is already on the entity
+    // unless we want to rebroadcast the HostClient inputs to other clients
+    if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
         message_buffer.0.clear();
         return;
     }
@@ -1519,20 +1501,19 @@ mod tests {
 
         assert_eq!(
             input_target(route, target, Some(&prespawned)),
-            InputTarget::PreSpawned(0xCAFE)
+            Some(InputTarget::PreSpawned(0xCAFE))
         );
     }
 
     #[test]
-    #[should_panic(expected = "must have a PreSpawned component with a resolved hash")]
-    fn p2p_input_targets_reject_unmapped_entities() {
+    fn p2p_input_targets_without_hashes_are_skipped() {
         let mut world = World::new();
         let link = world.spawn_empty().id();
         let target = world.spawn_empty().id();
         let topology = NetworkTopology::P2P([link].into_iter().collect());
         let route = InputRoute::from_topology(&topology).unwrap();
 
-        let _ = input_target(route, target, None);
+        assert_eq!(input_target(route, target, None), None);
     }
 
     #[test]
@@ -1545,7 +1526,7 @@ mod tests {
 
         assert_eq!(
             input_target(route, target, None),
-            InputTarget::Entity(target)
+            Some(InputTarget::Entity(target))
         );
     }
 
@@ -1554,15 +1535,27 @@ mod tests {
         let mut world = World::new();
         let owner = world.spawn_empty().id();
         let other = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
         let pre_spawned = PreSpawned::new(0xCAFE).for_receiver(owner);
+        let candidates = || core::iter::once((target, pre_spawned.hash, pre_spawned.receiver));
 
-        assert!(matches_prespawned_target(0xCAFE, Some(owner), &pre_spawned));
-        assert!(!matches_prespawned_target(
-            0xCAFE,
-            Some(other),
-            &pre_spawned
-        ));
-        assert!(matches_prespawned_target(0xCAFE, None, &pre_spawned));
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xCAFE, Some(owner)),
+            Some(target)
+        );
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xCAFE, Some(other)),
+            None
+        );
+        // server-side handling passes no link and matches any hash
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xCAFE, None),
+            Some(target)
+        );
+        assert_eq!(
+            resolve_prespawned_target(candidates(), 0xBEEF, Some(owner)),
+            None
+        );
     }
 
     #[test]

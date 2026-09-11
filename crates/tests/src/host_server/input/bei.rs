@@ -7,7 +7,6 @@ use bevy_enhanced_input::prelude::{ActionOf, ActionValue, Actions, Fire};
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::bei::input_message::BEIBuffer;
 use lightyear::input::bei::prelude::InputMarker;
-use lightyear::input::input_buffer::Compressed;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned, PredictionTarget, Replicate};
 
@@ -309,14 +308,20 @@ fn assert_buffer_contains_fired_input(buffer: &BEIBuffer<BEIContext>, label: &st
 }
 
 fn buffer_contains_fired_input(buffer: &BEIBuffer<BEIContext>) -> bool {
-    buffer.buffer.iter().any(|input| {
-        matches!(
-            input,
-            Compressed::Input(snapshot)
-                if snapshot.state == TriggerState::Fired
-                    && snapshot.value == ActionValue::Bool(true)
-        )
-    })
+    let (Some(start), Some(end)) = (buffer.start_tick, buffer.end_tick()) else {
+        return false;
+    };
+    let mut tick = start;
+    while tick <= end {
+        if let Some(snapshot) = buffer.get(tick)
+            && snapshot.state == TriggerState::Fired
+            && snapshot.value == ActionValue::Bool(true)
+        {
+            return true;
+        }
+        tick = tick + 1;
+    }
+    false
 }
 
 fn find_action_with_fired_input(world: &World, context: Entity, label: &str) -> Entity {

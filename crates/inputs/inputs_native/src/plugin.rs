@@ -35,7 +35,6 @@ impl<
         app.register_type::<InputBuffer<ActionState<A>, A>>();
         app.register_type::<ActionState<A>>();
 
-        // TODO: for simplicity, we currently register both client and server input plugins if both features are enabled
         #[cfg(feature = "client")]
         {
             use lightyear_inputs::client::ClientInputPlugin;

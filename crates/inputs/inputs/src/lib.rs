@@ -1,7 +1,9 @@
-/*! # Lightyear IO
+/*! # Lightyear Inputs
 
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
+Provides plugins to replicate inputs between peers (usually from the client to the server).
+
+The code (systems, InputBuffer, InputMessage, etc.) is shared by all input
+backends (native, leafwing, BEI).
 */
 #![no_std]
 
@@ -44,8 +46,8 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::{
-            InputRebroadcaster, InputSystems, InputValidationAppExt, ServerInputConfig,
-            ServerInputPlugin, authorize_controlled_targets,
+            InputRebroadcaster, InputSystems, InputValidationAppExt, ServerInputPlugin,
+            authorize_controlled_targets,
         };
     }
 }

@@ -4,7 +4,7 @@ use core::time::Duration;
 use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 
-// TODO: add builder functions on InputPlugin to add
+/// Configuration for one input type
 #[derive(Debug, Reflect, Resource)]
 pub struct InputConfig<A> {
     #[cfg(feature = "interpolation")]
@@ -13,13 +13,14 @@ pub struct InputConfig<A> {
     ///
     /// See: <https://developer.valvesoftware.com/wiki/Lag_Compensation>
     pub lag_compensation: bool,
-    /// How many consecutive packets losses do we want to handle?
-    /// This is used to compute the redundancy of the input messages.
-    /// For instance, a value of 3 means that each input packet will contain the inputs for all the ticks
-    ///  for the 3 last packets.
+    /// How many consecutive packet losses to survive.
+    ///
+    /// Each message repeats the inputs of the last `packet_redundancy` send attempts.
+    /// Higher values cost bandwidth per message but recover from longer loss bursts.
     pub packet_redundancy: u16,
-    /// How often do we send input messages to the server?
-    /// Duration::default() means that we will send input messages every frame.
+    /// Time between sending input messages.
+    ///
+    /// `Duration::default()` (zero) means that we send a message every frame.
     pub send_interval: Duration,
     /// If true, the actions won't be rolled back when a rollback happens.
     ///
@@ -27,8 +28,8 @@ pub struct InputConfig<A> {
     pub ignore_rollbacks: bool,
     /// If True, the server will rebroadcast a client's inputs to all other clients.
     ///
-    /// It could be useful for a client to have access to other client's inputs to be able
-    /// to predict their actions
+    /// It is useful for a client to have access to other client's inputs to be able
+    /// to predict their actions.
     pub rebroadcast_inputs: bool,
     pub marker: PhantomData<A>,
 }
@@ -53,11 +54,4 @@ impl<A> Default for InputConfig<A> {
             marker: PhantomData,
         }
     }
-}
-
-/// Input config shared across all Action types.
-/// Used to avoid creating some systems multiple times
-#[derive(Default, Resource)]
-pub(crate) struct SharedInputConfig {
-    pub(crate) reset_last_confirmed_system_added: bool,
 }

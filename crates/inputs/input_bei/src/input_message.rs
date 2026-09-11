@@ -7,8 +7,11 @@ use bevy_enhanced_input::prelude::{ActionEvents, ActionValue, TriggerState};
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
-use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
+use lightyear_inputs::input_buffer::InputBuffer;
+use lightyear_inputs::input_message::{
+    ActionStateQueryData, ActionStateSequence, Compressed, InputSnapshot, first_buffered_tick,
+    message_start_tick,
+};
 use serde::{Deserialize, Serialize};
 
 pub type BEIBuffer<C> = InputBuffer<ActionsSnapshot, C>;
@@ -200,33 +203,28 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         start_iter.chain(diffs_iter)
     }
 
-    fn build_from_input_buffer<'w, 's>(
+    fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u32,
+        num_ticks: usize,
         end_tick: Tick,
     ) -> Option<Self> {
-        let mut diffs = Vec::new();
         // find the first tick for which we have an `TriggerState` buffered
-        let mut start_tick = end_tick - num_ticks + 1;
-        while start_tick <= end_tick {
-            if input_buffer.get(start_tick).is_some() {
-                break;
-            }
-            start_tick += 1;
-        }
-
-        // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
-        if start_tick > end_tick {
+        let Some(start_tick) = first_buffered_tick(
+            input_buffer,
+            message_start_tick(end_tick, num_ticks),
+            end_tick,
+        ) else {
+            // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
             return None;
-        }
+        };
         let start_state = *input_buffer.get(start_tick).unwrap();
-        let mut tick = start_tick + 1;
         let (mut cur_state, mut cur_value) = (start_state.state, start_state.value);
+        let mut diffs = Vec::with_capacity((end_tick - start_tick).max(0) as usize);
+        let mut tick = start_tick + 1;
         while tick <= end_tick {
-            let diff = match input_buffer.get_raw(tick) {
-                Compressed::Absent => Compressed::Absent,
-                Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
-                Compressed::Input(snapshot) => {
+            let diff = match input_buffer.get(tick) {
+                None => Compressed::Absent,
+                Some(snapshot) => {
                     let diff = if snapshot.state == cur_state && snapshot.value == cur_value {
                         Compressed::SameAsPrecedent
                     } else {
@@ -421,8 +419,8 @@ mod tests {
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=5)
         // We predicted continuation of Absent, but got an Input
         assert_eq!(earliest_mismatch, Some(Tick(7)));
-        // Filled the gap with SameAsPrecedent at tick 6, then set the new action at tick 7 and 8
-        assert_eq!(input_buffer.get_raw(Tick(6)), &Compressed::SameAsPrecedent);
+        // Gap at tick 6 repeats the last stored value (Absent here)
+        assert_eq!(input_buffer.get(Tick(6)), None);
         assert_eq!(input_buffer.get(Tick(7)), Some(&state));
         state.events = ActionEvents::FIRE;
         assert_eq!(input_buffer.get(Tick(8)), Some(&state));
@@ -488,13 +486,10 @@ mod tests {
 
         // Should be no mismatch since the action matches our prediction
         assert_eq!(earliest_mismatch, None);
-        assert_eq!(
-            input_buffer.get_raw(Tick(6)),
-            &Compressed::Input(snapshot.clone())
-        );
+        assert_eq!(input_buffer.get(Tick(6)), Some(&snapshot));
         snapshot.decay_tick(Duration::default());
         assert_eq!(input_buffer.get(Tick(7)), Some(&snapshot));
-        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Absent);
+        assert_eq!(input_buffer.get(Tick(8)), None);
     }
 
     #[test]
@@ -623,5 +618,30 @@ mod tests {
 
         // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
         assert_eq!(earliest_mismatch, Some(Tick(7)));
+    }
+
+    /// Build → send → update roundtrip preserves fired state/value.
+    #[test]
+    fn test_build_update_roundtrip() {
+        let mut sender = BEIBuffer::<Context1>::default();
+        let mut fired = ActionsSnapshot::default();
+        fired.state = TriggerState::Fired;
+        fired.value = ActionValue::Bool(true);
+        for tick in 5..=8u32 {
+            sender.set(Tick(tick), fired);
+        }
+        let sequence =
+            BEIStateSequence::<Context1>::build_from_input_buffer(&sender, 4, Tick(8)).unwrap();
+
+        let mut receiver = BEIBuffer::<Context1>::default();
+        sequence.update_buffer(&mut receiver, Tick(8), Duration::default());
+        for tick in 5..=8u32 {
+            let snapshot = receiver
+                .get(Tick(tick))
+                .unwrap_or_else(|| panic!("missing input at tick {tick}"));
+            // (events/time are recomputed on receipt; state and value must survive)
+            assert_eq!(snapshot.state, TriggerState::Fired, "fired at {tick}");
+            assert_eq!(snapshot.value, ActionValue::Bool(true));
+        }
     }
 }
