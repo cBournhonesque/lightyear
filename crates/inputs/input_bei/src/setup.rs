@@ -15,6 +15,7 @@ use lightyear_replication::prelude::ControlledBy;
 use {
     bevy_enhanced_input::context::ExternallyMocked,
     lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata},
+    lightyear_connection::p2p::{P2PRoster, P2PSessionPhase},
     lightyear_replication::prelude::Controlled,
 };
 
@@ -246,8 +247,13 @@ impl InputRegistryPlugin {
 fn receives_remote_inputs(topology: &NetworkTopology) -> bool {
     match topology {
         NetworkTopology::Client(_) => true,
-        NetworkTopology::P2P(_) => true,
-        NetworkTopology::Undefined
+        // Joining peers need remote inputs for catch-up, before gameplay activation.
+        NetworkTopology::P2P(P2PRoster {
+            phase: P2PSessionPhase::Joining | P2PSessionPhase::Active,
+            ..
+        }) => true,
+        NetworkTopology::P2P(_)
+        | NetworkTopology::Undefined
         | NetworkTopology::Server(_)
         | NetworkTopology::HostClient { .. }
         | NetworkTopology::Invalid(_) => false,
@@ -372,6 +378,38 @@ mod tests {
         metadata.mode = NetworkTopology::Client(client);
         app.insert_resource(metadata);
         app
+    }
+
+    #[test]
+    fn stopped_session_does_not_mock_remote_actions_but_catch_up_does() {
+        for (phase, should_mock) in [
+            (P2PSessionPhase::Stopped, false),
+            (P2PSessionPhase::Starting, false),
+            (P2PSessionPhase::Joining, true),
+            (P2PSessionPhase::Active, true),
+        ] {
+            let mut app = app_with_rebroadcast_mocking();
+            app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+                NetworkTopology::P2P(P2PRoster {
+                    phase,
+                    ..Default::default()
+                });
+            let context = app.world_mut().spawn(TestContext).id();
+            let action = app
+                .world_mut()
+                .spawn((
+                    ActionOf::<TestContext>::new(context),
+                    Remote,
+                    Bindings::default(),
+                ))
+                .id();
+            app.update();
+            assert_eq!(
+                app.world().entity(action).contains::<ExternallyMocked>(),
+                should_mock,
+                "{phase:?}"
+            );
+        }
     }
 
     #[test]

@@ -25,12 +25,13 @@ simulation. Start one process for each member of the fixed roster:
 - Peer 1: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 1 --player-count 2`
 
 P2P mode currently uses direct raw UDP Links on localhost and supports two through four players.
-Every peer pre-spawns the same player roster with stable `PreSpawned` hashes, simulates every
+Every peer pre-spawns the same active players with stable `PreSpawned` hashes, simulates every
 player locally, and sends only its own tick-indexed inputs to the other peers. Each peer predicts
 missing remote inputs by repeating the latest known input, then rolls back and replays the complete
-deterministic world when corrected input arrives. Once the example has declared its P2P Links, the
-peers wait until those Links and the input timeline are ready, then acknowledge a shared future
-start tick. The normal client/server and host-client modes remain available in the same example.
+deterministic world when corrected input arrives. Protocol registration finishes before P2P Links
+are created at `Startup`. The peers wait until those Links and the input timeline are ready, then
+acknowledge a shared future start tick. The normal client/server and host-client modes remain
+available in the same example.
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.

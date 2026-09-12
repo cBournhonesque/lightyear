@@ -86,7 +86,7 @@ pub(crate) fn configure_app(
     }
 }
 
-/// Spawn one directed raw UDP Link for every other member of the fixed roster.
+/// Schedule one directed raw UDP Link for every other member after protocol registration.
 pub(crate) fn spawn_connections(
     app: &mut App,
     conditioner: &LinkConditionerConfig,
@@ -95,28 +95,38 @@ pub(crate) fn spawn_connections(
     base_port: u16,
 ) {
     validate_roster(peer_id, player_count);
-    let local_id = PeerId::Entity(u64::from(peer_id));
-    for remote_peer_id in 0..player_count {
-        if remote_peer_id == peer_id {
-            continue;
-        }
-        let local_addr = peer_addr(base_port, peer_id, remote_peer_id);
-        let remote_addr = peer_addr(base_port, remote_peer_id, peer_id);
-        app.world_mut().spawn((
-            P2P::default(),
-            RawClient,
-            LocalId(local_id),
-            RemoteId(PeerId::Entity(u64::from(remote_peer_id))),
-            PingManager::default(),
-            LocalAddr(local_addr),
-            PeerAddr(remote_addr),
-            UdpIo::default(),
-            Link::default().with_conditioner(Some(RecvLinkConditioner::new(conditioner.clone()))),
-            Name::new(format!("P2P Link {peer_id} -> {remote_peer_id}")),
-        ));
-    }
+    let conditioner = conditioner.clone();
+    app.add_systems(
+        Startup,
+        (
+            move |mut commands: Commands| {
+                let local_id = PeerId::Entity(u64::from(peer_id));
+                for remote_peer_id in 0..player_count {
+                    if remote_peer_id == peer_id {
+                        continue;
+                    }
+                    let local_addr = peer_addr(base_port, peer_id, remote_peer_id);
+                    let remote_addr = peer_addr(base_port, remote_peer_id, peer_id);
+                    commands.spawn((
+                        P2P::default(),
+                        RawClient,
+                        LocalId(local_id),
+                        RemoteId(PeerId::Entity(u64::from(remote_peer_id))),
+                        PingManager::default(),
+                        LocalAddr(local_addr),
+                        PeerAddr(remote_addr),
+                        UdpIo::default(),
+                        Link::default()
+                            .with_conditioner(Some(RecvLinkConditioner::new(conditioner.clone()))),
+                        Name::new(format!("P2P Link {peer_id} -> {remote_peer_id}")),
+                    ));
+                }
+            },
+            connect_links,
+        )
+            .chain(),
+    );
     app.insert_resource(AwaitingP2PStart);
-    app.add_systems(Startup, connect_links);
     app.add_systems(Update, start_when_roster_connected);
 }
 
@@ -166,5 +176,5 @@ fn start_when_roster_connected(
         "P2P roster connected; starting session negotiation"
     );
     commands.remove_resource::<AwaitingP2PStart>();
-    commands.trigger(P2PStart);
+    commands.trigger(P2PStart::default());
 }

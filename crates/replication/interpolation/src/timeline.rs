@@ -379,9 +379,9 @@ impl TimelinePlugin {
                     tick_duration.0,
                 );
             }
-            NetworkTopology::P2P(joined) => {
+            NetworkTopology::P2P(roster) => {
                 let mut selected = None;
-                for &link in joined {
+                for &link in &roster.started {
                     let Ok((remote, ping_manager)) = remotes.get(link) else {
                         continue;
                     };
