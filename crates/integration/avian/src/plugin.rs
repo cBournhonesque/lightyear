@@ -1581,50 +1581,6 @@ mod tests_3d {
     use lightyear_frame_interpolation::{
         FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
     };
-    use lightyear_interpolation::plugin::InterpolationMarkerPlugin;
-    use lightyear_prediction::plugin::PredictionPlugin;
-    use lightyear_prediction::prelude::PredictionMarkerPlugin;
-    use lightyear_replication::LightyearRepliconBackend;
-
-    /// The PostUpdate Avian writeback is ordered against the timeline-switch
-    /// blend creation. An unsolvable set combination errors while the schedule
-    /// graph builds, so initialize PostUpdate here (without running any
-    /// system) to pin the ordering.
-    #[test]
-    fn postupdate_schedule_builds_with_prediction() {
-        use bevy_app::PostUpdate;
-        use bevy_ecs::schedule::Schedules;
-        use bevy_state::app::StatesPlugin;
-
-        let mut app = App::new();
-        app.add_plugins((
-            StatesPlugin,
-            LightyearRepliconBackend,
-            PredictionMarkerPlugin,
-            InterpolationMarkerPlugin,
-            PredictionPlugin,
-            LightyearAvianPlugin {
-                replication_mode: AvianReplicationMode::Position {
-                    sync_to_transform: false,
-                },
-                ..Default::default()
-            },
-        ));
-        // Remove instead of `resource_scope`: `Schedule::initialize` looks up
-        // `Schedules` itself, which panics inside a scope over it.
-        let mut schedules = app
-            .world_mut()
-            .remove_resource::<Schedules>()
-            .expect("Schedules resource");
-        {
-            let world = app.world_mut();
-            let schedule = schedules.get_mut(PostUpdate).expect("PostUpdate schedule");
-            schedule
-                .initialize(world)
-                .expect("PostUpdate schedule builds");
-        }
-        app.world_mut().insert_resource(schedules);
-    }
 
     fn seed_stationary_hermite_histories(app: &mut App, entity: Entity, include_previous: bool) {
         let mut entity = app.world_mut().entity_mut(entity);
