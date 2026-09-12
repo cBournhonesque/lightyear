@@ -42,38 +42,12 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, setup);
         app.add_systems(
             FixedUpdate,
-            (
-                handle_character_actions,
-                handle_carry_toggle,
-                update_carried_blocks,
-            ),
+            // Character input and the carry pose are shared with the clients
+            // (see `shared.rs`).
+            handle_carry_toggle,
         );
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
-    }
-}
-
-fn handle_character_actions(
-    time: Res<Time>,
-    spatial_query: SpatialQuery,
-    host_server: Query<(), With<HostServer>>,
-    mut query: Query<(
-        Entity,
-        &ComputedMass,
-        &ActionState<CharacterAction>,
-        Forces,
-        Has<Predicted>,
-    )>,
-) {
-    let is_host_server = !host_server.is_empty();
-    for (entity, mass, action_state, forces, predicted) in &mut query {
-        // In host-client mode the client system runs on this same authoritative entity because
-        // the targeted host receiver is materialized as Predicted in the shared world. Let that
-        // system apply the action once; applying it here as well would double the force.
-        if is_host_server && predicted {
-            continue;
-        }
-        apply_character_action(entity, mass, &time, &spatial_query, action_state, forces);
     }
 }
 
@@ -159,63 +133,6 @@ fn handle_carry_toggle(
                 ));
             }
         }
-    }
-}
-
-/// Carry follow for carried blocks (server-authoritative entities only).
-///
-/// Cubes ride frozen: kinematic teleport to the carry pose, exactly like the
-/// carrier's client reproduces it. Spheres stay dynamic and dangle from the
-/// same pose on the shared [`carry_spring_velocity`](shared::carry_spring_velocity)
-/// leash, so every timeline sees the same swing.
-fn update_carried_blocks(
-    mut commands: Commands,
-    mut sets: ParamSet<(
-        Query<
-            (
-                Entity,
-                &mut Position,
-                &mut LinearVelocity,
-                &mut AngularVelocity,
-                Option<&RigidBody>,
-                &ControlledBy,
-                Has<SphereMarker>,
-            ),
-            (With<BlockMarker>, With<CarriedBy>, With<Replicate>),
-        >,
-        Query<(&Position, &ControlledBy), (With<CharacterMarker>, With<Replicate>)>,
-    )>,
-) {
-    // Holder poses first; the two queries both touch Position, so they only
-    // run one at a time through the ParamSet.
-    let holders: Vec<(Vec3, Entity)> = sets
-        .p1()
-        .iter()
-        .map(|(pos, owner)| (pos.0, owner.owner))
-        .collect();
-    for (block, mut pos, mut lin_vel, mut ang_vel, rigid_body, controlled_by, is_sphere) in
-        sets.p0().iter_mut()
-    {
-        let Some(holder_pos) = holders
-            .iter()
-            .find(|(_, link)| *link == controlled_by.owner)
-            .map(|(pos, _)| *pos)
-        else {
-            continue;
-        };
-        if is_sphere {
-            // Leash: keep the dynamic body and steer it. Snapshots carry the
-            // resulting swing to every timeline.
-            lin_vel.0 = shared::carry_spring_velocity(holder_pos, pos.0);
-            continue;
-        }
-        // RigidBody is immutable: swap it via insert instead of mutation.
-        if rigid_body != Some(&RigidBody::Kinematic) {
-            commands.entity(block).insert(RigidBody::Kinematic);
-        }
-        pos.0 = holder_pos + CARRY_OFFSET;
-        lin_vel.0 = Vec3::ZERO;
-        ang_vel.0 = Vec3::ZERO;
     }
 }
 

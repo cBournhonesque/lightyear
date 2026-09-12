@@ -805,7 +805,7 @@ pub(crate) fn update_visual_correction<
 /// place to set it. An exponential carries its own period, because that period
 /// is what defines its shape; a window still bounds it, and the error converges
 /// when the window ends.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 pub enum CorrectionEase {
     /// Constant speed.
     Linear,
@@ -818,23 +818,51 @@ pub enum CorrectionEase {
     Smoothstep,
     /// Fast start, slow finish.
     ///
-    /// Default: an error is given up from the value on screen towards the
-    /// destination, so a curve that starts fast releases a visible amount on the
-    /// first frame and settles gradually. A flat-starting curve instead keeps
-    /// almost the whole gap for those frames — a frame of a one second
-    /// `Smoothstep` window releases under 1% of it — which reads as the entity
-    /// stopping and then lurching.
-    #[default]
+    /// An error is given up from the value on screen towards the destination, so
+    /// a curve that starts fast releases a visible amount on the first frame and
+    /// settles gradually. A flat-starting curve instead keeps almost the whole
+    /// gap for those frames — a frame of a one second `Smoothstep` window
+    /// releases under 1% of it — which reads as the entity stopping and then
+    /// lurching.
     EaseOutCubic,
     /// Slow start, fast middle, slow finish.
     EaseInOutCubic,
     /// `decay_ratio` of the error remains after each `decay_period_secs` seconds.
+    ///
+    /// Unlike the curves above this one has no end of its own, so it is the
+    /// window it runs in that ends it — see [`Self::is_unbounded`]. Its shape is
+    /// its parameters: it gives up the same fraction every frame, rather than
+    /// following a curve.
+    ///
+    /// This is [`Self::default`], and the shape is the one a blend wants: the
+    /// gap is released at a steady rate from the first frame instead of being
+    /// held while the curve warms up.
     Exponential {
         /// Fraction of the error left after one `decay_period_secs`.
         decay_ratio: f32,
         /// Time for the error to fall to `decay_ratio` of its value.
         decay_period_secs: f32,
     },
+}
+
+impl Default for CorrectionEase {
+    /// The tuned blend shape: half the remaining error every 200 ms.
+    ///
+    /// Half the error goes in the first 200 ms, three quarters in 400 ms, and so
+    /// on, so a blend releases a little under 6% of its gap per 60 Hz frame from
+    /// the very first one. That is enough to keep a moving entity moving through
+    /// a switch, where a flat-starting curve would hold nearly all of the gap.
+    ///
+    /// A struct variant cannot carry `#[default]`, so this is written out rather
+    /// than derived — which keeps it the single definition of the default, used
+    /// by both [`CorrectionPolicy`] and
+    /// [`TimelineSwitchSettings`](crate::switch::TimelineSwitchSettings).
+    fn default() -> Self {
+        Self::Exponential {
+            decay_ratio: 0.5,
+            decay_period_secs: 0.2,
+        }
+    }
 }
 
 impl CorrectionEase {
@@ -970,11 +998,9 @@ pub struct CorrectionPolicy {
 impl Default for CorrectionPolicy {
     fn default() -> Self {
         Self {
-            // The unbounded exponential, as a ratio and a period.
-            ease: CorrectionEase::Exponential {
-                decay_ratio: 0.5,
-                decay_period_secs: 0.2,
-            },
+            // The shared default curve, so a rollback and a blend let the error
+            // go at the same rate unless a caller tunes one of them.
+            ease: CorrectionEase::default(),
             duration_secs: 0.5,
         }
     }

@@ -103,6 +103,304 @@ fn spawn_floor(mut commands: Commands) {
     ));
 }
 
+/// A character holding a block, and the timeline it is on.
+///
+/// Carried blocks are posed from their holder, so every peer that simulates a
+/// pose needs to know where the holder is and whether that holder is locally
+/// predicted (ahead of the snapshots) or interpolated.
+#[derive(Clone, Copy)]
+pub(crate) struct HolderInfo {
+    pub(crate) entity: Entity,
+    pub(crate) pos: Vec3,
+    /// Timeline the holder is on, or is switching to this frame.
+    pub(crate) predicted: bool,
+}
+
+/// A carried cube rides exactly at its holder's head; accept a small slop for
+/// snapshot lag on interpolated pairs.
+const HEAD_MATCH_RADIUS: f32 = 1.5;
+
+/// Resolve the visible holder of the block at `block_pos`, if any.
+///
+/// 1. Exact [`CarriedBy`] match: the visible character whose entity is the
+///    block's recorded holder. The holder is a character entity, so the
+///    reference is the same on every peer.
+/// 2. Head proximity: the character whose carry pose (`pos + CARRY_OFFSET`)
+///    is nearest in 3D within [`HEAD_MATCH_RADIUS`] — covers the frames
+///    before the holder reference arrives.
+pub(crate) fn resolve_holder(
+    holders: &[HolderInfo],
+    holder: Option<Entity>,
+    block_pos: Vec3,
+) -> Option<&HolderInfo> {
+    if let Some(holder) = holder {
+        if let Some(resolved) = holders.iter().find(|info| info.entity == holder) {
+            return Some(resolved);
+        }
+    }
+    let mut best: Option<&HolderInfo> = None;
+    let mut best_dist = HEAD_MATCH_RADIUS;
+    for info in holders {
+        let dist = (info.pos + CARRY_OFFSET).distance(block_pos);
+        if dist < best_dist {
+            best_dist = dist;
+            best = Some(info);
+        }
+    }
+    best
+}
+
+/// Pose of the character holding the block, if visible.
+///
+/// Uses [`resolve_holder`], falling back to the nearest visible character
+/// measured horizontally (see [`nearest_holder`]) so a carried cube still
+/// tracks a character even while its holder is not (yet) visible.
+fn holder_pose(holders: &[HolderInfo], holder: Option<Entity>, fallback: Vec3) -> Option<Vec3> {
+    if let Some(resolved) = resolve_holder(holders, holder, fallback) {
+        return Some(resolved.pos);
+    }
+    nearest_holder(
+        &holders.iter().map(|holder| holder.pos).collect::<Vec<_>>(),
+        fallback,
+    )
+}
+
+/// Holder pose nearest to `pos`, if any character is visible.
+///
+/// Compared horizontally: a cube rides 1.6m above its holder's head, so a
+/// full 3D distance would let a bystander standing next to the holder (closer
+/// than 1.6m) steal the cube. The holder is always directly below it.
+fn nearest_holder(holders: &[Vec3], pos: Vec3) -> Option<Vec3> {
+    holders.iter().copied().min_by(|a, b| {
+        horizontal_distance_squared(*a, pos)
+            .partial_cmp(&horizontal_distance_squared(*b, pos))
+            .unwrap_or(core::cmp::Ordering::Equal)
+    })
+}
+
+fn horizontal_distance_squared(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
+/// Pose one carried block at its holder, returning whether its body belongs
+/// kinematic.
+///
+/// Cubes ride frozen: teleported to the carry pose with zero velocity, and the
+/// caller pins the body kinematic so the step does not drag it off. Spheres
+/// stay dynamic and are steered towards the pose on the leash
+/// ([`carry_spring_velocity`]), which is the one carry law every peer shares —
+/// the server sims the swing authoritatively, the carrier predicts it, and
+/// remotes run it against the interpolated holder so their local simulation
+/// agrees with the snapshots.
+fn pose_carried(
+    holder_pos: Vec3,
+    is_sphere: bool,
+    pos: &mut Position,
+    lin_vel: &mut LinearVelocity,
+    ang_vel: &mut AngularVelocity,
+) -> bool {
+    if is_sphere {
+        lin_vel.0 = carry_spring_velocity(holder_pos, pos.0);
+        return false;
+    }
+    pos.0 = holder_pos + CARRY_OFFSET;
+    lin_vel.0 = Vec3::ZERO;
+    ang_vel.0 = Vec3::ZERO;
+    true
+}
+
+/// Apply each character's inputs to its body.
+///
+/// The same rule runs on both peers, because both simulate the same kind of
+/// entity — they just mark it differently:
+///
+/// * a character this peer simulates (`Replicate` on a server, `Predicted` or
+///   `DeterministicPredicted` on a client) is the one whose inputs act on the
+///   body;
+/// * an interpolated remote is skipped: it is only presented, and its motion
+///   comes from delayed interpolation, so a force applied here would fight the
+///   pose the server sent.
+///
+/// One pass over those markers also settles host-client mode, where a character
+/// can be authoritative and predicted at once: it is still visited once, so its
+/// inputs are applied once.
+fn apply_character_inputs(
+    time: Res<Time>,
+    spatial_query: SpatialQuery,
+    mut query: Query<
+        (Entity, &ComputedMass, &ActionState<CharacterAction>, Forces),
+        Or<(
+            With<Replicate>,
+            With<Predicted>,
+            With<DeterministicPredicted>,
+        )>,
+    >,
+) {
+    for (entity, mass, action_state, forces) in &mut query {
+        apply_character_action(entity, mass, &time, &spatial_query, action_state, forces);
+    }
+}
+
+/// Carry pose for the blocks this peer simulates, in the fixed update.
+///
+/// The same rule runs on the server (its authoritative blocks) and on each
+/// client (its local copies), because each peer poses the copy it simulates:
+/// the server poses the block it owns, and a client poses the block it
+/// predicts. They cannot be one call site with one holder pose, because the
+/// pose has to be the local one — for my own character that is predicted, ahead
+/// of the snapshots — and running it here keeps the block glued to its holder
+/// instead of trailing by the replication delay.
+///
+/// Runs in `FixedUpdate` so it is part of the simulated tick: a predicted
+/// block replays through rollback, and a rollback that re-posed it in `Update`
+/// only would diverge from the confirmed state.
+fn apply_carry_fixed(
+    mut commands: Commands,
+    mut sets: ParamSet<(
+        Query<(Entity, &Position, Has<Predicted>), With<CharacterMarker>>,
+        Query<
+            (
+                Entity,
+                Option<&RigidBody>,
+                &mut Position,
+                &mut LinearVelocity,
+                &mut AngularVelocity,
+                Option<&CarriedBy>,
+                Has<SphereMarker>,
+            ),
+            (
+                With<BlockMarker>,
+                With<CarriedBy>,
+                Or<(With<Replicate>, With<Predicted>)>,
+            ),
+        >,
+    )>,
+) {
+    // Holder poses first; the two queries both touch Position, so they only run
+    // one at a time through the ParamSet.
+    let holders: Vec<HolderInfo> = sets
+        .p0()
+        .iter()
+        .map(|(entity, pos, predicted)| HolderInfo {
+            entity,
+            pos: pos.0,
+            predicted,
+        })
+        .collect();
+    for (entity, body, mut pos, mut lin_vel, mut ang_vel, carried_by, is_sphere) in
+        sets.p1().iter_mut()
+    {
+        let holder = carried_by.map(|carried_by| carried_by.holder);
+        let Some(holder_pos) = holder_pose(&holders, holder, pos.0) else {
+            continue;
+        };
+        let kinematic = pose_carried(holder_pos, is_sphere, &mut pos, &mut lin_vel, &mut ang_vel);
+        // The body swap is a command, so only on a transition: re-inserting it
+        // every tick destroys and recreates the body (and its contacts), which
+        // panics the solver during rollback replay.
+        if kinematic && body != Some(&RigidBody::Kinematic) {
+            commands.entity(entity).insert(RigidBody::Kinematic);
+        }
+    }
+}
+
+/// Carry pose for blocks whose position comes from delayed interpolation.
+///
+/// Snapshots lag the holder, so a block posed purely from them trails a locally
+/// predicted holder by roughly delay × speed and visibly detaches whenever the
+/// holder jumps. Re-posing it from the holder's local pose keeps it at the
+/// holder's head on every screen; the snapshots matter again once the block
+/// switches back to prediction.
+///
+/// Runs in `Update` after delayed interpolation has written, so the re-posed
+/// location — not a stale snapshot — is what the `PostUpdate` transform sync
+/// renders.
+fn apply_carry_interpolated(
+    mut sets: ParamSet<(
+        Query<(Entity, &Position, Has<Predicted>), With<CharacterMarker>>,
+        Query<
+            (
+                &mut Position,
+                &mut LinearVelocity,
+                &mut AngularVelocity,
+                Option<&CarriedBy>,
+            ),
+            (With<BlockMarker>, With<CarriedBy>, With<Interpolated>),
+        >,
+    )>,
+) {
+    let holders: Vec<HolderInfo> = sets
+        .p0()
+        .iter()
+        .map(|(entity, pos, predicted)| HolderInfo {
+            entity,
+            pos: pos.0,
+            predicted,
+        })
+        .collect();
+    for (mut pos, mut lin_vel, mut ang_vel, carried_by) in sets.p1().iter_mut() {
+        let holder = carried_by.map(|carried_by| carried_by.holder);
+        let Some(holder_pos) = holder_pose(&holders, holder, pos.0) else {
+            continue;
+        };
+        pose_carried(holder_pos, false, &mut pos, &mut lin_vel, &mut ang_vel);
+    }
+}
+
+/// Keep an interpolated carried block's body out of the physics step.
+///
+/// Interpolated blocks are posed from their holder (or from snapshots) rather
+/// than simulated, but their body is still `Dynamic`, so the step would apply
+/// gravity and let contacts knock them around between writes — including
+/// shoving *other* bodies from a pose that is only interpolated. Pinning them
+/// kinematic with zero velocity leaves the posed location alone.
+///
+/// Runs in `FixedUpdate`, ahead of Avian's step in `FixedPostUpdate`, so the
+/// zeroed velocity is what the step integrates: a swinging sphere's snapshot
+/// velocity never gets a tick to drag the body off its pose.
+fn freeze_interpolated_carry(
+    mut commands: Commands,
+    mut blocks: Query<
+        (
+            Entity,
+            Option<&RigidBody>,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+        ),
+        (With<BlockMarker>, With<CarriedBy>, With<Interpolated>),
+    >,
+) {
+    for (entity, body, mut lin_vel, mut ang_vel) in &mut blocks {
+        // A kinematic body still integrates its own velocity, so stale
+        // velocities from the dynamic era have to go too.
+        if body != Some(&RigidBody::Kinematic) {
+            commands.entity(entity).insert(RigidBody::Kinematic);
+        }
+        lin_vel.0 = Vec3::ZERO;
+        ang_vel.0 = Vec3::ZERO;
+    }
+}
+
+/// Give a block back to physics once nothing is carrying it.
+///
+/// The kinematic bodies above and in [`apply_carry_fixed`] are local, so a
+/// kinematic block with no [`CarriedBy`] came from them and must simulate
+/// freely again — otherwise a dropped block hangs frozen in mid-air, and a
+/// sphere handed to interpolation would never swing back when it returns to
+/// prediction.
+fn restore_uncarried_body(
+    mut commands: Commands,
+    blocks: Query<(Entity, &RigidBody), (With<BlockMarker>, Without<CarriedBy>)>,
+) {
+    for (entity, body) in &blocks {
+        if *body == RigidBody::Kinematic {
+            commands.entity(entity).insert(RigidBody::Dynamic);
+        }
+    }
+}
+
 #[derive(Bundle)]
 pub(crate) struct FloorPhysicsBundle {
     collider: Collider,
@@ -124,12 +422,29 @@ pub(crate) struct BlockPhysicsBundle {
     rigid_body: RigidBody,
 }
 
-impl Default for BlockPhysicsBundle {
-    fn default() -> Self {
+impl BlockPhysicsBundle {
+    /// The body a block of this shape needs.
+    ///
+    /// The shape is known when the block is first seen — [`SphereMarker`] is
+    /// replicated with the entity, and is present by the time a peer adds the
+    /// body — so the right collider can be built straight away rather than
+    /// repaired afterwards.
+    pub(crate) fn new(is_sphere: bool) -> Self {
+        let collider = if is_sphere {
+            Collider::sphere(SPHERE_RADIUS)
+        } else {
+            Collider::cuboid(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH)
+        };
         Self {
-            collider: Collider::cuboid(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH),
+            collider,
             rigid_body: RigidBody::Dynamic,
         }
+    }
+}
+
+impl Default for BlockPhysicsBundle {
+    fn default() -> Self {
+        Self::new(false)
     }
 }
 
@@ -143,6 +458,21 @@ impl Plugin for SharedPlugin {
         // The floor is the same static body on every peer, so it is spawned
         // locally rather than replicated.
         app.add_systems(Startup, spawn_floor);
+        // The carry rules run on every peer: each one poses the copies it
+        // simulates, on the schedule that copy is on.
+        app.add_systems(
+            FixedUpdate,
+            (
+                apply_character_inputs,
+                apply_carry_fixed,
+                freeze_interpolated_carry,
+                restore_uncarried_body,
+            ),
+        );
+        app.add_systems(
+            Update,
+            apply_carry_interpolated.after(InterpolationSystems::All),
+        );
 
         // Physics
         app.add_plugins(lightyear::avian3d::plugin::LightyearAvianPlugin {

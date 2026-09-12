@@ -54,52 +54,75 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(clear_blend_start_color);
         // Add the type-erased FrameInterpolate marker to predicted entities with Position.
         app.add_observer(add_visual_interpolation_components);
-        // Repair sphere meshes whose marker arrives after the cosmetics pass.
-        app.add_observer(swap_sphere_mesh);
     }
 }
 
-/// Give sphere blocks a sphere mesh when the marker loses the race.
+/// Live tuning for the switch blend: window length and ease curve.
 ///
-/// Replicated components arrive in separate messages: if the cosmetics pass
-/// ran first, the sphere wears a placeholder cuboid until this observer
-/// replaces it. When the marker arrives first (or on the server, where both
-/// spawn together), the query misses and the cosmetics pass — which reads the
-/// marker — builds the sphere mesh plus its material straight away.
-/// Live tuning for the switch blend: duration and ease curve.
+/// Both write [`TimelineSwitchSettings`], which the switch handlers resolve per
+/// switch — so changes apply to switches from that moment on, while in-flight
+/// blends keep the values they started with. A window of 0 snaps instantly.
 ///
-/// Both sliders write [`TimelineSwitchSettings`], which the switch handlers
-/// resolve per switch — so changes apply to switches from that moment on,
-/// while in-flight blends keep the values they started with. Duration 0 snaps
-/// instantly.
+/// The window is not optional, even for the exponential: it is what ends a blend,
+/// lifting the [`SwitchBlend`] marker so the entity can switch again. An
+/// exponential supplies its own decay constant for its shape, but not an end, so
+/// the panel labels the slider as a window for it.
 fn blend_tuning_panel(
     mut contexts: EguiContexts,
     settings: Option<ResMut<TimelineSwitchSettings>>,
     blends: Query<(), With<SwitchBlend>>,
+    mut exponential: Local<ExponentialTuning>,
 ) -> Result {
     let Some(mut settings) = settings else {
         return Ok(());
     };
+    // Follow values set outside the panel. The panel's own edits write to the
+    // settings as well, so this only picks up what it did not write.
+    if let CorrectionEase::Exponential {
+        decay_ratio,
+        decay_period_secs,
+    } = settings.default_ease
+    {
+        exponential.decay_ratio = decay_ratio;
+        exponential.decay_period_secs = decay_period_secs;
+    }
     egui::Window::new("Switch blend")
         .anchor(egui::Align2::RIGHT_TOP, [-16.0, 16.0])
         .show(contexts.ctx_mut()?, |ui| {
+            let unbounded = settings.default_ease.is_unbounded();
             ui.add(
-                egui::Slider::new(&mut settings.default_transition_secs, 0.0..=2.0)
-                    .text("duration (s)"),
+                egui::Slider::new(&mut settings.default_transition_secs, 0.0..=2.0).text(
+                    if unbounded {
+                        "window (s)"
+                    } else {
+                        "duration (s)"
+                    },
+                ),
             );
-            let mut ease_idx = CorrectionEase::ALL
-                .iter()
-                .position(|ease| *ease == settings.default_ease)
-                .unwrap_or(0);
+            let mut index = ease_choice_index(settings.default_ease);
             if ui
                 .add(
-                    egui::Slider::new(&mut ease_idx, 0..=CorrectionEase::ALL.len() - 1)
+                    egui::Slider::new(&mut index, 0..=EASE_CHOICES - 1)
                         .step_by(1.0)
                         .text("ease"),
                 )
                 .changed()
             {
-                settings.default_ease = CorrectionEase::ALL[ease_idx];
+                settings.default_ease = ease_choice(index, &exponential);
+            }
+            if settings.default_ease.is_unbounded() {
+                let ratio = ui.add(
+                    egui::Slider::new(&mut exponential.decay_ratio, 0.05..=0.95)
+                        .text("decay ratio"),
+                );
+                let period = ui.add(
+                    egui::Slider::new(&mut exponential.decay_period_secs, 0.01..=1.0)
+                        .text("decay period (s)"),
+                );
+                if ratio.changed() || period.changed() {
+                    settings.default_ease = exponential.ease();
+                }
+                ui.label("fraction of the gap left per decay period; the window above ends it");
             }
             ui.label(format!("ease: {}", settings.default_ease.name()));
             ui.label(format!("blends in flight: {}", blends.iter().len()));
@@ -107,19 +130,61 @@ fn blend_tuning_panel(
     Ok(())
 }
 
-fn swap_sphere_mesh(
-    trigger: On<Add, SphereMarker>,
-    mut commands: Commands,
-    blocks: Query<(), (With<BlockMarker>, With<Mesh3d>)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-) {
-    let entity = trigger.entity;
-    if blocks.get(entity).is_err() {
-        return;
+/// Number of picker rows: the bounded curves, then the exponential.
+///
+/// The exponential is not part of [`CorrectionEase::ALL`] because its shape comes
+/// from its own parameters rather than from the window, so a picker has to hold
+/// those separately; see [`ExponentialTuning`].
+const EASE_CHOICES: usize = CorrectionEase::ALL.len() + 1;
+
+/// The exponential's parameters, kept between frames.
+///
+/// [`CorrectionEase::Exponential`] carries its parameters, so the panel needs
+/// somewhere to keep them while a bounded curve is selected: without this,
+/// stepping through the curves would reset them.
+struct ExponentialTuning {
+    decay_ratio: f32,
+    decay_period_secs: f32,
+}
+
+impl Default for ExponentialTuning {
+    fn default() -> Self {
+        // The same shape as `CorrectionPolicy::default()`.
+        Self {
+            decay_ratio: 0.5,
+            decay_period_secs: 0.2,
+        }
     }
-    commands
-        .entity(entity)
-        .insert(Mesh3d(meshes.add(Sphere::new(SPHERE_RADIUS))));
+}
+
+impl ExponentialTuning {
+    fn ease(&self) -> CorrectionEase {
+        CorrectionEase::Exponential {
+            decay_ratio: self.decay_ratio,
+            decay_period_secs: self.decay_period_secs,
+        }
+    }
+}
+
+/// Which picker row a curve is on: [`CorrectionEase::ALL`]'s order for the
+/// bounded curves, then the exponential.
+fn ease_choice_index(ease: CorrectionEase) -> usize {
+    if ease.is_unbounded() {
+        EASE_CHOICES - 1
+    } else {
+        CorrectionEase::ALL
+            .iter()
+            .position(|choice| *choice == ease)
+            .unwrap_or(0)
+    }
+}
+
+/// The curve on a picker row.
+fn ease_choice(index: usize, exponential: &ExponentialTuning) -> CorrectionEase {
+    CorrectionEase::ALL
+        .get(index)
+        .copied()
+        .unwrap_or_else(|| exponential.ease())
 }
 
 fn init(mut commands: Commands) {
@@ -313,9 +378,9 @@ fn add_floor_cosmetics(
 /// interpolated by default and switch to predicted when relevant, so both
 /// timelines need cosmetics.
 ///
-/// `Without<Mesh3d>` keeps this a one-shot per entity. When [`SphereMarker`]
-/// arrives after the mesh (replicated components arrive in separate messages),
-/// [`swap_sphere_mesh`] replaces the placeholder cuboid mesh.
+/// `Without<Mesh3d>` keeps this a one-shot per entity. The shape is read from
+/// [`SphereMarker`], which is replicated with the block and so is already
+/// present when the block is first seen.
 fn add_block_cosmetics(
     mut commands: Commands,
     floor_query: Query<(Entity, Has<SphereMarker>), (With<BlockMarker>, Without<Mesh3d>)>,

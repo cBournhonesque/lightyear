@@ -142,8 +142,11 @@ pub struct TimelineSwitchSettings {
 impl Default for TimelineSwitchSettings {
     fn default() -> Self {
         Self {
+            // Long enough for a blend to converge: with the default curve, half
+            // the gap goes every 200 ms, so a second leaves about 3% of it, which
+            // the correction policy finishes.
             default_transition_secs: 1.0,
-            default_ease: CorrectionEase::EaseOutCubic,
+            default_ease: CorrectionEase::default(),
         }
     }
 }
@@ -634,7 +637,7 @@ pub(crate) fn add_timeline_switch_systems(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::correction::{PreviousVisual, VisualCorrection};
+    use crate::correction::{CorrectionPolicy, PreviousVisual, VisualCorrection};
     use crate::plugin::PredictionMarkerPlugin;
     use crate::predicted_history::PredictionHistory;
     use crate::registry::{PredictionBuilderExt, PredictionRegistry};
@@ -911,10 +914,28 @@ mod tests {
         let frame = 1.0 / 60.0;
         let window = 1.0;
         let default = TimelineSwitchSettings::default().default_ease;
+        // One definition of the default, shared by the blend and the rollback
+        // policy, so the two cannot drift apart.
+        assert_eq!(default, CorrectionEase::default());
+        assert_eq!(default, CorrectionPolicy::default().ease());
+        assert_eq!(
+            default,
+            CorrectionEase::Exponential {
+                decay_ratio: 0.5,
+                decay_period_secs: 0.2
+            }
+        );
         let first_frame_keep = default.keep(0.0, frame, window);
         assert!(
             first_frame_keep <= 0.96,
             "the default {default:?} holds {first_frame_keep} of the gap on the first frame"
+        );
+        // An exponential releases the same fraction every frame, so the second
+        // frame moves too: no warm-up, which is the point of choosing it.
+        let later_frame_keep = default.keep(0.5, frame, window);
+        assert!(
+            (later_frame_keep - first_frame_keep).abs() < 1e-6,
+            "an exponential should keep {first_frame_keep} every frame, later {later_frame_keep}"
         );
         // A flat-starting curve is kept for callers who want it, but it is not
         // the default for exactly this reason.
