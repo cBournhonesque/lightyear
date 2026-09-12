@@ -24,13 +24,13 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::LocalTimelineShift;
+use lightyear_core::timeline::{LocalTimelineShift, Rollback};
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::{ConfirmHistory, PreSpawned};
 use lightyear_replication::registry::ComponentRegistry;
-use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
+use lightyear_sync::prelude::{InputTimelineConfig, LocalTimelineSync, SyncedLocalTimeline};
 use lightyear_utils::ecs::get_component_unchecked;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
@@ -98,6 +98,33 @@ impl<C> PredictionHistory<C> {
 // ============================================================================
 // Systems
 // ============================================================================
+
+/// Record the pre-step state for a newly predicted component.
+///
+/// `update_prediction_history` runs after the tick, so it cannot supply this first rollback
+/// boundary. This fires when `add_prediction_history` inserts the history, which happens over
+/// deferred flushes after the spawn, so the timeline may or may not have incremented since.
+/// The label is `tick() - 1`: exact when the insert flushes post-increment, and harmless
+/// otherwise because history lookup takes the latest entry at-or-before the tick while nothing
+/// has simulated for this entity in between. Like the update path, this is skipped until
+/// timeline sync and during rollback. Existing history, including removals, is preserved.
+pub(crate) fn seed_prediction_history<T: Component + Clone>(
+    trigger: On<Add, PredictionHistory<T>>,
+    mut query: Query<(&T, &mut PredictionHistory<T>)>,
+    timeline: Res<LocalTimeline>,
+    sync: Option<Res<LocalTimelineSync>>,
+    rollback: Option<Res<Rollback>>,
+) {
+    if !sync.as_ref().is_some_and(|sync| sync.is_synced()) || rollback.is_some() {
+        return;
+    }
+    let Ok((component, mut history)) = query.get_mut(trigger.entity) else {
+        return;
+    };
+    if history.is_empty() {
+        history.add_predicted(timeline.tick() - 1, Some(component.clone()));
+    }
+}
 
 /// Store every update on the predicted entity in the [`PredictionHistory`].
 ///
@@ -715,6 +742,7 @@ mod tests {
         app.insert_resource(PredictionManager::default());
         app.insert_resource(InputTimelineConfig::default());
         app.add_systems(Update, update_prediction_history::<TestValue>);
+        app.add_observer(seed_prediction_history::<TestValue>);
         app.add_observer(apply_component_removal_predicted::<TestValue>);
 
         let entity = app
@@ -743,6 +771,9 @@ mod tests {
         app.world_mut()
             .resource_mut::<LocalTimelineSync>()
             .set_synced(true);
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
         app.world_mut().entity_mut(entity).insert(TestValue(2.0));
         app.update();
 
@@ -750,7 +781,18 @@ mod tests {
             .world()
             .get::<PredictionHistory<TestValue>>(entity)
             .unwrap();
-        assert_eq!(history.get(Tick(0)), Some(&TestValue(2.0)));
+        assert_eq!(history.get(Tick(10)), Some(&TestValue(2.0)));
+
+        // A history attached after sync is seeded with the pre-step value.
+        let seeded = app
+            .world_mut()
+            .spawn((TestValue(3.0), PredictionHistory::<TestValue>::default()))
+            .id();
+        let history = app
+            .world()
+            .get::<PredictionHistory<TestValue>>(seeded)
+            .unwrap();
+        assert_eq!(history.get(Tick(9)), Some(&TestValue(3.0)));
     }
 
     #[test]

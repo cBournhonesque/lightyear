@@ -15,6 +15,44 @@ use lightyear_replication::prelude::{RoomAllocator, Rooms};
 use test_log::test;
 use tracing::info;
 
+#[test]
+fn stopped_session_does_not_capture_inputs_but_catch_up_does() {
+    use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+    use lightyear_connection::p2p::{P2PRoster, P2PSessionPhase};
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let world = stepper.client_app().world_mut();
+    let player = world.spawn(InputMarker::<MyInput>::default()).id();
+    for (phase, captures_input) in [
+        (P2PSessionPhase::Stopped, false),
+        (P2PSessionPhase::Starting, false),
+        (P2PSessionPhase::Joining, true),
+        (P2PSessionPhase::Active, true),
+        (P2PSessionPhase::Stopped, false),
+    ] {
+        world.resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P(P2PRoster {
+            phase,
+            ..Default::default()
+        });
+        world.get_mut::<ActionState<MyInput>>(player).unwrap().0 = MyInput(9);
+        world.run_schedule(bevy::app::FixedMain);
+        let tick = world.resource::<LocalTimeline>().tick()
+            + i32::from(
+                world
+                    .resource::<lightyear_sync::prelude::LocalTimelineSync>()
+                    .input_delay(),
+            );
+        assert_eq!(
+            world
+                .get::<NativeBuffer<MyInput>>(player)
+                .unwrap()
+                .get(tick),
+            captures_input.then_some(&ActionState(MyInput(9))),
+            "{phase:?}"
+        );
+    }
+}
+
 /// Test a remote client's replicated entity sending inputs to the server
 #[test]
 fn test_remote_client_replicated_input() {
