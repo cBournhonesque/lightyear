@@ -1,4 +1,4 @@
-//! Client-side visual correction for predicted components after rollback.
+//! Client-side visual correction for predicted components.
 //!
 //! Prediction rollback has two separate goals:
 //! - the simulation must immediately use the corrected state produced by
@@ -6,128 +6,104 @@
 //! - the rendered value should not snap from the pre-rollback visual state to
 //!   the corrected visual state in one frame.
 //!
-//! Correction is installed for components registered with
-//! `add_correction`, `add_linear_correction`, or `add_correction_fn`. The
-//! registration stores type-erased handlers in [`PredictionRegistry`] so the
-//! post-rollback correction system can run the relevant frame-interpolation
-//! rule and create [`VisualCorrection`] for any corrected component `C`.
+//! Correction is installed for components registered with `add_correction`,
+//! `add_linear_correction`, or `add_correction_fn`. The registration stores
+//! type-erased handlers in [`PredictionRegistry`] so one system can record a
+//! [`VisualCorrection`] for any corrected component `C`.
 //!
-//! Normal frame interpolation works like this:
+//! # How a correction is recorded
+//!
+//! Every correction is one measurement of one jump: the value that was on screen
+//! before it, against the value that is on screen now.
+//!
+//! ```text
+//! rendered = live + error        (the apply adds the error every frame)
+//! error    = previous - live     (recorded once, per jump)
+//! ```
+//!
+//! The value before the jump is saved as [`PreviousVisual`], and the value now is
+//! whatever the live component holds when the correction is recorded. Recording
+//! happens in `PostUpdate`, after [`FrameInterpolationSystems::Interpolate`] has
+//! written the value the frame renders, so the measurement is against exactly
+//! what the entity would show without a correction. Nothing needs to know how
+//! that value was produced: the frame-interpolation rules, including bundle
+//! rules and the fixed overstep, have already run.
+//!
+//! That is also why there is no correction-time sampling of its own. Correction
+//! used to re-run the frame-interpolation rules at `EndRollback` to synthesize
+//! the value frame interpolation was about to write; now it simply runs after the
+//! real thing. A timeline switch is the same measurement with a different value
+//! before the jump (see [`crate::switch`]), so it goes through this same system.
+//!
+//! # How the error is given up
+//!
+//! [`VisualCorrection`] holds the error and the clock reading it was recorded at.
+//! `update_visual_correction` multiplies the error by a keep ratio each frame:
+//!
+//! - on the entity's [`CorrectionPolicy`], or the global one on
+//!   [`PredictionManager`], which defaults to an unbounded exponential and can
+//!   be set to any [`CorrectionEase`] with its own duration;
+//! - on a live [`SwitchBlend`] window's curve instead, when the entity has one.
+//!
+//! The two combine by taking whichever gives the error up more slowly at that
+//! instant, so a blend is never shortened by the policy and a jump arriving late
+//! in a window is never dumped by the curve's tail. A correction that has
+//! converged is dropped rather than carried.
+//!
+//! # The rest of the frame
+//!
 //! - [`FrameInterpolationSystems::Restore`] runs in `RunFixedMainLoop` before
 //!   fixed simulation and restores the live component `C` from
-//!   [`FrameInterpolationHistory`] so fixed systems read simulation state,
-//!   not the previous frame's visual interpolation.
+//!   [`FrameInterpolationHistory`] so fixed systems read simulation state, not
+//!   the previous frame's visual interpolation.
 //! - [`FrameInterpolationSystems::Update`] runs in `FixedPostUpdate` and records
 //!   the latest fixed value into [`FrameInterpolationHistory`]. This set is
 //!   disabled during rollback.
 //! - [`FrameInterpolationSystems::Interpolate`] runs in `PostUpdate` and writes
 //!   the visual `C` by interpolating the history's previous/current values with
 //!   the current fixed overstep.
-//!
-//! Rollback stores the pre-rollback visual value:
-//! - rollback runs in `PreUpdate` and restores predicted components from
-//!   [`PredictionHistory`] or confirmed history before replaying fixed ticks;
-//! - just before a live predicted `C` is overwritten with the rollback value,
-//!   rollback inserts [`PreviousVisual`] if `C` has correction enabled;
-//! - replay advances the live component to the corrected simulation value for
-//!   the current tick, but [`FrameInterpolationSystems::Update`] is skipped
-//!   while rollback is active, so frame history must be repaired manually.
-//!
-//! Post-rollback processing repairs frame history before creating corrections:
-//! - `update_frame_interpolation_post_rollback` runs for every predicted component
-//!   in [`RollbackSystems::EndRollback`]. It updates
+//! - Rollback runs in `PreUpdate`. Just before a live predicted `C` is
+//!   overwritten, rollback saves [`PreviousVisual`] if `C` has correction
+//!   enabled, whatever it is about to do to the component. Replay then advances
+//!   the live component to the corrected simulation value for the current tick,
+//!   but [`FrameInterpolationSystems::Update`] is skipped while rollback is
+//!   active, so history must be repaired manually:
+//!   `update_frame_interpolation_post_rollback` runs for every predicted
+//!   component in [`RollbackSystems::EndRollback`] and updates
 //!   [`FrameInterpolationHistory`] from the corrected live `C` and the previous
 //!   tick entry in [`PredictionHistory`].
-//! - `create_visual_corrections_post_rollback` then calls the selected
-//!   frame-interpolation rule from [`InterpolationRegistry`] for archetypes
-//!   that contain at least one [`PreviousVisual`]. This temporarily writes the
-//!   corrected visual sample into the live components, using the same component
-//!   or bundle rule that normal frame interpolation would use. A bundle member
-//!   does not need its own `PreviousVisual`: its repaired predicted frame
-//!   history can still contribute to another member's corrected sample.
-//! - It compares that corrected visual sample with [`PreviousVisual`], inserts
-//!   [`VisualCorrection`] with the resulting visual error, removes
-//!   [`PreviousVisual`], and restores every live component temporarily written
-//!   by the rule back to the corrected simulation value from
-//!   [`FrameInterpolationHistory`].
 //!
-//! ## Selecting correction-time interpolation work
-//!
-//! Correction does not have its own kind of interpolation rule. It resolves
-//! the normal frame-interpolation rules for the archetype, including their
-//! priority, filters, and independent history/apply ownership. A component is
-//! *active for correction* when the archetype contains its [`PreviousVisual`].
-//!
-//! From those resolved rules, correction caches:
-//!
-//! - each winning frame-apply callback whose rule contains at least one active
-//!   component; and
-//! - frame-history restore callbacks for every component that those apply
-//!   callbacks may write.
-//!
-//! The complete apply callback is retained for a bundle. For example, if only
-//! `A` has `PreviousVisual<A>` and `(A, B)` wins frame apply, correction runs
-//! the complete `(A, B)` callback. The callback reads both repaired
-//! `FrameInterpolationHistory<A>` and `FrameInterpolationHistory<B>` and
-//! temporarily writes both live components. Only `A` gets a
-//! [`VisualCorrection`], but both `A` and `B` must then be restored to their
-//! corrected simulation values.
-//!
-//! The cached frame-history metadata is not passed to the apply callback and
-//! does not repair or update history. Each apply callback fetches the histories
-//! for its own rule members. Correction obtains history metadata from the rules
-//! that won frame-history ownership only to get the type-erased restore
-//! callback for each temporarily written component. This distinction matters
-//! because frame-history ownership and frame-apply ownership can be assigned to
-//! different rules.
-//!
-//! Finally, `add_visual_correction` runs in
-//! [`RollbackSystems::VisualCorrection`], ordered after
-//! [`FrameInterpolationSystems::Interpolate`]. Normal frame interpolation first
-//! writes the corrected visual value for the render frame; visual correction
-//! then applies the decaying [`VisualCorrection`] error on top, using
-//! [`PredictionManager::correction_policy`] and the correction function
-//! registered for `C`. Once the error is small enough, [`VisualCorrection`]
-//! is removed.
-
+//! [`PreviousVisual`] is only removed by the system that records the correction,
+//! so a component that is removed and added back still has its jump measured, and
+//! a component that never comes back does not leave its saved value behind.
 use crate::SyncComponent;
 use crate::archetypes::{CachedPredictionComponent, UpdateFrameInterpolationPostRollbackWorld};
 use crate::manager::PredictionManager;
 use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
 use crate::rollback::RollbackSystems;
+use crate::switch::{SwitchBlend, SwitchDirection};
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
 use bevy_ecs::{
     archetype::{Archetype, ArchetypeGeneration, ArchetypeId, Archetypes},
     change_detection::Tick as ChangeTick,
-    component::{ComponentId, Components, Mutable, StorageType},
+    component::{ComponentId, Mutable},
     prelude::*,
     query::{FilteredAccess, FilteredAccessSet},
     system::{SystemMeta, SystemParam, SystemParamValidationError},
     world::unsafe_world_cell::UnsafeWorldCell,
 };
-use bevy_platform::{collections::HashMap, hash::NoOpHash};
 use bevy_reflect::Reflect;
-use bevy_time::{Fixed, Time, Virtual};
+use bevy_time::{Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_core::ecs_utils::{
-    table_component_slice, table_for_archetype, write_component_with_change_detection,
-};
+use lightyear_core::ecs_utils::write_component_with_change_detection;
 use lightyear_core::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::registry::{
-    InterpolationArchetypeKey, InterpolationRegistry, ResolvedRule, RuleResolutionScratch,
-    RuleTarget,
-};
-use lightyear_interpolation::rules::frame_interpolate::{
-    CachedFrameInterpolationApply, CachedFrameInterpolationHistoryComponent,
-    FrameInterpolationContext,
-};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diffable::Diffable;
-use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
+use lightyear_replication::registry::{ComponentRegistry, LerpFn};
 use lightyear_utils::ecs::get_component_unchecked;
 use tracing::trace;
 
@@ -140,100 +116,156 @@ pub struct PreviousVisual<C: Component>(pub C);
 pub struct VisualCorrection<D> {
     /// The error between the original visual value and the new visual value.
     /// Will decay over time.
+    ///
+    /// It is an offset: the apply adds it to the live value every frame, so what
+    /// is rendered is `live + error`, and the decay shrinks it towards zero.
+    ///
+    /// A live [`SwitchBlend`] window shapes that decay instead of the entity's
+    /// [`CorrectionPolicy`].
     pub error: D,
+    /// The visual-clock reading this error was recorded at, in seconds.
+    ///
+    /// A bounded curve needs to know how far into its window it is, so it is
+    /// measured from here. The exponential does not (its ratio is constant), but
+    /// it is recorded for every correction so the apply has one shape to read.
+    pub(crate) start_secs: f32,
 }
 
-/// Context shared by type-erased post-rollback correction handlers.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct PostRollbackCorrectionContext {
-    tick: Tick,
-    overstep: f32,
-    sample_delta_secs: f32,
+impl<D> VisualCorrection<D> {
+    /// A correction decaying on the entity's [`CorrectionPolicy`], starting now.
+    pub fn new(error: D, start_secs: f32) -> Self {
+        Self { error, start_secs }
+    }
+
+    /// How long this error has been decaying at the `now_secs` clock reading.
+    pub fn elapsed_secs(&self, now_secs: f32) -> f32 {
+        (now_secs - self.start_secs).max(0.0)
+    }
 }
 
-/// Type-erased visual correction handler registered per corrected component.
-pub(crate) type ErasedCreateVisualCorrectionFn = fn(
-    UnsafeWorldCell,
-    &ErasedPostRollbackCorrection,
-    PostRollbackCorrectionContext,
-    &mut DeferredEntityCommands,
-);
+/// Type-erased record of the correction for a saved value, per corrected
+/// component.
+pub(crate) type ErasedCreateVisualCorrectionFn =
+    fn(UnsafeWorldCell, &Archetype, f32, &mut DeferredEntityCommands);
 
-/// Type-erased post-rollback frame-history restore handler.
-pub(crate) type ErasedRestorePostRollbackFrameHistoryFn =
-    fn(UnsafeWorldCell, &ErasedPostRollbackCorrection);
+/// Type-erased save of the value a timeline switch blends from, for one
+/// corrected type.
+///
+/// See [`save_previous_visual_for_switch_erased`] for what each direction does.
+pub(crate) type ErasedSavePreviousVisualForSwitchFn =
+    fn(UnsafeWorldCell, Entity, SwitchDirection, &mut DeferredEntityCommands);
+
+/// Type-erased cleanup of the state a switch keeps for one corrected type.
+///
+/// Used when a blend window ends: the value the blend started from, and the
+/// error it was writing, have no reader left.
+pub(crate) type ErasedRemoveSwitchStateFn = fn(Entity, &mut DeferredEntityCommands);
 
 /// Type-erased post-rollback correction metadata registered for one component.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ErasedPostRollbackCorrection {
-    kind: ComponentKind,
     create_visual_correction: ErasedCreateVisualCorrectionFn,
-    restore_history: ErasedRestorePostRollbackFrameHistoryFn,
     correction_fn: unsafe fn(),
     live_component_id: ComponentId,
     previous_visual_component_id: ComponentId,
     frame_history_component_id: ComponentId,
+    /// The correction column the switch systems write.
+    visual_correction_component_id: ComponentId,
+    /// Presence of the entity-level blend marker: a window waiting for a
+    /// component it will blend keeps the saved value until it arrives.
+    switch_blend_component_id: ComponentId,
+    save_previous_visual_for_switch: ErasedSavePreviousVisualForSwitchFn,
+    remove_switch_state: ErasedRemoveSwitchStateFn,
 }
 
 impl ErasedPostRollbackCorrection {
     pub(crate) fn new<C, D>(world: &mut World, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Debug + Send + Sync + 'static,
+        D: Default + Debug + Send + Sync + 'static,
     {
         Self {
-            kind: ComponentKind::of::<C>(),
-            create_visual_correction: create_visual_correction_from_live_erased::<C, D>,
-            restore_history: restore_frame_history_post_rollback_erased::<C, D>,
+            create_visual_correction: create_visual_correction_erased::<C, D>,
             correction_fn: unsafe { core::mem::transmute::<LerpFn<D>, unsafe fn()>(correction_fn) },
             live_component_id: world.register_component::<C>(),
             previous_visual_component_id: world.register_component::<PreviousVisual<C>>(),
             frame_history_component_id: world.register_component::<FrameInterpolationHistory<C>>(),
+            visual_correction_component_id: world.register_component::<VisualCorrection<D>>(),
+            switch_blend_component_id: world.register_component::<SwitchBlend>(),
+            save_previous_visual_for_switch: save_previous_visual_for_switch_erased::<C, D>,
+            remove_switch_state: remove_switch_state_erased::<C, D>,
         }
     }
 
-    pub(crate) fn kind(&self) -> ComponentKind {
-        self.kind
+    /// Returns the save handler as a freestanding function pointer.
+    ///
+    /// See [`ErasedSavePreviousVisualForSwitchFn`] for the exact contract. The
+    /// pointer is `Copy`, so switch systems can collect the handlers they need
+    /// once per run and release the registry borrow before working.
+    pub(crate) fn save_previous_visual_for_switch_fn(&self) -> ErasedSavePreviousVisualForSwitchFn {
+        self.save_previous_visual_for_switch
     }
 
-    fn add_access(&self, filtered_access: &mut FilteredAccess) {
-        filtered_access.add_write(self.live_component_id);
+    /// Returns the switch-state cleanup handler as a freestanding function
+    /// pointer.
+    pub(crate) fn remove_switch_state_fn(&self) -> ErasedRemoveSwitchStateFn {
+        self.remove_switch_state
+    }
+
+    /// Declares the accesses used by [`CorrectionWorld`].
+    ///
+    /// The systems that take it read the value on screen, the saved value a
+    /// correction is measured from, and the blend marker, and write the
+    /// correction and the frame history; every structural change is queued
+    /// through [`DeferredEntityCommands`]. Declaring exactly those accesses keeps
+    /// them off the exclusive path their `&mut World` predecessors required.
+    pub(crate) fn add_correction_access(&self, filtered_access: &mut FilteredAccess) {
+        filtered_access.add_read(self.live_component_id);
         filtered_access.add_read(self.previous_visual_component_id);
+        filtered_access.add_read(self.switch_blend_component_id);
+        filtered_access.add_write(self.visual_correction_component_id);
         filtered_access.add_write(self.frame_history_component_id);
     }
 
-    fn create_visual_correction(
+    /// Records this type's corrections for every entity with a saved value.
+    ///
+    /// See [`create_visual_correction_erased`] for the contract.
+    pub(crate) fn create_visual_correction(
         &self,
         world: UnsafeWorldCell,
-        ctx: PostRollbackCorrectionContext,
-        deferred_apply: &mut DeferredEntityCommands,
+        archetype: &Archetype,
+        start_secs: f32,
+        deferred: &mut DeferredEntityCommands,
     ) {
-        (self.create_visual_correction)(world, self, ctx, deferred_apply);
+        (self.create_visual_correction)(world, archetype, start_secs, deferred);
     }
 
-    fn restore_history(&self, world: UnsafeWorldCell) {
-        (self.restore_history)(world, self);
-    }
-
-    pub(crate) fn apply_correction<D: Default>(&self, error: D, ratio: f32) -> D {
+    pub(crate) fn update_correction<D: Default>(&self, error: D, ratio: f32) -> D {
         let correction_fn =
             unsafe { core::mem::transmute::<unsafe fn(), LerpFn<D>>(self.correction_fn) };
         correction_fn(D::default(), error, ratio)
     }
 }
 
-/// System param exposing a low-level world cell for post-rollback correction.
+/// System param exposing a low-level world cell for the correction systems.
 ///
 /// Access is declared from the erased correction handlers registered in
-/// [`PredictionRegistry`], so the dispatcher can scan component columns without
-/// taking `&mut World`.
-pub(crate) struct PostRollbackCorrectionWorld<'w> {
+/// [`PredictionRegistry`], so the dispatcher works without taking `&mut World`.
+pub(crate) struct CorrectionWorld<'w> {
     world: UnsafeWorldCell<'w>,
 }
 
-unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
+impl<'w> CorrectionWorld<'w> {
+    /// The world cell. Callers must respect the accesses declared in
+    /// [`Self::init_access`].
+    pub(crate) fn world(&self) -> UnsafeWorldCell<'w> {
+        self.world
+    }
+}
+
+unsafe impl SystemParam for CorrectionWorld<'_> {
     type State = ();
-    type Item<'world, 'state> = PostRollbackCorrectionWorld<'world>;
+    type Item<'world, 'state> = CorrectionWorld<'world>;
 
     fn init_state(_world: &mut World) -> Self::State {}
 
@@ -246,12 +278,7 @@ unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
         let mut filtered_access = FilteredAccess::default();
         if let Some(registry) = world.get_resource::<PredictionRegistry>() {
             for correction in registry.post_rollback_corrections() {
-                correction.add_access(&mut filtered_access);
-            }
-        }
-        if let Some(registry) = world.get_resource::<InterpolationRegistry>() {
-            for component_id in registry.frame_component_write_ids() {
-                filtered_access.add_write(component_id);
+                correction.add_correction_access(&mut filtered_access);
             }
         }
         component_access_set.add(filtered_access);
@@ -263,245 +290,12 @@ unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
         world: UnsafeWorldCell<'world>,
         _change_tick: ChangeTick,
     ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
-        Ok(PostRollbackCorrectionWorld { world })
+        Ok(CorrectionWorld { world })
     }
 }
 
-/// Cached correction-time frame interpolation rules selected for archetypes
-/// that contain at least one [`PreviousVisual`] component.
-///
-/// Correction reuses the same interpolation rules as frame interpolation, but
-/// it only needs to run them for components that were visually captured before
-/// rollback. For each archetype, `active_members_scratch` contains precisely
-/// the component kinds whose `PreviousVisual<C>` is present. Its presence is
-/// included in the cache key, so archetypes with different active correction
-/// members cannot accidentally share a policy. Resolution-equivalent
-/// archetypes share one policy, avoiding both repeated rule resolution and
-/// duplicate callback vectors.
-#[derive(Debug)]
-pub(crate) struct PostRollbackCorrectionArchetypes {
-    generation: ArchetypeGeneration,
-    correction_count: usize,
-    policies: Vec<CachedPostRollbackCorrectionPolicy>,
-    policy_ids: HashMap<InterpolationArchetypeKey, usize, NoOpHash>,
-    active_members_scratch: Vec<ComponentKind>,
-    resolution_scratch: RuleResolutionScratch,
-}
-
-impl Default for PostRollbackCorrectionArchetypes {
-    fn default() -> Self {
-        Self {
-            generation: ArchetypeGeneration::initial(),
-            correction_count: 0,
-            policies: Vec::new(),
-            policy_ids: HashMap::default(),
-            active_members_scratch: Vec::new(),
-            resolution_scratch: RuleResolutionScratch::default(),
-        }
-    }
-}
-
-impl PostRollbackCorrectionArchetypes {
-    fn clear(&mut self) {
-        self.generation = ArchetypeGeneration::initial();
-        self.policies.clear();
-        self.policy_ids.clear();
-    }
-
-    /// Refreshes the correction cache for newly-created archetypes.
-    ///
-    /// Rule selection mirrors frame interpolation. A selected rule participates
-    /// when at least one of its members has an active `PreviousVisual<C>`
-    /// correction marker; other bundle members still provide their repaired
-    /// predicted frame-history samples. A high-priority no-apply rule still
-    /// claims its members, so it blocks lower-priority rules just like normal
-    /// interpolation rule selection.
-    fn update(
-        &mut self,
-        archetypes: &Archetypes,
-        components: &Components,
-        prediction_registry: &PredictionRegistry,
-        interpolation_registry: &InterpolationRegistry,
-    ) {
-        let correction_count = prediction_registry.post_rollback_corrections().count();
-        if self.correction_count != correction_count {
-            self.clear();
-            self.correction_count = correction_count;
-        }
-
-        let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
-        for archetype in archetypes[old_generation..].iter() {
-            // Only components with `PreviousVisual<C>` need a visual-correction
-            // error. Other members of a selected bundle rule may still be sampled
-            // and temporarily written while producing those corrected values.
-            let key = interpolation_registry.archetype_key_with(
-                archetype,
-                RuleTarget::Frame,
-                prediction_registry
-                    .post_rollback_corrections()
-                    .map(|correction| correction.previous_visual_component_id),
-            );
-            self.active_members_scratch.clear();
-            for correction in prediction_registry.post_rollback_corrections() {
-                if archetype.contains(correction.previous_visual_component_id) {
-                    self.active_members_scratch.push(correction.kind());
-                }
-            }
-            if self.active_members_scratch.is_empty() {
-                continue;
-            }
-
-            if let Some(&policy_id) = self.policy_ids.get(&key) {
-                self.policies[policy_id].archetype_ids.push(archetype.id());
-            } else {
-                // Correction reuses frame histories and frame apply functions. The
-                // PredictionRegistry/PreviousVisual set decides which members
-                // actually receive correction; it is not a third interpolation target.
-                let rules = interpolation_registry.resolved_rules_for_archetype(
-                    components,
-                    archetype,
-                    RuleTarget::Frame,
-                    &mut self.resolution_scratch,
-                );
-                let mut policy = CachedPostRollbackCorrectionPolicy {
-                    archetype_ids: alloc::vec![archetype.id()],
-                    apply_callbacks: Vec::new(),
-                    restore_components: Vec::new(),
-                };
-                policy.resolve_rules(
-                    archetype,
-                    interpolation_registry,
-                    rules,
-                    &self.active_members_scratch,
-                );
-                let policy_id = self.policies.len();
-                self.policies.push(policy);
-                self.policy_ids.insert(key, policy_id);
-            }
-        }
-    }
-
-    fn iter(&self) -> impl Iterator<Item = (ArchetypeId, &CachedPostRollbackCorrectionPolicy)> {
-        self.policies.iter().flat_map(|policy| {
-            policy
-                .archetype_ids
-                .iter()
-                .copied()
-                .map(move |archetype_id| (archetype_id, policy))
-        })
-    }
-
-    #[cfg(test)]
-    fn archetype_count(&self) -> usize {
-        self.policies
-            .iter()
-            .map(|policy| policy.archetype_ids.len())
-            .sum()
-    }
-}
-
-/// Correction policy shared by archetypes with the same relevant components.
-#[derive(Debug)]
-struct CachedPostRollbackCorrectionPolicy {
-    /// Archetypes whose relevant component presence resolves to this policy.
-    archetype_ids: Vec<ArchetypeId>,
-    /// Winning frame-apply callbacks whose rule overlaps at least one active
-    /// `PreviousVisual<C>` component.
-    ///
-    /// A bundle callback is stored in full. For example, if only `A` has
-    /// `PreviousVisual<A>`, a winning `(A, B)` callback still reads both frame
-    /// histories and writes both live components so that it applies the bundle
-    /// atomically.
-    apply_callbacks: Vec<CachedFrameInterpolationApply>,
-    /// Frame-history restore callbacks for every component that
-    /// `apply_callbacks` may temporarily write.
-    ///
-    /// This includes non-corrected bundle members such as `B` in the example
-    /// above: no typed correction handler will restore `B`, because it has no
-    /// `PreviousVisual<B>`. The callbacks come from the rules that won the
-    /// frame-history lane, which may differ from the rules in `apply_callbacks`.
-    /// History metadata for components not written by `apply_callbacks` is
-    /// discarded.
-    restore_components: Vec<CachedFrameInterpolationHistoryComponent>,
-}
-
-impl CachedPostRollbackCorrectionPolicy {
-    /// Resolves the correction work for `active_members`, the components on
-    /// this archetype that currently have `PreviousVisual<C>`.
-    ///
-    /// A resolved apply rule is cached only if it overlaps an active member,
-    /// but all of that rule's members are recorded because a bundle callback
-    /// writes the complete bundle. History metadata is collected independently
-    /// from the resolved history rules, then restricted to those recorded
-    /// members to produce `restore_components`. Finally, every active member
-    /// must be covered by a cached apply callback; correction cannot calculate
-    /// a new visual sample without one.
-    fn resolve_rules(
-        &mut self,
-        archetype: &Archetype,
-        registry: &InterpolationRegistry,
-        rules: &[ResolvedRule],
-        active_members: &[ComponentKind],
-    ) {
-        self.apply_callbacks.clear();
-        self.restore_components.clear();
-
-        // Correction only creates correction errors for members that have
-        // `PreviousVisual<C>` on this archetype. Rule ownership must still
-        // match normal frame interpolation: a bundle is atomic and may use
-        // non-corrected members as inputs to the corrected member's sample.
-        //
-        // These lists are needed only while constructing the cache:
-        // - `covered_members` verifies that every active member has an apply fn.
-        // - `frame_history_components` contains restore metadata from every
-        //   resolved history rule. Apply callbacks fetch history values themselves.
-        // - `restore_members` contains every member written by the retained apply
-        //   callbacks. It filters the history metadata into `restore_components`.
-        let mut covered_members = Vec::new();
-        let mut frame_history_components = Vec::new();
-        let mut restore_members = Vec::new();
-        for resolved in rules {
-            let rule = registry.rule(resolved.rule_id);
-            if resolved.owns_history {
-                frame_history_components.extend(rule.cached_frame_history_components(archetype));
-            }
-            if !resolved.owns_apply
-                || !rule
-                    .members()
-                    .any(|member| active_members.contains(&member))
-            {
-                continue;
-            }
-            if let Some(apply) = rule.cached_frame_apply(resolved.rule_id) {
-                covered_members.extend(
-                    rule.members()
-                        .filter(|member| active_members.contains(member)),
-                );
-                self.apply_callbacks.push(apply);
-                for member in rule.members() {
-                    if !restore_members.contains(&member) {
-                        restore_members.push(member);
-                    }
-                }
-            }
-        }
-        self.restore_components.extend(
-            frame_history_components
-                .iter()
-                .filter(|component| restore_members.contains(&component.kind()))
-                .copied(),
-        );
-
-        for member in active_members {
-            assert!(
-                covered_members.contains(member),
-                "No interpolation function was found for correction. Register an interpolation rule with an interpolation function for this component or bundle before calling add_correction/add_linear_correction/add_correction_fn."
-            );
-        }
-    }
-}
-
-#[derive(Resource, Default)]
+/// Marks that the shared correction creation system is installed.
+#[derive(Resource)]
 struct PostRollbackCorrectionSystemInstalled;
 
 /// Installs built-in visual correction systems for predicted component `C`.
@@ -517,90 +311,66 @@ pub fn add_correction_systems<
 >(
     app: &mut App,
 ) {
-    // When rollback finishes, compute the new corrected visual value and compare it
-    // with the original visual value to set the visual correction error.
+    // One shared system records the corrections, after frame interpolation has
+    // written the value this frame renders and before the apply adds them.
     if !app
         .world()
         .contains_resource::<PostRollbackCorrectionSystemInstalled>()
     {
         app.insert_resource(PostRollbackCorrectionSystemInstalled);
         app.add_systems(
-            PreUpdate,
-            create_visual_corrections_post_rollback
-                .in_set(RollbackSystems::EndRollback)
-                .before(crate::rollback::end_rollback),
+            PostUpdate,
+            create_visual_corrections
+                // The measurement is `previous - live`, so `live` has to be the
+                // value this frame renders. Without this edge the system is only
+                // ordered before the apply, leaving it free to run *before*
+                // frame interpolation, which would measure against the raw
+                // replayed value instead — and the apply would then put that
+                // offset on top of the interpolated value.
+                .after(FrameInterpolationSystems::Interpolate)
+                .before(RollbackSystems::VisualCorrection),
         );
     }
     app.configure_sets(
         PostUpdate,
-        // If FrameInterpolation runs after Correction, it would overwrite the applied correction.
-        RollbackSystems::VisualCorrection.after(FrameInterpolationSystems::Interpolate),
+        (
+            FrameInterpolationSystems::Interpolate,
+            // The apply must see the interpolated value: the recorded error is
+            // the gap to the value on screen, so it is added to that value.
+            RollbackSystems::VisualCorrection,
+        )
+            .chain(),
     );
     app.add_systems(
         PostUpdate,
-        add_visual_correction::<C, D>.in_set(RollbackSystems::VisualCorrection),
+        update_visual_correction::<C, D>.in_set(RollbackSystems::VisualCorrection),
     );
+    // Correction state cannot outlive its component: without live `C` the
+    // apply query never runs, so leftovers would linger until despawn — and a
+    // lingering blend window would permanently block every later switch.
+    app.add_observer(remove_correction_state_on_live_removed::<C, D>);
 }
 
-/// Creates visual corrections after a rollback from frame-interpolation state.
+/// Drops the decaying correction when its live component is removed.
 ///
-/// This system runs in [`PreUpdate`], in [`RollbackSystems::EndRollback`],
-/// after [`update_frame_interpolation_post_rollback`] and before
-/// [`crate::rollback::end_rollback`]. It runs the selected frame-interpolation
-/// rules to compute the corrected visual sample, creates [`VisualCorrection`]
-/// from that sample and [`PreviousVisual`], then restores live components to
-/// their corrected simulation values.
-pub(crate) fn create_visual_corrections_post_rollback(
-    time: Res<Time<Fixed>>,
-    timeline: Res<LocalTimeline>,
-    prediction_registry: Res<PredictionRegistry>,
-    interpolation_registry: Res<InterpolationRegistry>,
-    correction_world: PostRollbackCorrectionWorld,
-    mut correction_archetypes: Local<PostRollbackCorrectionArchetypes>,
+/// Without live `C` nothing applies or decays the error, so it would sit there
+/// until despawn and be added to whatever the value becomes when the component
+/// returns.
+///
+/// The saved value is deliberately kept: a component can be removed and added
+/// back — replication flux, or a rollback that removes it at the rollback tick
+/// and re-adds it later in the replay — and the correction for the jump that
+/// causes is measured from it. The system that computes corrections decides when
+/// a saved value is past saving; see [`crate::correction`]'s creation system.
+fn remove_correction_state_on_live_removed<C: Component, D: Send + Sync + 'static>(
+    trigger: On<Remove, C>,
     mut commands: Commands,
 ) {
-    let ctx = PostRollbackCorrectionContext {
-        // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
-        overstep: time.overstep_fraction(),
-        tick: timeline.tick(),
-        sample_delta_secs: time.timestep().as_secs_f32(),
-    };
-    let mut deferred_apply = DeferredEntityCommands::default();
-    let world = correction_world.world;
-
-    correction_archetypes.update(
-        world.archetypes(),
-        world.components(),
-        &prediction_registry,
-        &interpolation_registry,
-    );
-
-    // 1. Reuse the interpolation rules selected for each archetype to compute
-    // the corrected visual sample at the current fixed-overstep. This can run
-    // bundle rules such as `(A, B)`, so correction sees the same visual state
-    // that frame interpolation would have produced.
-    apply_frame_interpolation_for_visual_correction(
-        world,
-        &correction_archetypes,
-        &interpolation_registry,
-        ctx,
-    );
-
-    // 2. Compare the original pre-rollback visual value against the corrected
-    // visual sample to create `VisualCorrection<D>`, then restore the live
-    // component to the corrected simulation value. The visual correction is
-    // applied later in `RollbackSystems::VisualCorrection`.
-    for correction in prediction_registry.post_rollback_corrections() {
-        correction.create_visual_correction(world, ctx, &mut deferred_apply);
-        correction.restore_history(world);
-    }
-    restore_applied_frame_interpolation_components(world, &correction_archetypes);
-    deferred_apply.apply(&mut commands);
+    commands
+        .entity(trigger.entity)
+        .remove::<VisualCorrection<D>>();
 }
 
-/// Update frame-interpolation history to reflect the post-rollback prediction timeline.
-///
-/// If `C` was replayed due to rollback then it may have different values from
 /// before the rollback. Its frame-interpolation history still holds onto those
 /// old values and needs to be corrected.
 pub(crate) fn update_frame_interpolation_post_rollback(
@@ -695,200 +465,234 @@ pub(crate) unsafe fn update_frame_interpolation_post_rollback_component<
     }
 }
 
-/// Applies selected frame-interpolation rules to post-rollback visual samples.
+/// Saves the value a timeline switch blends from, for one correction type.
 ///
-/// This helper is called by [`create_visual_corrections_post_rollback`] in
-/// [`PreUpdate`], in [`RollbackSystems::EndRollback`], after frame histories
-/// have been repaired and before [`VisualCorrection`] is created. It iterates
-/// the correction archetype cache and runs each selected type-erased frame
-/// apply function, so bundle rules and component rules use the same precedence
-/// as normal frame interpolation.
-fn apply_frame_interpolation_for_visual_correction(
+/// See [`ErasedSavePreviousVisualForSwitchFn`] for the contract. A switch to the
+/// prediction timeline saves nothing: the forced rollback that it asks for
+/// captures the same value from the same live component in `PreUpdate` of the
+/// next frame, and nothing writes the live value in between. All this pass does
+/// for that direction is drop the stale
+/// [`FrameInterpolationHistory<C>`](lightyear_core::prelude::FrameInterpolationHistory),
+/// which frame interpolation stopped updating while the entity was interpolated.
+fn save_previous_visual_for_switch_erased<C, D>(
     world: UnsafeWorldCell,
-    correction_archetypes: &PostRollbackCorrectionArchetypes,
-    interpolation_registry: &InterpolationRegistry,
-    ctx: PostRollbackCorrectionContext,
-) {
-    for (archetype_id, policy) in correction_archetypes.iter() {
-        let Some(archetype) = world.archetypes().get(archetype_id) else {
-            continue;
-        };
-        for apply in &policy.apply_callbacks {
-            (apply.apply_frame_interpolation())(
-                world,
-                archetype,
-                interpolation_registry,
-                apply.rule_id(),
-                FrameInterpolationContext {
-                    overstep: ctx.overstep,
-                    sample_delta_secs: Some(ctx.sample_delta_secs),
-                },
-                false,
-            );
-        }
+    entity: Entity,
+    direction: SwitchDirection,
+    deferred: &mut DeferredEntityCommands,
+) where
+    C: SyncComponent + Diffable<D>,
+    D: Default + Send + Sync + 'static,
+{
+    let Ok(entity_cell) = world.get_entity(entity) else {
+        return;
+    };
+    // The history belongs to the era the entity is leaving. Frame interpolation
+    // only records it for archetypes that carry `FrameInterpolate`, so while the
+    // entity was interpolated this history was frozen at the value from before
+    // that; and once the entity becomes interpolated, frame interpolation stops
+    // reading it. Either way it does not describe where the entity is going, and
+    // leaving it would let the next era restore a stale value over the live one.
+    // Removing it lets the next era seed a fresh one from the live value.
+    deferred.remove::<FrameInterpolationHistory<C>>(entity);
+    if direction == SwitchDirection::ToPredicted {
+        // The rollback this switch asks for is what captures the value to blend
+        // from: it takes the live value in `PreUpdate` of the next frame, and
+        // nothing writes the live value between here and there, so it captures
+        // this same value. Saving it here would write the same thing twice.
+        return;
     }
+    // SAFETY: the caller declares read access to live `C`.
+    let Some(value) = (unsafe { entity_cell.get::<C>() }).cloned() else {
+        return;
+    };
+    trace!(
+        target: "lightyear_debug::prediction",
+        kind = "switch_previous_visual_saved",
+        schedule = "PostUpdate",
+        sample_point = "PostUpdate",
+        entity = ?entity,
+        component = ?DebugName::type_name::<C>(),
+        value = ?value,
+        "saved value for timeline switch blend"
+    );
+    deferred.insert(entity, PreviousVisual(value));
 }
 
-/// Restores every component temporarily written by a correction-time apply rule.
+/// Removes the state a switch kept for one corrected type once its window ends.
 ///
-/// Bundle interpolation can write members that do not have correction enabled
-/// and therefore have no typed post-rollback correction handler of their own.
-/// Those members still need to return to their authoritative predicted value
-/// before simulation continues.
-fn restore_applied_frame_interpolation_components(
-    world: UnsafeWorldCell,
-    correction_archetypes: &PostRollbackCorrectionArchetypes,
-) {
-    for (archetype_id, policy) in correction_archetypes.iter() {
-        let Some(archetype) = world.archetypes().get(archetype_id) else {
-            continue;
-        };
-        for component in &policy.restore_components {
-            (component.restore_frame_history())(world, archetype, component);
-        }
-    }
+/// A saved value that is still there when the window ends belongs to a component
+/// the destination timeline never presented, and nothing will use it now; a
+/// correction still there is converging, and the apply owns it.
+fn remove_switch_state_erased<C, D>(entity: Entity, deferred: &mut DeferredEntityCommands)
+where
+    C: SyncComponent + Diffable<D>,
+    D: Send + Sync + 'static,
+{
+    deferred.remove::<PreviousVisual<C>>(entity);
 }
 
-/// Creates a `VisualCorrection<D>` from the corrected visual sample.
+/// Records the correction for the jump a saved value measures, for one
+/// corrected type.
 ///
-/// This erased handler is called by
-/// [`create_visual_corrections_post_rollback`] in [`PreUpdate`], in
-/// [`RollbackSystems::EndRollback`], after frame-interpolation rules have
-/// temporarily written the corrected visual value into live `C`. It compares
-/// that value with [`PreviousVisual<C>`], stores the resulting diff in
-/// [`VisualCorrection<D>`], and removes [`PreviousVisual<C>`].
-pub(crate) fn create_visual_correction_from_live_erased<
+/// This is the one place a [`VisualCorrection`] is created. Every jump is
+/// measured the same way — the value that was on screen before it, against the
+/// value that is on screen now — whether the jump came from a rollback or from a
+/// timeline switch, so one handler covers both. The only difference between them
+/// is how the resulting error is decayed, which the window decides later.
+///
+/// Runs in `PostUpdate`, after frame interpolation has written the value this
+/// frame renders, so the measurement is against exactly what the entity would
+/// show without a correction. That is what makes the blend land on the saved
+/// value: the apply adds the error to this value, and the error is the gap
+/// between it and the saved one.
+///
+/// `previous` stays in place when the destination timeline has not presented the
+/// component yet, so the correction is recorded once it does. Nothing else
+/// removes it: a component can be removed and added back, and the jump that
+/// causes is measured from the same saved value.
+fn create_visual_correction_erased<C, D>(
+    world: UnsafeWorldCell,
+    archetype: &Archetype,
+    start_secs: f32,
+    deferred: &mut DeferredEntityCommands,
+) where
     C: SyncComponent + Diffable<D>,
     D: Debug + Send + Sync + 'static,
->(
-    world: UnsafeWorldCell,
-    correction: &ErasedPostRollbackCorrection,
-    ctx: PostRollbackCorrectionContext,
-    deferred_apply: &mut DeferredEntityCommands,
-) {
-    let component_id = correction.live_component_id;
-    let frame_history_id = correction.frame_history_component_id;
-    let previous_visual_id = correction.previous_visual_component_id;
-
-    for archetype in world.archetypes().iter().filter(|archetype| {
-        archetype.contains(component_id)
-            && archetype.contains(frame_history_id)
-            && archetype.contains(previous_visual_id)
-    }) {
-        let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
+{
+    for entity in archetype.entities() {
+        let entity_id = entity.id();
+        let Ok(entity_cell) = world.get_entity(entity_id) else {
             continue;
         };
-        debug_assert_eq!(
-            archetype.get_storage_type(frame_history_id),
-            Some(StorageType::Table)
-        );
-        debug_assert_eq!(
-            archetype.get_storage_type(previous_visual_id),
-            Some(StorageType::Table)
-        );
-        let Some(table) = table_for_archetype(world, archetype) else {
-            continue;
-        };
-        let Some(components) = table_component_slice::<C>(table, component_id) else {
-            continue;
-        };
-        let Some(frame_histories) =
-            table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
+        // SAFETY: the caller declares read access to the saved value, the live
+        // value, and the blend marker.
+        let Some(previous) =
+            (unsafe { entity_cell.get::<PreviousVisual<C>>() }).map(|previous| previous.0.clone())
         else {
             continue;
         };
-        let Some(previous_visuals) =
-            table_component_slice::<PreviousVisual<C>>(table, previous_visual_id)
-        else {
-            continue;
-        };
-
-        for entity in archetype.entities() {
-            let entity_id = entity.id();
-            let row = entity.table_row().index();
-            let current_visual = unsafe { &*components.get_unchecked(row).get() };
-            let interpolate = unsafe { &*frame_histories.get_unchecked(row).get() };
-            if interpolate.previous_value.is_none() {
-                continue;
+        let Some(live) = (unsafe { entity_cell.get::<C>() }) else {
+            // The destination timeline has not presented this component, so
+            // there is nothing to measure against yet. A switch window is what
+            // is waiting for it, and the window's length bounds the wait;
+            // without one nothing will use the saved value, so it goes rather
+            // than lingering until despawn and then being added to whatever the
+            // value becomes when it returns.
+            let waiting_for_window = entity_cell.contains::<SwitchBlend>();
+            if !waiting_for_window {
+                deferred.remove::<PreviousVisual<C>>(entity_id);
             }
-            let previous_visual = unsafe { &*previous_visuals.get_unchecked(row).get() };
-            // error = previous_visual - current_visual
-            let error = current_visual.diff(&previous_visual.0);
-            trace!(
-                target: "lightyear_debug::prediction",
-                kind = "visual_correction_created",
-                schedule = "PreUpdate",
-                sample_point = "PreUpdate",
-                entity = ?entity_id,
-                component = ?DebugName::type_name::<C>(),
-                local_tick = ctx.tick.0,
-                overstep = ctx.overstep,
-                current_visual = ?current_visual,
-                previous_visual = ?previous_visual,
-                error = ?error,
-                "created visual correction after rollback"
-            );
-            deferred_apply.insert(entity_id, VisualCorrection::<D> { error });
-            deferred_apply.remove::<PreviousVisual<C>>(entity_id);
+            continue;
+        };
+        // `diff(new)` is `new - self`, so this is `previous - live`: the apply
+        // adds it to the destination, and the entity keeps rendering the value
+        // it had before the jump.
+        let error: D = live.diff(&previous);
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "visual_correction_created",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            entity = ?entity_id,
+            component = ?DebugName::type_name::<C>(),
+            previous = ?previous,
+            current_visual = ?live,
+            error = ?error,
+            "created visual correction"
+        );
+        deferred.insert(entity_id, VisualCorrection::<D> { error, start_secs });
+        deferred.remove::<PreviousVisual<C>>(entity_id);
+    }
+}
+
+/// The archetypes that can produce a correction, and which registered
+/// corrections apply to each.
+///
+/// Only archetypes that hold a [`PreviousVisual<C>`] are worth visiting, and a
+/// saved value is rare next to the entities a client simulates. Walking every
+/// archetype each frame to find them is wasted work, and scanning a component
+/// column per archetype is more than is needed: the archetype itself says which
+/// kinds are correctable, because component sets are uniform per archetype.
+///
+/// Cached by archetype generation, so archetypes created by a spawn, an insert,
+/// or a switch's marker surgery are picked up on the next frame.
+pub(crate) struct CorrectionArchetypeCache {
+    generation: ArchetypeGeneration,
+    correction_count: usize,
+    archetypes: Vec<CorrectionArchetype>,
+}
+
+impl Default for CorrectionArchetypeCache {
+    fn default() -> Self {
+        Self {
+            generation: ArchetypeGeneration::initial(),
+            correction_count: 0,
+            archetypes: Vec::new(),
         }
     }
 }
 
-/// Restores live `C` to the corrected simulation value after sampling visuals.
-///
-/// This erased handler is called by
-/// [`create_visual_corrections_post_rollback`] in [`PreUpdate`], in
-/// [`RollbackSystems::EndRollback`], after [`VisualCorrection`] has been
-/// created. The frame-apply phase temporarily writes visual values into live
-/// components; this restores each live `C` from
-/// `FrameInterpolationHistory<C>::current_value` so fixed simulation state
-/// remains authoritative.
-pub(crate) fn restore_frame_history_post_rollback_erased<
-    C: SyncComponent + Diffable<D>,
-    D: Debug + Send + Sync + 'static,
->(
-    world: UnsafeWorldCell,
-    correction: &ErasedPostRollbackCorrection,
-) {
-    let component_id = correction.live_component_id;
-    let frame_history_id = correction.frame_history_component_id;
+/// One cached archetype: the corrections its saved values can produce.
+struct CorrectionArchetype {
+    id: ArchetypeId,
+    /// Cloned out of the registry so the per-frame pass needs no lookup.
+    corrections: Vec<ErasedPostRollbackCorrection>,
+}
 
-    for archetype in world.archetypes().iter().filter(|archetype| {
-        archetype.contains(component_id) && archetype.contains(frame_history_id)
-    }) {
-        let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
-            continue;
-        };
-        debug_assert_eq!(
-            archetype.get_storage_type(frame_history_id),
-            Some(StorageType::Table)
-        );
-        let Some(table) = table_for_archetype(world, archetype) else {
-            continue;
-        };
-        let Some(frame_histories) =
-            table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
-        else {
-            continue;
-        };
-
-        for entity in archetype.entities() {
-            let row = entity.table_row().index();
-            let interpolate = unsafe { &*frame_histories.get_unchecked(row).get() };
-            let Some(current_value) = &interpolate.current_value else {
+impl CorrectionArchetypeCache {
+    fn update(&mut self, archetypes: &Archetypes, registry: &PredictionRegistry) {
+        let correction_count = registry.post_rollback_corrections().count();
+        if self.correction_count != correction_count {
+            // Corrections registered after the cache was filled: start over so
+            // existing archetypes are considered for them too.
+            self.generation = ArchetypeGeneration::initial();
+            self.archetypes.clear();
+            self.correction_count = correction_count;
+        }
+        let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
+        for archetype in archetypes[old_generation..].iter() {
+            let corrections: Vec<_> = registry
+                .post_rollback_corrections()
+                .filter(|correction| archetype.contains(correction.previous_visual_component_id))
+                .collect();
+            if corrections.is_empty() {
                 continue;
-            };
-            // SAFETY: the erased correction system declares write access to C,
-            // and no reference to this entity's live C is held here.
-            unsafe {
-                write_component_with_change_detection::<C>(
-                    world,
-                    entity.id(),
-                    current_value.clone(),
-                );
             }
+            self.archetypes.push(CorrectionArchetype {
+                id: archetype.id(),
+                corrections,
+            });
         }
     }
+}
+
+/// Records a correction for every entity that has a saved value to measure, on
+/// every corrected type.
+///
+/// Runs in `PostUpdate` after frame interpolation and before
+/// [`RollbackSystems::VisualCorrection`], which is the apply that adds the
+/// errors this writes. See [`create_visual_correction_erased`] for the
+/// measurement.
+pub(crate) fn create_visual_corrections(
+    correction_world: CorrectionWorld,
+    registry: Res<PredictionRegistry>,
+    time: Res<Time<Virtual>>,
+    mut cache: Local<CorrectionArchetypeCache>,
+    mut commands: Commands,
+) {
+    let world = correction_world.world();
+    let start_secs = time.elapsed_secs();
+    cache.update(world.archetypes(), &registry);
+    let mut deferred = DeferredEntityCommands::default();
+    for cached in &cache.archetypes {
+        let Some(archetype) = world.archetypes().get(cached.id) else {
+            continue;
+        };
+        for correction in &cached.corrections {
+            correction.create_visual_correction(world, archetype, start_secs, &mut deferred);
+        }
+    }
+    deferred.apply(&mut commands);
 }
 
 /// Applies and decays a stored visual correction after frame interpolation.
@@ -901,27 +705,53 @@ pub(crate) fn restore_frame_history_post_rollback_erased<
 /// small enough, it removes the correction component.
 ///
 /// `C` must have an interpolation rule with a frame-interpolation apply
-/// function, because correction uses that rule to sample the current visual
-/// value right after rollback. The resulting rollback error is stored as `D`
-/// and decayed by the correction function registered through
-/// `add_correction`, `add_linear_correction`, or `add_correction_fn`.
-pub(crate) fn add_visual_correction<
+/// function, because the error is measured against the value that rule produced
+/// for this frame. The error is stored as `D` and given up by the correction
+/// function registered through `add_correction`, `add_linear_correction`, or
+/// `add_correction_fn`.
+pub(crate) fn update_visual_correction<
     C: SyncComponent + Diffable<D>,
     D: Default + Clone + Debug + Send + Sync + 'static,
 >(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
     manager: Res<PredictionManager>,
-    mut query: Query<(Entity, &mut C, &mut VisualCorrection<D>)>,
+    mut query: Query<(
+        Entity,
+        &mut C,
+        &mut VisualCorrection<D>,
+        Option<&CorrectionPolicy>,
+        Option<&SwitchBlend>,
+    )>,
     mut commands: Commands,
 ) {
-    let r = manager.correction_policy.lerp_ratio(time.delta());
-    query
-        .iter_mut()
-        .for_each(|(entity, mut component, mut visual_correction)| {
+    let dt = time.delta();
+    let now = time.elapsed_secs();
+    let global = &manager.correction_policy;
+    query.iter_mut().for_each(
+        |(entity, mut component, mut visual_correction, override_policy, blend_marker)| {
+            let dt_secs = dt.as_secs_f32();
+            let elapsed_secs = visual_correction.elapsed_secs(now);
+            let policy_ratio = override_policy
+                .map_or(global, |policy| policy)
+                .lerp_ratio(elapsed_secs, dt);
+            // A live window's ease curve shapes the decay, so the length and
+            // curve the caller asked for are what the transition looks like. The
+            // curve never gives the error up *faster* than the entity's own
+            // correction would: its tail is steep, and a jump arriving late in
+            // the window (a rollback during the blend) would otherwise be dumped
+            // into a single frame. The policy is the floor, the curve the
+            // ceiling, and a converged error ends the blend early.
+            let r = blend_marker
+                .filter(|marker| !marker.is_expired(now))
+                .and_then(|marker| marker.curve_keep(now, dt_secs))
+                .map_or(policy_ratio, |curve_ratio| curve_ratio.max(policy_ratio));
             let previous_error = visual_correction.error.clone();
             let mut error_as_component = C::base_value();
             error_as_component.apply_diff(&previous_error);
+            // "Small enough to stop applying" is the same test for both
+            // schedules: the error has converged, so there is nothing left to
+            // carry and the next jump will record a fresh one.
             if !prediction.should_rollback(&C::base_value(), &error_as_component) {
                 trace!(
                     target: "lightyear_debug::prediction",
@@ -937,7 +767,7 @@ pub(crate) fn add_visual_correction<
                 return;
             }
             let new_error = prediction
-                .apply_correction::<C, D>(previous_error.clone(), r)
+                .update_correction::<C, D>(previous_error.clone(), r)
                 .expect("No correction function was found. Call add_correction, add_linear_correction, or add_correction_fn for this component.");
             component.apply_diff(&new_error);
             trace!(
@@ -953,49 +783,245 @@ pub(crate) fn add_visual_correction<
                 "applied visual correction"
             );
             visual_correction.error = new_error;
-        });
+        },
+    );
 }
 
-#[derive(Component, Debug, Reflect)]
-pub struct CorrectionPolicy {
-    /// Period of time to decay the error by `decay_ratio`
-    decay_period: core::time::Duration,
-    /// Fraction of the error remaining after `decay_period` has passed.
+/// A curve that gives a correction error up over time.
+///
+/// Every error is a recorded jump, and this is how it is given up. The curves
+/// come in two shapes:
+///
+/// * **Unbounded**: [`Exponential`](Self::Exponential) has no end of its own —
+///   `decay_ratio` of the error is left after each `decay_period_secs`, so it only
+///   ever approaches zero. This is the shape for reconciliation, where the aim is
+///   to catch up with the server; it is what [`CorrectionPolicy`] uses.
+/// * **Bounded**: the rest are normalised over a window, reaching zero at its
+///   end. This is the shape for a timeline switch, where the transition is meant
+///   to be seen and to finish.
+///
+/// A bounded curve gets its length from the window it runs over
+/// ([`SwitchBlend`]'s duration) rather than from the variant, so there is one
+/// place to set it. An exponential carries its own period, because that period
+/// is what defines its shape; a window still bounds it, and the error converges
+/// when the window ends.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Default)]
+pub enum CorrectionEase {
+    /// Constant speed.
+    Linear,
+    /// Slow start and slow finish.
     ///
-    /// For example if `decay_period` is 1 second and `decay_ratio` is 0.3, then only 30% of the original error
-    /// remains after 1 second.
-    decay_ratio: f32,
-    /// We will stop applying correction after this amount of time has passed since the rollback started.
-    max_correction_period: core::time::Duration,
+    /// A flat start hides the velocity step when the entity was already moving,
+    /// but it holds almost the whole correction for the first frames — see
+    /// [`EaseOutCubic`](Self::EaseOutCubic) — which reads as a stop on a blend
+    /// that starts from a large gap.
+    Smoothstep,
+    /// Fast start, slow finish.
+    ///
+    /// Default: an error is given up from the value on screen towards the
+    /// destination, so a curve that starts fast releases a visible amount on the
+    /// first frame and settles gradually. A flat-starting curve instead keeps
+    /// almost the whole gap for those frames — a frame of a one second
+    /// `Smoothstep` window releases under 1% of it — which reads as the entity
+    /// stopping and then lurching.
+    #[default]
+    EaseOutCubic,
+    /// Slow start, fast middle, slow finish.
+    EaseInOutCubic,
+    /// `decay_ratio` of the error remains after each `decay_period_secs` seconds.
+    Exponential {
+        /// Fraction of the error left after one `decay_period_secs`.
+        decay_ratio: f32,
+        /// Time for the error to fall to `decay_ratio` of its value.
+        decay_period_secs: f32,
+    },
+}
+
+impl CorrectionEase {
+    /// All bounded variants, for UI pickers. [`Exponential`](Self::Exponential)
+    /// is parameterised, so it is not part of the rotation.
+    pub const ALL: [CorrectionEase; 4] = [
+        CorrectionEase::Linear,
+        CorrectionEase::Smoothstep,
+        CorrectionEase::EaseOutCubic,
+        CorrectionEase::EaseInOutCubic,
+    ];
+
+    /// Short display name, for UI pickers.
+    pub fn name(&self) -> &'static str {
+        match self {
+            CorrectionEase::Linear => "Linear",
+            CorrectionEase::Smoothstep => "Smoothstep",
+            CorrectionEase::EaseOutCubic => "EaseOutCubic",
+            CorrectionEase::EaseInOutCubic => "EaseInOutCubic",
+            CorrectionEase::Exponential { .. } => "Exponential",
+        }
+    }
+
+    /// True when the curve only approaches zero instead of reaching it.
+    pub fn is_unbounded(&self) -> bool {
+        matches!(self, CorrectionEase::Exponential { .. })
+    }
+
+    /// Fraction of the error still left, `elapsed` seconds in, for a curve
+    /// running over a `duration`-long window.
+    ///
+    /// `duration` bounds every curve; an unbounded one ignores it for its shape
+    /// and is cut off by it.
+    pub fn remaining(&self, elapsed: f32, duration: f32) -> f32 {
+        match self {
+            CorrectionEase::Exponential {
+                decay_ratio,
+                decay_period_secs,
+            } => {
+                if *decay_period_secs <= 0.0 {
+                    return 0.0;
+                }
+                decay_ratio.powf(elapsed / decay_period_secs)
+            }
+            bounded => {
+                if !duration.is_finite() || duration <= 0.0 {
+                    return 0.0;
+                }
+                bounded.bounded_remaining(elapsed / duration)
+            }
+        }
+    }
+
+    /// Per-frame keep ratio for the frame that starts `elapsed` seconds into a
+    /// curve running over a `duration`-long window.
+    ///
+    /// This is `remaining(next) / remaining(prev)`, so the error telescopes along
+    /// the curve exactly, whatever the frame rate. The frame covers
+    /// `[elapsed, elapsed + dt]`, and counting the frame being decayed is what
+    /// makes a blend's first frame already give up `1 - remaining(dt)` of the
+    /// gap. Looking backwards instead clamps the previous edge to `0` on that
+    /// frame, which makes the keep ratio exactly `1`: the rendered value is put
+    /// back onto the one it already had, so the frame does not move at all.
+    pub fn keep(&self, elapsed: f32, dt: f32, duration: f32) -> f32 {
+        // The exponential's ratio is constant, so it does not need the edges.
+        if let CorrectionEase::Exponential { .. } = self {
+            return self.remaining(dt, duration);
+        }
+        let prev = self.remaining(elapsed, duration);
+        let next = self.remaining(elapsed + dt, duration);
+        if prev > 0.0 {
+            (next / prev).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Normalised curves only: an exponential has no window to be normalised
+    /// over, and `remaining` handles it before reaching here.
+    fn bounded_remaining(&self, progress: f32) -> f32 {
+        let p = progress.clamp(0.0, 1.0);
+        match self {
+            CorrectionEase::Linear => 1.0 - p,
+            CorrectionEase::Smoothstep => 1.0 - (p * p * (3.0 - 2.0 * p)),
+            CorrectionEase::EaseOutCubic => (1.0 - p).powi(3),
+            CorrectionEase::EaseInOutCubic => {
+                if p < 0.5 {
+                    1.0 - 4.0 * p * p * p
+                } else {
+                    let q = -2.0 * p + 2.0;
+                    q * q * q / 2.0
+                }
+            }
+            CorrectionEase::Exponential { .. } => {
+                unreachable!("an exponential is unbounded and handled by the caller")
+            }
+        }
+    }
+}
+
+/// Decay schedule for [`VisualCorrection`] errors.
+///
+/// The default schedule lives on the [`PredictionManager`] resource and applies
+/// to every corrected entity. Inserting this component on an entity overrides
+/// the global schedule for that entity only — that is how one-off corrections can
+/// decay on their own tuning without retuning every other correction.
+///
+/// This is the unbounded, exponential easing ([`CorrectionEase::Exponential`])
+/// written as a pair of parameters, and it is what a rollback correction decays
+/// on: the aim there is to catch up with the server, not to look deliberate. A
+/// live [`SwitchBlend`] window runs its own curve instead, and the two combine by
+/// taking whichever gives the error up more slowly at that instant, so a blend is
+/// never shortened by this schedule and a rollback arriving late in a window is
+/// never dumped by the curve's tail.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+pub struct CorrectionPolicy {
+    /// How the error is given up.
+    ///
+    /// The default is the unbounded exponential, tuned in the two parameters
+    /// below. A bounded curve ([`CorrectionEase::Smoothstep`] and friends) is
+    /// normalised over [`Self::duration`] instead, and reaches zero at its end.
+    ease: CorrectionEase,
+    /// How long a bounded curve takes, in seconds.
+    ///
+    /// Ignored by [`CorrectionEase::Exponential`], which carries its own period
+    /// and only approaches zero; but still what bounds it when the policy runs
+    /// alongside a [`SwitchBlend`] window, whose own length is used instead. A
+    /// bounded curve needs it: [`CorrectionEase`] variants are normalised over a
+    /// window, so without a duration they would have nothing to run over.
+    duration_secs: f32,
 }
 
 impl Default for CorrectionPolicy {
     fn default() -> Self {
         Self {
-            decay_period: core::time::Duration::from_millis(200),
-            decay_ratio: 0.5,
-            max_correction_period: core::time::Duration::from_secs(600),
+            // The unbounded exponential, as a ratio and a period.
+            ease: CorrectionEase::Exponential {
+                decay_ratio: 0.5,
+                decay_period_secs: 0.2,
+            },
+            duration_secs: 0.5,
         }
     }
 }
 
 impl CorrectionPolicy {
-    /// Returns the lerp constant to use for exponentially decaying the error in a framestep-insensitive way
-    ///
-    /// See: <https://www.youtube.com/watch?v=LSNQuFEDOyQ>
-    #[inline]
-    pub fn lerp_ratio(&self, delta: core::time::Duration) -> f32 {
-        let dt = delta.as_secs_f32();
-        let neg_decay_constant = self.decay_ratio.ln() / self.decay_period.as_secs_f32();
-        (neg_decay_constant * dt).exp()
+    /// Custom exponential schedule: after each `decay_period_secs`, `decay_ratio` of
+    /// the error remains. Insert on an entity to override the global schedule for
+    /// that entity only.
+    pub fn new(decay_ratio: f32, decay_period_secs: core::time::Duration) -> Self {
+        Self {
+            ease: CorrectionEase::Exponential {
+                decay_ratio,
+                decay_period_secs: decay_period_secs.as_secs_f32(),
+            },
+            ..Self::default()
+        }
     }
 
-    pub fn instant_correction() -> Self {
+    /// Any curve, run over `duration_secs`.
+    ///
+    /// This is how a bounded curve is selected: an exponential ignores the
+    /// duration and is only bounded by it, while a bounded one is normalised over
+    /// it and reaches zero there.
+    pub fn with_ease(ease: CorrectionEase, duration_secs: f32) -> Self {
         Self {
-            decay_period: core::time::Duration::from_millis(1),
-            decay_ratio: 0.0000001,
-            max_correction_period: core::time::Duration::from_millis(10),
+            ease,
+            duration_secs,
         }
+    }
+
+    /// The curve this policy decays on.
+    pub fn ease(&self) -> CorrectionEase {
+        self.ease
+    }
+
+    /// Returns the lerp constant to use for decaying the error in a framestep-insensitive way.
+    ///
+    /// For an exponential this is constant, which is the classic framestep-insensitive
+    /// exponential decay; see <https://www.youtube.com/watch?v=LSNQuFEDOyQ>.
+    /// A bounded curve has no such constant — its ratio depends on where in the
+    /// window the frame falls — so it is read from `elapsed`, which the caller
+    /// takes from the correction's own recorded start.
+    #[inline]
+    pub fn lerp_ratio(&self, elapsed_secs: f32, delta: core::time::Duration) -> f32 {
+        self.ease
+            .keep(elapsed_secs, delta.as_secs_f32(), self.duration_secs)
     }
 }
 
@@ -1021,6 +1047,7 @@ mod tests {
     use super::*;
     use crate::plugin::PredictionMarkerPlugin;
     use crate::registry::{PredictionAppRegistrationExt, PredictionBuilderExt, PredictionRegistry};
+    use bevy_time::Fixed;
 
     fn app_with_replication_markers() -> App {
         let mut app = App::new();
@@ -1032,6 +1059,9 @@ mod tests {
             PredictionMarkerPlugin,
             InterpolationMarkerPlugin,
         ));
+        // The shared correction system stamps each error with the visual clock,
+        // so a bounded curve can advance along its window.
+        app.insert_resource(Time::<Virtual>::default());
         app
     }
 
@@ -1088,40 +1118,271 @@ mod tests {
         assert!(app.world().get::<FrameInterpolate>(entity).is_some());
     }
 
-    /// Checks that correction archetypes differing only by unrelated components share a policy.
+    /// A converged offset is dropped whether or not a switch window is live.
+    /// Nothing re-derives an offset from the value a switch started from, so a
+    /// window does not need to keep the correction around: the next jump (a
+    /// rollback, or another switch) records a fresh one.
+    /// The frame a window opens moves the render. Counting the frame being
+    /// decayed is what makes that true: without it the first frame's keep ratio
+    /// is exactly `1`, which puts the rendered value back onto the one it already
+    /// had and shows the same pose twice.
     #[test]
-    fn correction_archetypes_share_resolution_equivalent_policies() {
+    fn a_blend_first_frame_gives_up_part_of_the_gap() {
+        for ease in [
+            CorrectionEase::Linear,
+            CorrectionEase::Smoothstep,
+            CorrectionEase::EaseOutCubic,
+            CorrectionEase::EaseInOutCubic,
+        ] {
+            let keep = ease.keep(0.0, 1.0 / 60.0, 1.0);
+            assert!(
+                keep < 1.0,
+                "{ease:?} kept everything on the first frame: {keep}"
+            );
+            // A frame is the smallest step there is, so a curve should not give
+            // up the whole window in one frame either.
+            assert!(keep > 0.0, "{ease:?} gave up the whole gap at once: {keep}");
+        }
+        // Linear is the easiest to check by hand: one frame of a one second
+        // window gives up exactly that frame's fraction.
+        let keep = CorrectionEase::Linear.keep(0.0, 0.05, 1.0);
+        assert!((keep - 0.95).abs() < 1e-6, "got {keep}");
+    }
+
+    #[test]
+    fn converged_correction_is_dropped_even_while_a_blend_is_live() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.insert_resource(Time::<Virtual>::default());
+        app.component::<CorrectionA>().predict().add_correction();
+        app.insert_resource(PredictionManager::default());
+        let blending = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                VisualCorrection::new(CorrectionA(0.0), 0.0),
+                SwitchBlend::new(0.0, 0.5, CorrectionEase::Linear),
+            ))
+            .id();
+        let plain = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                VisualCorrection::new(CorrectionA(0.0), 0.0),
+            ))
+            .id();
+
+        app.world_mut()
+            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
+            .unwrap();
+
+        assert!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(blending)
+                .is_none(),
+            "a converged offset goes, window or not"
+        );
+        assert!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(plain)
+                .is_none(),
+            "zero error without a blend is removed too"
+        );
+        // The window itself is untouched: it still gates re-switching.
+        assert!(
+            app.world().get::<SwitchBlend>(blending).is_some(),
+            "the window lives out its length"
+        );
+    }
+    #[test]
+    fn entity_correction_policy_overrides_global() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.insert_resource(Time::<Virtual>::default());
+        app.component::<CorrectionA>().predict().add_correction();
+        app.insert_resource(PredictionManager::default());
+        // Same unit error, but this entity decays on a 50 ms half schedule
+        // instead of the global 200 ms one.
+        let overridden = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                VisualCorrection::new(CorrectionA(1.0), 0.0),
+                CorrectionPolicy::new(0.5, Duration::from_millis(50)),
+            ))
+            .id();
+        let plain = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                VisualCorrection::new(CorrectionA(1.0), 0.0),
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .advance_by(Duration::from_millis(125));
+
+        app.world_mut()
+            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
+            .unwrap();
+
+        let fast = app
+            .world()
+            .get::<VisualCorrection<CorrectionA>>(overridden)
+            .unwrap()
+            .error
+            .0;
+        let slow = app
+            .world()
+            .get::<VisualCorrection<CorrectionA>>(plain)
+            .unwrap()
+            .error
+            .0;
+        assert!(fast < 0.3, "override should decay faster, got {fast}");
+        assert!(slow > 0.55, "global schedule unchanged, got {slow}");
+    }
+
+    /// A bounded curve can be the correction policy too, not just a switch
+    /// window's curve. It is normalised over the policy's own duration and
+    /// reaches zero there, driven by the clock the error was recorded at.
+    /// The cache is filled once and reused, so it has to notice archetypes that
+    /// appear later: a saved value moves an entity into a new archetype, and if
+    /// the cache never looked again the correction would never be recorded.
+    #[test]
+    fn correction_cache_picks_up_archetypes_created_later() {
+        use bevy_ecs::system::RunSystemOnce;
+
         let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.component::<CorrectionA>().predict().add_correction();
-        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|start, end, t| {
-            CorrectionA(start.0 + (end.0 - start.0) * t)
-        }));
-        app.finish();
 
-        app.world_mut().spawn((
-            CorrectionA(1.0),
-            PreviousVisual(CorrectionA(0.0)),
-            FrameInterpolationHistory::<CorrectionA>::default(),
-        ));
-        app.world_mut().spawn((
-            CorrectionA(2.0),
-            PreviousVisual(CorrectionA(0.0)),
-            FrameInterpolationHistory::<CorrectionA>::default(),
-            UnrelatedCorrectionComponent,
-        ));
+        // First pass: nothing has a saved value yet, so the cache is empty.
+        app.world_mut()
+            .run_system_once(create_visual_corrections)
+            .unwrap();
+        app.world_mut().flush();
 
-        let mut cache = PostRollbackCorrectionArchetypes::default();
-        let world = app.world();
-        cache.update(
-            world.archetypes(),
-            world.components(),
-            world.resource::<PredictionRegistry>(),
-            world.resource::<InterpolationRegistry>(),
+        // A saved value appears, which puts the entity in a new archetype.
+        let entity = app
+            .world_mut()
+            .spawn((CorrectionA(10.0), PreviousVisual(CorrectionA(4.0))))
+            .id();
+        app.world_mut().flush();
+
+        app.world_mut()
+            .run_system_once(create_visual_corrections)
+            .unwrap();
+        app.world_mut().flush();
+
+        assert_eq!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .map(|correction| correction.error.0),
+            Some(-6.0),
+            "the newly created archetype must be picked up"
         );
+        assert!(
+            app.world()
+                .get::<PreviousVisual<CorrectionA>>(entity)
+                .is_none()
+        );
+    }
 
-        assert_eq!(cache.archetype_count(), 2);
-        assert_eq!(cache.policies.len(), 1);
+    /// A correction registered after the cache was filled has to be considered
+    /// for archetypes that already exist, so the cache is dropped when the
+    /// A bounded curve can be the correction policy too, not just a switch
+    /// window's curve. It is normalised over the policy's own duration, driven
+    /// by the clock the error was recorded at, and the error tracks the curve
+    /// exactly however the frames fall.
+    #[test]
+    fn correction_policy_can_run_a_bounded_curve() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.component::<CorrectionA>().predict().add_correction();
+        app.insert_resource(PredictionManager::default());
+        // Half a second linear ramp.
+        let duration = 0.5;
+        let dt = 16.0 / 1000.0;
+        // The app records a correction and applies it in the same frame, so its
+        // start is stamped at the clock reading the first apply sees. Do the same
+        // here, or the first frame would decay a window that has not started.
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .advance_by(Duration::from_secs_f32(dt));
+        let start_secs = app.world().resource::<Time<Virtual>>().elapsed_secs();
+        let policy = CorrectionPolicy::with_ease(CorrectionEase::Linear, duration);
+        let entity = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                VisualCorrection::new(CorrectionA(1.0), start_secs),
+                policy,
+            ))
+            .id();
+        app.world_mut().flush();
+
+        // Step through the ramp: the error telescopes along the curve rather than
+        // accumulating a per-frame factor, so it is always `remaining(elapsed +
+        // dt)` — the frame being decayed counts, which is what stops a blend's
+        // first frame from holding the render still.
+        // The frame that records the correction applies it too, so decay one
+        // frame before advancing the clock.
+        let mut elapsed = 0.0f32;
+        app.world_mut()
+            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .map(|correction| correction.error.0),
+            Some(1.0 - dt / duration),
+            "the frame that records the correction already gives up one frame of it"
+        );
+        for _ in 0..20 {
+            app.world_mut()
+                .resource_mut::<Time<Virtual>>()
+                .advance_by(Duration::from_secs_f32(dt));
+            app.world_mut()
+                .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
+                .unwrap();
+            let error = app
+                .world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .map(|correction| correction.error.0);
+            elapsed += dt;
+            assert!(
+                (error.unwrap() - (1.0 - (elapsed + dt) / duration)).abs() < 1e-6,
+                "after {elapsed}s of a {duration}s linear ramp: {error:?}"
+            );
+        }
+
+        // At the end of the ramp the error has converged exactly ...
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .advance_by(Duration::from_millis(400));
+        app.world_mut()
+            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .map(|correction| correction.error.0),
+            Some(0.0),
+            "a bounded curve reaches zero at the end of its window"
+        );
+        // ... and the following pass drops it, like any converged correction.
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .advance_by(Duration::from_millis(16));
+        app.world_mut()
+            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
+            .unwrap();
+        assert!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .is_none(),
+            "a converged correction is dropped"
+        );
     }
 
     #[test]
@@ -1135,9 +1396,7 @@ mod tests {
             .world_mut()
             .spawn((
                 CorrectionA(10.0),
-                VisualCorrection {
-                    error: CorrectionA(1.0),
-                },
+                VisualCorrection::new(CorrectionA(1.0), 0.0),
             ))
             .id();
         app.world_mut().clear_trackers();
@@ -1149,7 +1408,7 @@ mod tests {
             .changed;
 
         app.world_mut()
-            .run_system_once(add_visual_correction::<CorrectionA, CorrectionA>)
+            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
             .unwrap();
 
         assert_ne!(
@@ -1352,11 +1611,11 @@ mod tests {
         );
     }
 
-    // Verifies that visual correction rejects a component without an
-    // interpolation rule because it cannot compute the corrected visual sample.
+    // A capture without its live value (archetype mid-assembly: the value has
+    // not replicated yet) carries nothing correctable and must be skipped,
+    // not crash rule resolution.
     #[test]
-    #[should_panic(expected = "No interpolation function was found for correction")]
-    fn post_rollback_correction_requires_interpolation_rule() {
+    fn post_rollback_correction_skips_capture_without_live_value() {
         let mut app = app_with_replication_markers();
         app.init_resource::<PredictionRegistry>();
         app.init_resource::<InterpolationRegistry>();
@@ -1368,18 +1627,52 @@ mod tests {
 
         app.component::<CorrectionA>().predict().add_correction();
 
-        let mut history = PredictionHistory::<CorrectionA>::default();
-        history.add_predicted(Tick(9), Some(CorrectionA(4.0)));
-
-        app.world_mut().spawn((
-            CorrectionA(10.0),
-            PreviousVisual(CorrectionA(12.0)),
-            history,
-            FrameInterpolationHistory::<CorrectionA>::default(),
-        ));
+        app.world_mut().spawn((PreviousVisual(CorrectionA(12.0)),));
 
         app.world_mut()
-            .run_system_once(create_visual_corrections_post_rollback)
+            .run_system_once(create_visual_corrections)
             .unwrap();
+        let mut query = app.world_mut().query::<&VisualCorrection<CorrectionA>>();
+        assert!(query.iter(app.world()).next().is_none());
+    }
+
+    /// A saved value with no live component to measure against is only kept
+    /// while a switch window is waiting for that component. Without one nothing
+    /// will ever use it, so it is discarded instead of lingering until despawn
+    /// and then being added to whatever the value becomes when it returns.
+    #[test]
+    fn creation_discards_a_saved_value_nobody_is_waiting_for() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.component::<CorrectionA>().predict().add_correction();
+
+        // No live component: the destination timeline has not presented it.
+        let unwatched = app.world_mut().spawn(PreviousVisual(CorrectionA(8.0))).id();
+        // The same, but a switch window is waiting for the component.
+        let watched = app
+            .world_mut()
+            .spawn((
+                PreviousVisual(CorrectionA(8.0)),
+                SwitchBlend::new(0.0, 0.5, CorrectionEase::Linear),
+            ))
+            .id();
+        app.world_mut().flush();
+
+        app.world_mut()
+            .run_system_once(create_visual_corrections)
+            .unwrap();
+        app.world_mut().flush();
+
+        let world = app.world();
+        assert!(
+            world
+                .get::<PreviousVisual<CorrectionA>>(unwatched)
+                .is_none(),
+            "nothing was waiting for this value"
+        );
+        assert!(
+            world.get::<PreviousVisual<CorrectionA>>(watched).is_some(),
+            "the window must keep waiting for the component it will blend"
+        );
     }
 }

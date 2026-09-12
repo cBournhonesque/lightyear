@@ -12,7 +12,7 @@ use lightyear::frame_interpolation::FrameInterpolationHistory;
 use lightyear_core::prelude::Tick;
 use lightyear_prediction::correction::PreviousVisual;
 use lightyear_prediction::predicted_history::PredictionHistory;
-use lightyear_prediction::prelude::{Predicted, VisualCorrection};
+use lightyear_prediction::prelude::{CorrectionPolicy, Predicted, VisualCorrection};
 use test_log::test;
 
 fn replay_prediction_only(mut components: Query<&mut CompPredictionOnly, With<Predicted>>) {
@@ -79,6 +79,23 @@ fn set_correction_sampling_time(stepper: &mut ClientServerStepper) {
     stepper.client_app().insert_resource(time);
 }
 
+/// A policy that gives up nothing, so a correction can be observed exactly as it
+/// was recorded instead of part-way through its decay.
+fn freeze_correction(stepper: &mut ClientServerStepper, entity: Entity) {
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(entity)
+        .insert(CorrectionPolicy::new(1.0, Duration::from_secs(3600)));
+}
+
+/// Runs the rest of the frame after `PreUpdate`: frame interpolation writes the
+/// value this frame renders, the shared system records the correction from it,
+/// and the apply adds it.
+fn finish_frame_with_correction(stepper: &mut ClientServerStepper) {
+    stepper.client_app().world_mut().run_schedule(PostUpdate);
+}
+
 /// `.predict()` installs frame-history repair in the real rollback schedule even when visual
 /// correction is not enabled for the component.
 #[test]
@@ -116,10 +133,12 @@ fn prediction_registration_repairs_frame_history_after_rollback() {
     assert_eq!(frame_history.current_value, Some(CompPredictionOnly(10.0)));
 }
 
-/// Post-rollback correction selects the context-aware bundle rule over competing component rules,
-/// uses the fixed-step sample duration, and restores the replayed values after sampling it.
+/// A rollback records the jump between the value on screen and the value the
+/// frame renders after the replay. The measurement is taken in `PostUpdate`,
+/// from the value frame interpolation wrote, so what the correction holds is
+/// exactly the pre-rollback render.
 #[test]
-fn post_rollback_correction_uses_bundle_interpolation_rule() {
+fn post_rollback_correction_uses_the_frame_interpolated_value() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     set_correction_sampling_time(&mut stepper);
     stepper
@@ -141,32 +160,60 @@ fn post_rollback_correction_uses_bundle_interpolation_rule() {
             FrameInterpolationHistory::<CompCorrectionBundleB>::default(),
         ))
         .id();
+    freeze_correction(&mut stepper, entity);
 
     trigger_state_rollback(&mut stepper, rollback_tick);
     stepper.client_app().world_mut().run_schedule(PreUpdate);
+    // The replay restored the simulated values; the frame history was repaired
+    // so the frame interpolator can sample them.
+    {
+        let world = stepper.client_app().world();
+        assert_eq!(world.resource::<Time<Fixed>>().overstep_fraction(), 0.5);
+        assert_eq!(
+            world.get::<CompCorrectionBundleA>(entity),
+            Some(&CompCorrectionBundleA(10.0))
+        );
+        assert_eq!(
+            world.get::<CompCorrectionBundleB>(entity),
+            Some(&CompCorrectionBundleB(20.0))
+        );
+    }
+
+    finish_frame_with_correction(&mut stepper);
 
     let world = stepper.client_app().world();
-    assert_eq!(world.resource::<Time<Fixed>>().overstep_fraction(), 0.5);
+    // The correction is the jump from the pre-rollback render to the value the
+    // frame renders, so live plus error holds the render where it was.
+    let error_a = world
+        .get::<VisualCorrection<CompCorrectionBundleA>>(entity)
+        .map(|correction| correction.error.clone())
+        .expect("the bundle rule's value should produce a correction");
+    let error_b = world
+        .get::<VisualCorrection<CompCorrectionBundleB>>(entity)
+        .map(|correction| correction.error.clone())
+        .expect("the bundle rule's value should produce a correction");
+    assert_ne!(
+        error_a,
+        CompCorrectionBundleA(0.0),
+        "a rollback must leave a correction"
+    );
+    assert_ne!(
+        error_b,
+        CompCorrectionBundleB(0.0),
+        "both bundle members are corrected from the same sampled frame"
+    );
+    // live = interpolated + error, so this is the pre-rollback render.
     assert_eq!(
         world.get::<CompCorrectionBundleA>(entity),
-        Some(&CompCorrectionBundleA(10.0))
+        Some(&CompCorrectionBundleA(1.0)),
+        "the render is held at the pre-rollback value"
     );
     assert_eq!(
         world.get::<CompCorrectionBundleB>(entity),
-        Some(&CompCorrectionBundleB(20.0))
+        Some(&CompCorrectionBundleB(2.0)),
+        "the render is held at the pre-rollback value"
     );
-    assert_eq!(
-        world
-            .get::<VisualCorrection<CompCorrectionBundleA>>(entity)
-            .map(|correction| &correction.error),
-        Some(&CompCorrectionBundleA(-105.0))
-    );
-    assert_eq!(
-        world
-            .get::<VisualCorrection<CompCorrectionBundleB>>(entity)
-            .map(|correction| &correction.error),
-        Some(&CompCorrectionBundleB(-209.0))
-    );
+    // The saved value was spent recording the correction.
     assert!(
         world
             .get::<PreviousVisual<CompCorrectionBundleA>>(entity)
@@ -179,8 +226,9 @@ fn post_rollback_correction_uses_bundle_interpolation_rule() {
     );
 }
 
-/// A bundle member registered for prediction but not correction contributes its repaired samples
-/// to another member's correction without receiving correction state of its own.
+/// A bundle member registered for prediction but not correction contributes its
+/// sampled value to another member's correction without receiving correction
+/// state of its own.
 #[test]
 fn post_rollback_bundle_uses_member_without_previous_visual() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -204,25 +252,26 @@ fn post_rollback_bundle_uses_member_without_previous_visual() {
             FrameInterpolationHistory::<CompMixedCorrectionBundleB>::default(),
         ))
         .id();
+    freeze_correction(&mut stepper, entity);
 
     trigger_state_rollback(&mut stepper, rollback_tick);
     stepper.client_app().world_mut().run_schedule(PreUpdate);
+    finish_frame_with_correction(&mut stepper);
 
     let world = stepper.client_app().world();
-    assert_eq!(world.resource::<Time<Fixed>>().overstep_fraction(), 0.5);
+    // The corrected member holds its render; the uncorrected member is left to
+    // the destination timeline's own value.
     assert_eq!(
         world.get::<CompMixedCorrectionBundleA>(entity),
-        Some(&CompMixedCorrectionBundleA(10.0))
+        Some(&CompMixedCorrectionBundleA(1.0)),
+        "the corrected member's render is held at the pre-rollback value"
     );
-    assert_eq!(
-        world.get::<CompMixedCorrectionBundleB>(entity),
-        Some(&CompMixedCorrectionBundleB(20.0))
-    );
-    assert_eq!(
+    assert_ne!(
         world
             .get::<VisualCorrection<CompMixedCorrectionBundleA>>(entity)
-            .map(|correction| &correction.error),
-        Some(&CompMixedCorrectionBundleA(-17.0))
+            .map(|correction| correction.error.clone()),
+        Some(CompMixedCorrectionBundleA(0.0)),
+        "the corrected member needs a correction for the sampled jump"
     );
     assert!(
         world
@@ -242,8 +291,8 @@ fn post_rollback_bundle_uses_member_without_previous_visual() {
     );
 }
 
-/// Rollback captures stale Avian velocities as decaying visual-correction
-/// errors instead of snapping them while the pose glides.
+/// Rollback captures stale Avian velocities as decaying visual-correction errors
+/// instead of snapping them while the pose glides.
 #[test]
 fn post_rollback_correction_smooths_velocities() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -274,32 +323,38 @@ fn post_rollback_correction_smooths_velocities() {
             FrameInterpolationHistory::<AngularVelocity>::default(),
         ))
         .id();
+    freeze_correction(&mut stepper, entity);
 
     trigger_state_rollback(&mut stepper, rollback_tick);
     stepper.client_app().world_mut().run_schedule(PreUpdate);
+    finish_frame_with_correction(&mut stepper);
 
     let world = stepper.client_app().world();
-    // Live components are restored to the replayed (corrected) values.
+    // While the errors decay, the velocities the renderer sees stay at the stale
+    // values instead of snapping to the replayed ones.
     assert_eq!(
         world.get::<LinearVelocity>(entity),
-        Some(&LinearVelocity::default())
+        Some(&LinearVelocity(Vector::new(10.0, 0.0))),
+        "the stale velocity is held, not snapped"
     );
     assert_eq!(
         world.get::<AngularVelocity>(entity),
-        Some(&AngularVelocity::default())
+        Some(&AngularVelocity(5.0)),
+        "the stale velocity is held, not snapped"
     );
-    // The stale velocities are kept as decaying visual errors.
-    assert_eq!(
+    assert_ne!(
         world
             .get::<VisualCorrection<LinearVelocity>>(entity)
-            .map(|correction| &correction.error),
-        Some(&LinearVelocity(Vector::new(10.0, 0.0)))
+            .map(|correction| correction.error.clone()),
+        Some(LinearVelocity::default()),
+        "a correction is carrying the difference"
     );
-    assert_eq!(
+    assert_ne!(
         world
             .get::<VisualCorrection<AngularVelocity>>(entity)
-            .map(|correction| &correction.error),
-        Some(&AngularVelocity(5.0))
+            .map(|correction| correction.error.clone()),
+        Some(AngularVelocity(0.0)),
+        "a correction is carrying the difference"
     );
     assert!(
         world

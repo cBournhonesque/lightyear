@@ -973,6 +973,29 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
             None
         };
 
+        // Oldest present confirmed sample, consulted by the seed branch below
+        // when nothing is known at-or-before the target. Read here — before
+        // the mutable prediction-history borrow — rather than at the use site.
+        let oldest_present = if is_state_rollback {
+            component.confirmed_history_storage.and_then(|storage| {
+                // SAFETY: same column access as the confirmed lookup above;
+                // the borrow ends here (the seed is cloned out).
+                let history = unsafe {
+                    get_component_unchecked(
+                        world,
+                        entity,
+                        archetype.table_id(),
+                        storage,
+                        component.confirmed_history_id,
+                    )
+                    .deref::<ConfirmedHistory<C>>()
+                };
+                history.start_present().map(|(_, value)| value.clone())
+            })
+        } else {
+            None
+        };
+
         // SAFETY: every cached prepare component is selected by the presence of
         // PredictionHistory<C>, and the system declares unique access to the column.
         let predicted_history = unsafe {
@@ -1028,9 +1051,17 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
             predicted_history.add_state(rollback_tick, state);
         } else if let Some(current) = current_component.as_ref() {
             // No state exists at rollback_tick (e.g. the entity was revealed to
-            // this client after the rollback target). The replay starts from the
+            // this client after the rollback target). Prefer the oldest present
+            // confirmed sample when one exists: it is the nearest known data
+            // to the target (its interval to any tick in the youth gap is a
+            // subset of the live value's), so a later restore that floors onto
+            // this seed starts from real data instead of a future value. The
+            // live component is still left in place either way, and replay
+            // snap-corrects onto confirmed samples tick by tick as it reaches
+            // them. Without any confirmed data, the replay starts from the
             // current component value, so seed the history with it.
-            predicted_history.add_state(rollback_tick, HistoryState::Updated(current.clone()));
+            let seed = oldest_present.unwrap_or_else(|| current.clone());
+            predicted_history.add_state(rollback_tick, HistoryState::Updated(seed));
         }
         trace!(
             target: "lightyear_debug::prediction",
@@ -1045,6 +1076,28 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
             history_len = predicted_history.len(),
             "prepared component rollback"
         );
+
+        // Keep track of the value on screen so the correction can smooth the jump
+        // from it, whatever the rollback is about to do to the component: it may
+        // leave the value alone, remove it, or replace it. The component may also
+        // be removed now and re-added later in the replay, and the saved value is
+        // what a visual correction is measured against when it comes back.
+        if component.has_correction
+            && let Some(predicted_component) = current_component.clone()
+        {
+            deferred.insert(entity_id, PreviousVisual(predicted_component));
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "previous_visual_stored",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?entity_id,
+                component = ?kind,
+                local_tick = current_tick.0,
+                rollback_tick = rollback_tick.0,
+                "stored previous visual for correction"
+            );
+        }
 
         // Update the component to the value at rollback_tick
         match restore_state {
@@ -1072,23 +1125,7 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
                         debug!("Re-adding deleted component to predicted");
                         deferred.insert(entity_id, correct);
                     }
-                    Some(predicted_component) => {
-                        // Keep track of the current visual value so we can smooth the correction
-                        if component.has_correction {
-                            deferred.insert(entity_id, PreviousVisual(predicted_component));
-                            trace!(
-                                target: "lightyear_debug::prediction",
-                                kind = "previous_visual_stored",
-                                schedule = "PreUpdate",
-                                sample_point = "PreUpdate",
-                                entity = ?entity_id,
-                                component = ?kind,
-                                local_tick = current_tick.0,
-                                rollback_tick = rollback_tick.0,
-                                "stored previous visual for correction"
-                            );
-                        }
-
+                    Some(_) => {
                         // SAFETY: the prepare system declares unique access to C, and no reference
                         // to this entity's live C is retained here.
                         unsafe {
@@ -1422,6 +1459,48 @@ mod tests {
                 .unwrap()
                 .get_state(rollback_tick),
             Some(&HistoryState::Updated(TestComponent(1.0)))
+        );
+    }
+
+    /// When the rollback tick predates the entity's confirmed history, the
+    /// history seed is the oldest present confirmed sample — the nearest
+    /// known data to the target — rather than the current live value. Live
+    /// itself is still left in place.
+    #[test]
+    fn test_rollback_seeds_from_oldest_confirmed_when_target_predates_history() {
+        let rollback_tick = Tick(10);
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        register_test_rollback(&mut world);
+
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromState);
+        world
+            .resource::<PredictionManager>()
+            .set_rollback_tick(rollback_tick);
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(Tick(15), Some(TestComponent(99.0)));
+        let mut confirmed = ConfirmedHistory::<TestComponent>::default();
+        confirmed.insert_present(Tick(12), TestComponent(12.0));
+        confirmed.insert_present(Tick(14), TestComponent(14.0));
+        let entity = world
+            .spawn((Predicted, TestComponent(99.0), history, confirmed))
+            .id();
+
+        world.run_system_once(prepare_rollback).unwrap();
+
+        assert_eq!(
+            world.get::<TestComponent>(entity),
+            Some(&TestComponent(99.0))
+        );
+        assert_eq!(
+            world
+                .get::<PredictionHistory<TestComponent>>(entity)
+                .unwrap()
+                .get_state(rollback_tick),
+            Some(&HistoryState::Updated(TestComponent(12.0)))
         );
     }
 

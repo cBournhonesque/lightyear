@@ -279,6 +279,25 @@ impl InterpolationRegistry {
         ids
     }
 
+    /// Returns the `FrameInterpolationHistory` component IDs owned by frame rules.
+    ///
+    /// Removing these from an entity re-seeds its frame interpolation: the
+    /// history update re-creates them from the live value on its next run
+    /// (see `frame_update_inserts_history_when_frame_interpolate_is_added`).
+    /// Timeline switches use this when re-adding `FrameInterpolate` after an
+    /// era without the marker, during which the histories froze at a stale
+    /// value that restore would otherwise pin back onto live simulation.
+    #[doc(hidden)]
+    pub fn frame_history_component_ids(&self) -> Vec<ComponentId> {
+        let mut ids = Vec::new();
+        for member in self.rules.iter().flat_map(|rule| &rule.members) {
+            if member.frame.is_some() && !ids.contains(&member.frame_history_component_id) {
+                ids.push(member.frame_history_component_id);
+            }
+        }
+        ids
+    }
+
     /// Returns component IDs that the type-erased frame interpolation systems may write.
     #[doc(hidden)]
     pub fn frame_component_write_ids(&self) -> Vec<ComponentId> {

@@ -1,0 +1,62 @@
+[package]
+name = "timeline_switch"
+version = "0.29.0"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition = "2021"
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "webtransport"]
+client = ["lightyear/client", "lightyear_examples_common/client"]
+gui = ["lightyear_examples_common/gui3d"]
+server = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
+netcode = ["lightyear_examples_common/netcode"]
+webtransport = ["lightyear_examples_common/webtransport"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
+
+[dependencies]
+bevy_egui.workspace = true
+lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "leafwing",
+  "avian3d",
+] }
+lightyear_frame_interpolation.workspace = true
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
+leafwing-input-manager = { workspace = true, default-features = false, features = [
+  "keyboard",
+  "gamepad",
+] }
+avian3d = { workspace = true, features = [
+  "3d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
+serde.workspace = true
+bevy.workspace = true
+
+[target."cfg(target_family = \"wasm\")".dependencies]
+console_error_panic_hook.workspace = true
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "gui", "netcode", "webtransport"]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "timeline_switch"
+doc = false

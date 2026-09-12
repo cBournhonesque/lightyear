@@ -17,12 +17,13 @@ pub mod plugin;
 pub mod predicted_history;
 pub mod registry;
 pub mod rollback;
+pub mod switch;
 
 mod deterministic;
 
 pub mod prelude {
     pub use crate::Predicted;
-    pub use crate::correction::VisualCorrection;
+    pub use crate::correction::{CorrectionEase, CorrectionPolicy, VisualCorrection};
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::diagnostics::PredictionMetrics;
     pub use crate::manager::{
@@ -39,6 +40,7 @@ pub mod prelude {
         CatchUpGated, DeterministicPredicted, DisableRollback, DisabledDuringRollback,
         RollbackSystems,
     };
+    pub use crate::switch::{SwitchBlend, SwitchDirection, TimelineSwitch, TimelineSwitchSettings};
 }
 
 use bevy_ecs::component::{Component, Mutable};

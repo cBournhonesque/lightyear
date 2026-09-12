@@ -19,6 +19,7 @@ use bevy_ecs::{
     world::{FromWorld, World, unsafe_world_cell::UnsafeWorldCell},
 };
 use core::marker::PhantomData;
+use lightyear_core::interpolation::Interpolated;
 use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry};
 
@@ -217,6 +218,7 @@ pub(crate) struct PredictedArchetypes {
     deterministic_predicted_component_id: ComponentId,
     disable_rollback_component_id: ComponentId,
     prediction_disable_component_id: ComponentId,
+    interpolated_component_id: ComponentId,
     disabling_component_ids: Vec<ComponentId>,
     filter_component_ids: Vec<ComponentId>,
     archetypes: Vec<CachedPredictionArchetype>,
@@ -253,6 +255,11 @@ pub(crate) struct CachedPredictionComponent {
     pub(crate) prepare_rollback: PrepareRollbackFn,
     pub(crate) snap_to_confirmed: Option<SnapToConfirmedFn>,
     pub(crate) update_frame_interpolation_post_rollback: UpdateFrameInterpolationPostRollbackFn,
+    /// Whether rollback captures this component for live-value correction.
+    ///
+    /// False on interpolated archetypes even when correction is registered:
+    /// their visuals are presentation-owned, and correction has no rule
+    /// coverage for interpolation-driven archetypes. Rewinding still happens.
     pub(crate) has_correction: bool,
 }
 
@@ -274,6 +281,7 @@ impl FromWorld for PredictedArchetypes {
             world.register_component::<DeterministicPredicted>();
         let disable_rollback_component_id = world.register_component::<DisableRollback>();
         let prediction_disable_component_id = world.register_component::<PredictionDisable>();
+        let interpolated_component_id = world.register_component::<Interpolated>();
         let disabling_component_ids = world
             .resource::<DefaultQueryFilters>()
             .disabling_ids()
@@ -297,6 +305,7 @@ impl FromWorld for PredictedArchetypes {
             deterministic_predicted_component_id,
             disable_rollback_component_id,
             prediction_disable_component_id,
+            interpolated_component_id,
             disabling_component_ids,
             filter_component_ids,
             archetypes: Vec::new(),
@@ -326,6 +335,11 @@ impl PredictedArchetypes {
             let default_query_target = !excluded_by_default_filter;
             let contains_predicted_marker = archetype.contains(self.predicted_component_id);
             let has_disable_rollback = archetype.contains(self.disable_rollback_component_id);
+            // Interpolated visuals are presentation-owned: rollback must still
+            // rewind these components for replay consistency, but it must not
+            // capture them for live-value correction (which has no rule
+            // coverage for interpolation-driven archetypes).
+            let is_interpolated = archetype.contains(self.interpolated_component_id);
 
             let mut cached = CachedPredictionArchetype {
                 id: archetype.id(),
@@ -354,6 +368,7 @@ impl PredictedArchetypes {
                     prediction_registry,
                     metadata,
                     component_registry,
+                    is_interpolated,
                 ));
             }
 
@@ -407,6 +422,7 @@ impl PredictedArchetypes {
         prediction_registry: &PredictionRegistry,
         rollback: &RollbackMetadata,
         component_registry: &ComponentRegistry,
+        is_interpolated: bool,
     ) -> CachedPredictionComponent {
         let prediction = prediction_registry.prediction_map.get(&kind);
         let component_id = components
@@ -432,9 +448,10 @@ impl PredictedArchetypes {
             snap_to_confirmed: prediction.and_then(|metadata| metadata.snap_to_confirmed),
             update_frame_interpolation_post_rollback: rollback
                 .update_frame_interpolation_post_rollback,
-            has_correction: prediction.is_some_and(|metadata| {
-                metadata.custom_correction || metadata.correction.is_some()
-            }),
+            has_correction: !is_interpolated
+                && prediction.is_some_and(|metadata| {
+                    metadata.custom_correction || metadata.correction.is_some()
+                }),
         }
     }
 }
