@@ -37,14 +37,8 @@ bevy = { workspace = true, features = [
   "wayland",
 ] }
 serde.workspace = true
-
-[target."cfg(not(target_family = \"wasm\"))".dependencies]
 async-compat.workspace = true
 
-[package.metadata.bevy_cli.web]
-rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
-default-features = false
-features = ["client", "gui", "netcode", "webtransport"]
 
 [lints]
 workspace = true
