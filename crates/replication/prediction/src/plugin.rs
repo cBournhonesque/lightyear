@@ -1,7 +1,5 @@
 use super::rollback::{CatchUpGated, RollbackPlugin, RollbackSystems};
-use crate::correction::{
-    create_visual_corrections_post_rollback, update_frame_interpolation_post_rollback,
-};
+use crate::correction::update_frame_interpolation_post_rollback;
 use crate::despawn::{PredictionDisable, finalize_deterministic_despawns};
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::{LastConfirmedInput, PredictionManager};
@@ -276,7 +274,6 @@ impl Plugin for PredictionPlugin {
                 prune_history_diff_receiver.in_set(RollbackSystems::Prepare),
                 update_frame_interpolation_post_rollback
                     .in_set(RollbackSystems::EndRollback)
-                    .before(create_visual_corrections_post_rollback)
                     .before(super::rollback::end_rollback),
             ),
         );
@@ -319,6 +316,9 @@ impl Plugin for PredictionPlugin {
 
         // PostUpdate
         app.configure_sets(PostUpdate, PredictionSystems::All.run_if(should_run));
+
+        // Timeline switch between predicted and interpolated (client-local).
+        crate::switch::add_timeline_switch_systems(app);
 
         // PLUGINS
         app.add_plugins((PredictionDiagnosticsPlugin::default(), RollbackPlugin));

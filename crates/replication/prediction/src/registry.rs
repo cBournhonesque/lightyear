@@ -383,7 +383,7 @@ impl PredictionRegistry {
             .filter_map(|metadata| metadata.correction)
     }
 
-    pub(crate) fn apply_correction<C: SyncComponent, D: Default>(
+    pub(crate) fn update_correction<C: SyncComponent, D: Default>(
         &self,
         error: D,
         ratio: f32,
@@ -394,7 +394,7 @@ impl PredictionRegistry {
                 "The component has not been registered for prediction. Did you call `.predict()`?",
             )
             .correction
-            .map(|correction| correction.apply_correction(error, ratio))
+            .map(|correction| correction.update_correction(error, ratio))
     }
 
     /// Returns true if the component is predicted

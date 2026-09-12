@@ -345,6 +345,13 @@ impl Plugin for LightyearAvianPlugin {
                 app.configure_sets(
                     PostUpdate,
                     (
+                        // Frame interpolation writes the value this frame
+                        // renders; the correction for the jump from the
+                        // pre-rollback value is recorded against it and then
+                        // applied on top. Transform is written from Position
+                        // only after that, so the correction is what propagates:
+                        // the order is interpolate, record, apply, writeback,
+                        // propagate.
                         FrameInterpolationSystems::Interpolate,
                         // We don't want the correction to be overwritten by FrameInterpolation
                         RollbackSystems::VisualCorrection,
