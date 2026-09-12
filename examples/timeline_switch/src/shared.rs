@@ -90,10 +90,6 @@ impl Default for CharacterPhysicsBundle {
 }
 
 /// Spawn the floor locally on every peer.
-///
-/// It never moves and every peer needs it from its first physics tick, so it is
-/// a shared entity rather than a replicated one: no round-trip, and no window
-/// where a peer simulates without ground.
 fn spawn_floor(mut commands: Commands) {
     commands.spawn((
         Name::new("Floor"),

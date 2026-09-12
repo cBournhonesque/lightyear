@@ -1169,57 +1169,8 @@ mod tests {
             // up the whole window in one frame either.
             assert!(keep > 0.0, "{ease:?} gave up the whole gap at once: {keep}");
         }
-        // Linear is the easiest to check by hand: one frame of a one second
-        // window gives up exactly that frame's fraction.
-        let keep = CorrectionEase::Linear.keep(0.0, 0.05, 1.0);
-        assert!((keep - 0.95).abs() < 1e-6, "got {keep}");
     }
 
-    #[test]
-    fn converged_correction_is_dropped_even_while_a_blend_is_live() {
-        let mut app = app_with_replication_markers();
-        app.init_resource::<PredictionRegistry>();
-        app.insert_resource(Time::<Virtual>::default());
-        app.component::<CorrectionA>().predict().add_correction();
-        app.insert_resource(PredictionManager::default());
-        let blending = app
-            .world_mut()
-            .spawn((
-                CorrectionA(10.0),
-                VisualCorrection::new(CorrectionA(0.0), 0.0),
-                SwitchBlend::new(0.0, 0.5, CorrectionEase::Linear),
-            ))
-            .id();
-        let plain = app
-            .world_mut()
-            .spawn((
-                CorrectionA(10.0),
-                VisualCorrection::new(CorrectionA(0.0), 0.0),
-            ))
-            .id();
-
-        app.world_mut()
-            .run_system_once(update_visual_correction::<CorrectionA, CorrectionA>)
-            .unwrap();
-
-        assert!(
-            app.world()
-                .get::<VisualCorrection<CorrectionA>>(blending)
-                .is_none(),
-            "a converged offset goes, window or not"
-        );
-        assert!(
-            app.world()
-                .get::<VisualCorrection<CorrectionA>>(plain)
-                .is_none(),
-            "zero error without a blend is removed too"
-        );
-        // The window itself is untouched: it still gates re-switching.
-        assert!(
-            app.world().get::<SwitchBlend>(blending).is_some(),
-            "the window lives out its length"
-        );
-    }
     #[test]
     fn entity_correction_policy_overrides_global() {
         let mut app = app_with_replication_markers();

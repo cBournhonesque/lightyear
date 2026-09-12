@@ -137,13 +137,7 @@ fn handle_carry_toggle(
 }
 
 fn setup(mut commands: Commands) {
-    // The floor is spawned by `SharedPlugin` on both sides (see `shared.rs`),
-    // not replicated.
-
-    // Inert blocks. They replicate as *interpolated* for everyone by default;
-    // each client locally switches nearby blocks to predicted (see client).
-    // Cubes ride frozen while carried; spheres dangle from the same carry
-    // pose on a leash.
+    // Inert blocks. 
     for (i, (offset, sphere)) in [
         (Vec3::new(2.0, 1.0, 1.5), false),
         (Vec3::new(-0.5, 1.0, 3.0), true),
@@ -218,10 +212,7 @@ pub(crate) fn handle_connected(
             // Character templates also reconstruct their child colliders on every peer.
             DisableReplicateHierarchy,
             // Characters spawn predicted on every client (never interpolated
-            // at rest), so contacts always start on one timeline. Clients
-            // switch distant remotes to interpolation — always outside contact
-            // range — and back when they re-approach (see the client
-            // timeline policy).
+            // at rest), so contacts always start on one timeline. 
             PredictionTarget::to_clients(NetworkTarget::All),
             ControlledBy {
                 owner: trigger.entity,

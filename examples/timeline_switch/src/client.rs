@@ -22,38 +22,14 @@ pub(crate) const SWITCH_RADIUS: f32 = 3.0;
 /// Release back to interpolated past this distance (hysteresis against
 /// switching back and forth at the boundary).
 ///
-/// Deliberately much wider than one update's worth of motion: at 5 m/s with
-/// ~100 ms of latency a single switch to the prediction timeline can displace
-/// the live pose by ~0.5 m, which would immediately trigger a switch back to
-/// interpolation with a narrow band and oscillate (each applied switch
-/// re-teleports and re-blends).
 /// Drawn as a second, fainter ground ring.
 pub(crate) const RELEASE_RADIUS: f32 = 5.0;
-/// Blend window for every timeline switch: 1.0 s.
-///
-/// The window is what bounds a blend and what sets the re-switch lockout, so a
-/// longer value softens the visible pop at the cost of leaving the entity
-/// unswitchable for longer. With the default curve (half the gap every 200 ms)
-/// a second leaves about 3% of it, which the correction policy finishes. Lives
-/// on [`TimelineSwitchSettings`] so the policy below just sends bare
-/// [`TimelineSwitch`] requests; the debug panel can retune it live, along with
-/// the ease curve.
+/// Blend window for every timeline switch
 const SWITCH_BLEND_SECS: f32 = 1.0;
 /// Suppresses timeline switches for freshly replicated entities.
 ///
 /// New arrivals are still falling and landing while their first snapshots are
-/// in flight. Switching one inside that window corrupts its physics: with this
-/// window set to zero, the scripted two-client run below fails every time with
-/// `NaN or infinity found in Avian component: type=LinearVelocity` and then
-/// `assertion failed: b.min.cmple(b.max).all()` in the collider tree, while the
-/// same run is clean at two seconds (3/3 each way). A switch to interpolation
-/// before any snapshot arrives also leaves interpolation with nothing to
-/// present yet.
-///
-/// This is not something a live [`SwitchBlend`] can cover: that marker only
-/// exists while a blend is running, which is after a switch, and this window is
-/// about the arrival that precedes the first one. Two seconds comfortably covers
-/// landing (~0.7 s) plus the first snapshots (~0.2 s at 10 Hz + 100 ms).
+/// in flight. Switching one inside that window corrupts its physics.
 const SWITCH_SETTLE_SECS: f32 = 2.0;
 
 /// Marker armed once when a character/block first replicates locally; removed
@@ -91,7 +67,7 @@ impl Plugin for ExampleClientPlugin {
 }
 
 /// Arm the settle-in window for timeline switches.
-/// Entities still inside their [`SwitchSettle`] window are skipped entirely
+/// Entities still inside their [`SwitchSettle`] window are skipped entirely by switches
 fn arm_switch_settle(trigger: On<Add, (CharacterMarker, BlockMarker)>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
@@ -115,12 +91,8 @@ fn tick_switch_settle(
     }
 }
 
-/// Every switch to predicted first rewinds the world to the latest
-/// rollback-scanned tick via a forced rollback, so the same frame replays
-/// under the new marker and the blend meets fresh simulation. Switches to
-/// interpolated are plain marker swaps with a visual blend: delayed
-/// interpolation presents the pose from the next frame on, and the blend
-/// smooths the jump to it.
+/// Inserts the [`TimelineSwitch`] component on blocks and characters according to the
+/// policy described in the module docs.
 fn timeline_policy(
     host_server: Query<(), With<HostServer>>,
     // Controlled regardless of timeline: my character arrives interpolated
@@ -164,8 +136,7 @@ fn timeline_policy(
         (Entity, &Position, Has<Predicted>),
         (With<CharacterMarker>, Without<SwitchSettle>),
     >,
-    commands: Commands,
-    mut switch_events: MessageWriter<TimelineSwitch>,
+    mut commands: Commands,
 ) {
     // Timeline switching is client-local; the host-server world stays authoritative.
     if !host_server.is_empty() {
@@ -204,13 +175,17 @@ fn timeline_policy(
         // frame, but followers must use the timeline the holder is moving to.
         if near && is_interpolated {
             info!(?entity, "switching character to predicted ({reason})");
-            switch_events.write(TimelineSwitch::to_predicted(entity));
+            commands
+                .entity(entity)
+                .insert(TimelineSwitch::to_predicted());
             if let Some(holder) = holders.iter_mut().find(|holder| holder.entity == entity) {
                 holder.predicted = true;
             }
         } else if !near && is_predicted {
             info!(?entity, "switching character to interpolated ({reason})");
-            switch_events.write(TimelineSwitch::to_interpolated(entity));
+            commands
+                .entity(entity)
+                .insert(TimelineSwitch::to_interpolated());
             if let Some(holder) = holders.iter_mut().find(|holder| holder.entity == entity) {
                 holder.predicted = false;
             }
@@ -239,10 +214,14 @@ fn timeline_policy(
         };
         if to_predicted && is_interpolated {
             info!(?entity, "switching block to predicted ({reason})");
-            switch_events.write(TimelineSwitch::to_predicted(entity));
+            commands
+                .entity(entity)
+                .insert(TimelineSwitch::to_predicted());
         } else if !to_predicted && is_predicted {
             info!(?entity, "switching block to interpolated ({reason})");
-            switch_events.write(TimelineSwitch::to_interpolated(entity));
+            commands
+                .entity(entity)
+                .insert(TimelineSwitch::to_interpolated());
         }
     }
 }

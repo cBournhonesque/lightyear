@@ -203,10 +203,6 @@ fn init(mut commands: Commands) {
 }
 
 /// Bottom-left overlay: timeline color legend plus controls.
-///
-/// The entries use the same color constants as [`timeline_color`]: green is
-/// you (or a block you carry), orange is mid-switch blend, purple is
-/// predicted, blue is interpolated.
 fn spawn_legend(
     mut commands: Commands,
     clients: Query<(), With<Client>>,
@@ -306,10 +302,7 @@ fn add_visual_interpolation_components(
     commands.entity(trigger.entity).insert(FrameInterpolate);
 }
 
-/// Add components to characters that impact how they are rendered. One shot
-/// per entity (`Without<Mesh3d>`): timeline switches must not rebuild the mesh,
-/// and the color may arrive a frame after the markers, in which case the next
-/// frame retries.
+/// Add components to characters that impact how they are rendered.
 fn add_character_cosmetics(
     mut commands: Commands,
     character_query: Query<(Entity, &ColorComponent), (With<CharacterMarker>, Without<Mesh3d>)>,
@@ -356,9 +349,7 @@ fn add_character_child_cosmetics(
     }
 }
 
-/// Add components to floors that impact how they are rendered. We want to see
-/// the replicated floor instead of predicted floors because predicted floors
-/// do not exist since floors aren't predicted.
+
 fn add_floor_cosmetics(
     mut commands: Commands,
     floor_query: Query<Entity, Added<FloorMarker>>,
@@ -374,13 +365,7 @@ fn add_floor_cosmetics(
     }
 }
 
-/// Add components to blocks that impact how they are rendered. Blocks arrive
-/// interpolated by default and switch to predicted when relevant, so both
-/// timelines need cosmetics.
-///
-/// `Without<Mesh3d>` keeps this a one-shot per entity. The shape is read from
-/// [`SphereMarker`], which is replicated with the block and so is already
-/// present when the block is first seen.
+/// Add components to blocks that impact how they are rendered.
 fn add_block_cosmetics(
     mut commands: Commands,
     floor_query: Query<(Entity, Has<SphereMarker>), (With<BlockMarker>, Without<Mesh3d>)>,
@@ -584,11 +569,6 @@ fn follow_switch_rings(
 }
 
 /// Flat ground ring mesh for one switch radius.
-///
-/// Triangle-list annulus in the XZ plane (64 quads between `radius ± 0.05`),
-/// so it needs no extra render features. The triangles wind downward; the
-/// ring material (see [`spawn_switch_rings`]) disables backface culling so
-/// the top-down camera sees them anyway.
 fn switch_ring_mesh(radius: f32) -> Mesh {
     const SEGMENTS: u32 = 64;
     const HALF_WIDTH: f32 = 0.05;

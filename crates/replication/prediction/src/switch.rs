@@ -1,102 +1,75 @@
 //! Client-side switching between the prediction and interpolation timelines.
 //!
-//! Gameplay code (proximity, pickup ownership, ...) sends a [`TimelineSwitch`]
-//! message to move one entity between the prediction timeline (client-ahead
+//! Gameplay code (proximity, pickup ownership, ...) inserts a [`TimelineSwitch`]
+//! component to move one entity between the prediction timeline (client-ahead
 //! simulation) and the interpolation timeline (delayed server presentation).
 //!
-//! # Order of operations
+//! This can be useful to temporarily predict remote players around you so that
+//! you can physically collide/interact with them, while keeping the rest of
+//! the world interpolated.
 //!
-//! A request is handled over two frames. Say the request is sent on frame F
-//! (gameplay code usually sends it from `Update`):
-//!
-//! 1. `save_previous_visuals` runs in `PostUpdate` of frame F, after frame
-//!    interpolation and after the correction apply, so what it reads is what the
-//!    frame shows. It saves that value as
-//!    [`PreviousVisual`](crate::correction::PreviousVisual) — for a switch to the
-//!    interpolation timeline, the only thing that can record it — and carries the
-//!    request to the next frame as `PendingSwitch`. The entity's timeline does
-//!    not change yet. A switch that snaps saves nothing.
-//! 2. `apply_saved_switches` runs in `PreUpdate` of frame F+1, after
-//!    replication receive and before the rollback check. It swaps the
-//!    [`Predicted`] / [`Interpolated`] markers. For a switch to the prediction
-//!    timeline it also asks for a forced rollback, so that in this same frame
-//!    the world rewinds to K and replays under the new marker, leaving fresh
-//!    simulated values in place.
-//! 3. The shared creation system in [`crate::correction`] records the blend's
-//!    error in `PostUpdate` of frame F+1, after frame interpolation: the jump
-//!    from the value saved in step 1 to whatever the destination timeline has
-//!    now. It runs every frame, and keeps the window's error up to date for as
-//!    long as the window is live.
-//!
-//! `expire_switch_blends` ends the window and clears what it kept.
-//!
-//! # Why the value is saved before the switch
-//!
-//! The value to blend from has to be the one the player is looking at, and only
-//! the end of the frame that renders it knows that value: frame interpolation
-//! writes it, and the correction apply for the previous window writes on top of
-//! it. Saving in step 1 and switching in step 2 is what makes the saved value
-//! match the screen. A switch to the prediction timeline needs one more step
-//! than that, because the forced rollback can only be requested before the
-//! rollback check of a frame, which is in `PreUpdate`: switching on frame F
-//! itself would either miss the rollback check or run the rollback before the
-//! frame the request was sent in had rendered.
-//!
-//! # How a blend relates to `VisualCorrection`
-//!
-//! A blend *is* a correction. There is one error per corrected component, one
-//! record of one jump:
-//!
-//! ```text
-//! rendered = destination + error    (the apply adds the error every frame)
-//! error    = previous - destination (recorded once, when the window opens)
+//! To run, insert a [`TimelineSwitch`] on the entity.
+//!```rust,ignore
+//! // To a named timeline:
+//! commands.entity(entity).insert(TimelineSwitch::to_predicted());
+//! // ...or blend over an explicit window instead of the default:
+//! commands.entity(entity).insert(
+//!     TimelineSwitch::to_predicted().with_transition_secs(1.0),
+//! );
+//! // Or flip to whichever timeline the entity is not on:
+//! commands.entity(entity).insert(TimelineSwitch::default());
 //! ```
 //!
-//! and one decay that gives it up. The switch does not own a second error and
-//! does not stack its error on top of a correction: it records the same kind of
-//! measurement the rollback machinery records, in the same
-//! [`PreviousVisual`](crate::correction::PreviousVisual) slot, and its window
-//! decides how that error is decayed.
-//!
-//! Only the *schedule* is a blend's own. While a window is live its ease curve
-//! scales the error each frame, so `with_transition_secs` and `with_ease` are
-//! what shape the visible transition. That curve is floored by the entity's
-//! [`CorrectionPolicy`](crate::correction::CorrectionPolicy): a curve's tail is
-//! steep, so an error arriving late in the window would otherwise be dumped into
-//! a single frame. A converged error is dropped by the ordinary small-error
-//! check, which is what ends a blend early.
-//!
-//! Because every measurement is taken against what is on screen, which already
-//! contains the previous offset, a new jump *replaces* the error instead of
-//! adding to it. That settles the cases:
-//!
-//! * **Switching while a correction is decaying.** The saved value is the
-//!   rendered value, which already carries the correction, so the switch takes
-//!   the correction over: the error becomes `saved - new destination`, and the
-//!   window's tuning replaces whatever the old correction had, including any
-//!   time it had left.
-//! * **A rollback during a blend.** The rollback captures the value on screen as
-//!   usual, and the shared creation system measures the jump from it in
-//!   `PostUpdate` — the same pass it runs for any jump. The window keeps
-//!   governing the decay, so the blend is not cut short by the rollback, the
-//!   render does not jump by the rollback's delta, and the rollback is not dumped
-//!   by the curve's steep tail.
-//! * **The window ending.** The expiry pass clears the state the window kept,
-//!   and any error left is decayed by the correction policy.
-//!
-//! The forced rollback that a switch to the prediction timeline asks for is the
-//! same machinery, and the two captures it involves agree: it takes the value on
-//! screen in `PreUpdate` of the frame the markers swap, and nothing writes the
-//! live value between the switch's save and that point, so it does not matter
-//! which one a reader sees.
-//!
-//! Nothing here adds a decay system of its own and nothing touches physics:
-//! simulation components stay owned by user systems. Switching is client-local,
-//! only the spatial/visual error is smoothed, and an entity with a window open
-//! ignores new requests until it ends.
-//!
-//! [`Predicted`]: lightyear_core::prediction::Predicted
-//! [`Interpolated`]: lightyear_core::interpolation::Interpolated
+//! [`TimelineSwitch`]: crate::switch::TimelineSwitch
+
+// # Order of operations
+//
+// A request is handled over two frames. Say the request is inserted on frame F
+// (gameplay code usually inserts it from `Update`):
+//
+// 1. `save_previous_visuals` runs in `PostUpdate` of frame F, after frame
+//    interpolation and after the correction apply, so what it reads is what the
+//    frame shows. It saves that value as
+//    [`PreviousVisual`](crate::correction::PreviousVisual) — for a switch to the
+//    interpolation timeline, the only thing that can record it — and resolves
+//    the request into a `PendingSwitch`: the timeline it names (or the one a
+//    flip picks) and the blend schedule to run, committed for the next frame.
+//    The request itself is dropped, so what is carried to the next frame is the
+//    resolution and nothing else. The entity's timeline does not change yet. A
+//    switch that snaps saves nothing.
+// 2. `apply_saved_switches` runs in `PreUpdate` of frame F+1, after
+//    replication receive and before the rollback check. It swaps the
+//    [`Predicted`] / [`Interpolated`] markers and removes the request. For a
+//    switch to the prediction timeline it also asks for a forced rollback, so
+//    that in this same frame the world rewinds to K and replays under the new
+//    marker, leaving fresh simulated values in place.
+// 3. The shared creation system in [`crate::correction`] records the blend's
+//    error in `PostUpdate` of frame F+1, after frame interpolation: the jump
+//    from the value saved in step 1 to whatever the destination timeline has
+//    now. It runs every frame, and keeps the window's error up to date for as
+//    long as the window is live.
+//
+// `expire_switch_blends` ends the window and clears what it kept.
+//
+// # How a blend relates to `VisualCorrection`
+//
+// A blend *is* a correction. There is one error per corrected component, one
+// record of one jump:
+//
+// ```text
+// rendered = destination + error    (the apply adds the error every frame)
+// error    = previous - destination (recorded once, when the window opens)
+// ```
+//
+// and one decay that gives it up. The switch does not own a second error and
+// does not stack its error on top of a correction: it records the same kind of
+// measurement the rollback machinery records, in the same
+// [`PreviousVisual`](crate::correction::PreviousVisual) slot, and its window
+// decides how that error is decayed. When a new correction is applied while
+// a previous one was running, the highest decay ratio between the two is used
+// (the one that would give the biggest error).
+
+
 
 use crate::correction::{CorrectionEase, CorrectionWorld};
 use crate::manager::StateRollbackMetadata;
@@ -104,7 +77,6 @@ use crate::plugin::PredictionSystems;
 use crate::registry::PredictionRegistry;
 use crate::rollback::RollbackSystems;
 use bevy_app::prelude::*;
-use bevy_ecs::message::MessageCursor;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
@@ -153,80 +125,50 @@ impl Default for TimelineSwitchSettings {
 
 /// Request to move an entity between the prediction and interpolation timelines.
 ///
-/// Send the message — it is one-shot, so there is no component to insert or
-/// remove, and callers never touch [`Predicted`] / [`Interpolated`] directly:
+/// Insert it on the entity — the switch pipeline is what adds or removes
+/// [`Predicted`] / [`Interpolated`], so callers never touch those directly:
 /// ```rust,ignore
-/// switch_events.write(TimelineSwitch::to_predicted(entity));
+/// // To a named timeline:
+/// commands.entity(entity).insert(TimelineSwitch::to_predicted());
 /// // ...or blend over an explicit window instead of the default:
-/// switch_events.write(
-///     TimelineSwitch::to_predicted(entity).with_transition_secs(1.0),
+/// commands.entity(entity).insert(
+///     TimelineSwitch::to_predicted().with_transition_secs(1.0),
 /// );
+/// // Or flip to whichever timeline the entity is not on:
+/// commands.entity(entity).insert(TimelineSwitch::default());
 /// ```
 ///
-/// A request is handled in three passes; the module documentation has the full
-/// order. In short: the value on screen is saved at the end of the frame the
-/// request is seen, the markers are swapped at the start of the next frame (with
-/// a forced rollback when moving to the prediction timeline), and the blend
-/// error is written at the end of that frame and every frame until the window
-/// ends.
-///
-/// The blend length is the per-request override when present, otherwise the
+/// You can customize the blend length and ease curve per request, which overrides the
 /// [`TimelineSwitchSettings`] default: `<= 0` (or non-finite) snaps instantly,
-/// otherwise the jump is smoothed over the window and new requests for the
-/// entity are ignored while it runs.
-///
-/// The blend reuses the shared
-/// [`VisualCorrection`](crate::correction::VisualCorrection) machinery: the
-/// switch records the jump between the value on screen and the destination, and
-/// the window's ease curve scales how fast that error is given up.
-#[derive(Message, Debug, Clone, Copy, PartialEq)]
+/// otherwise the jump is smoothed over the window and further requests for the
+/// entity are ignored until the switch finishes.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct TimelineSwitch {
-    entity: Entity,
-    direction: SwitchDirection,
+    /// The timeline to move to, or `None` to flip to whichever timeline the
+    /// entity is not on. A bare [`TimelineSwitch::default()`] flips; an entity
+    /// on neither timeline has nothing to flip from and the request is dropped.
+    direction: Option<SwitchDirection>,
+    /// Blend length in seconds, overriding
+    /// [`TimelineSwitchSettings::default_transition_secs`].
     transition_secs: Option<f32>,
+    /// Ease curve, overriding [`TimelineSwitchSettings::default_ease`].
     ease: Option<CorrectionEase>,
 }
 
 impl TimelineSwitch {
-    /// Switch `entity` from interpolated to predicted, blending over the
-    /// [`TimelineSwitchSettings`] default unless overridden with
-    /// [`with_transition_secs`](Self::with_transition_secs).
-    ///
-    /// The value the entity is rendering is saved at the end of the frame the
-    /// request is seen, and `PreUpdate` of the next frame asks for a forced
-    /// rollback at K (the latest rollback-scanned tick) while it swaps the
-    /// markers. So the world rewinds and replays under the new [`Predicted`]
-    /// marker in that frame, and the blend smooths the jump between the saved
-    /// value and the replayed one. Before the first sync there is no K to
-    /// rewind to, so the switch only swaps the markers and the next natural
-    /// rollback corrects. No exclusion from rollback is needed afterwards: the
-    /// switched entity participates like any other predicted entity.
-    pub fn to_predicted(entity: Entity) -> Self {
+    /// Switch this entity from interpolated to predicted
+    pub fn to_predicted() -> Self {
         Self {
-            entity,
-            direction: SwitchDirection::ToPredicted,
-            transition_secs: None,
-            ease: None,
+            direction: Some(SwitchDirection::ToPredicted),
+            ..Default::default()
         }
     }
 
-    /// Switch `entity` from predicted to interpolated, blending over the
-    /// [`TimelineSwitchSettings`] default unless overridden with
-    /// [`with_transition_secs`](Self::with_transition_secs).
-    ///
-    /// The value the entity is rendering is saved at the end of the frame the
-    /// request is seen, and `PreUpdate` of the next frame swaps the markers.
-    /// Delayed interpolation writes its first value later in that frame, and
-    /// the blend then smooths the jump between the saved value and it. (The
-    /// reverse direction, [`Self::to_predicted`], needs the forced rollback: it
-    /// has to produce fresh simulation from confirmed data, while this direction
-    /// only presents the delayed value.)
-    pub fn to_interpolated(entity: Entity) -> Self {
+    /// Switch this entity from predicted to interpolated
+    pub fn to_interpolated() -> Self {
         Self {
-            entity,
-            direction: SwitchDirection::ToInterpolated,
-            transition_secs: None,
-            ease: None,
+            direction: Some(SwitchDirection::ToInterpolated),
+            ..Default::default()
         }
     }
 
@@ -244,69 +186,61 @@ impl TimelineSwitch {
         self
     }
 
-    /// Which entity is moving.
-    pub fn entity(&self) -> Entity {
-        self.entity
-    }
-
-    /// Where the entity is moving.
-    pub fn direction(&self) -> SwitchDirection {
+    /// The timeline this request names, or `None` to flip to whichever timeline
+    /// the entity is not on.
+    pub fn direction(&self) -> Option<SwitchDirection> {
         self.direction
     }
 
-    /// Per-request blend-length override, if any. `None` resolves against
-    /// [`TimelineSwitchSettings`] when the switch handlers apply the request.
+    /// Per-request blend-length override, if any. `None` takes
+    /// [`TimelineSwitchSettings::default_transition_secs`] when the request is
+    /// saved.
     pub fn transition_override(&self) -> Option<f32> {
         self.transition_secs
     }
 
-    /// Per-request ease-curve override, if any. `None` resolves against
-    /// [`TimelineSwitchSettings`] when the switch handlers apply the request.
+    /// Per-request ease-curve override, if any. `None` takes
+    /// [`TimelineSwitchSettings::default_ease`] when the request is saved.
     pub fn ease_override(&self) -> Option<CorrectionEase> {
         self.ease
     }
 
-    /// Fills in the blend length and ease curve from `settings`.
-    ///
-    /// Resolved when the request is saved rather than when it is sent, so games
-    /// can retune mid-session. It happens a frame before the request is
-    /// applied, and the resolved values are carried on the saved request, so
-    /// the save and the apply agree on whether there is a blend at all.
-    fn resolve_blend(&mut self, settings: &TimelineSwitchSettings) {
-        self.transition_secs = Some(
-            self.transition_secs
+    /// Resolves the request against the entity's markers and `settings` into the
+    /// [`PendingSwitch`] the apply pass serves.
+    fn resolve(
+        &self,
+        is_predicted: bool,
+        is_interpolated: bool,
+        settings: &TimelineSwitchSettings,
+    ) -> Option<PendingSwitch> {
+        let direction = match self.direction {
+            Some(direction) => direction,
+            None if is_predicted => SwitchDirection::ToInterpolated,
+            None if is_interpolated => SwitchDirection::ToPredicted,
+            None => return None,
+        };
+        Some(PendingSwitch {
+            direction,
+            total_secs: self
+                .transition_secs
                 .unwrap_or(settings.default_transition_secs),
-        );
-        self.ease = Some(self.ease.unwrap_or(settings.default_ease));
-    }
-
-    /// Whether the request blends instead of snapping. `<= 0` (or non-finite)
-    /// snaps.
-    fn blends(&self) -> bool {
-        self.transition_secs
-            .is_some_and(|secs| secs.is_finite() && secs > 0.0)
+            ease: self.ease.unwrap_or(settings.default_ease),
+        })
     }
 }
 
-/// Cursor over the [`TimelineSwitch`] messages.
-#[derive(Resource, Default)]
-pub(crate) struct SwitchRequestCursor(MessageCursor<TimelineSwitch>);
-
-/// A request whose value on screen has been saved, waiting for its markers to
-/// be swapped on the next frame.
+/// A resolved [`TimelineSwitch`], committed for the next frame's apply pass.
 ///
-/// Set by `save_previous_visuals` in `PostUpdate` of the frame the request is
-/// seen, and turned into a [`SwitchBlend`] window by `apply_saved_switches` in
-/// `PreUpdate` of the next frame. A request for an entity that already has this
-/// component replaces it, so a policy that re-sends every frame is carried once
-/// and the last request sent within a frame wins.
+/// While this is present, a new [`TimelineSwitch`] is ignored, exactly as it is
+/// while a [`SwitchBlend`] window is running.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PendingSwitch {
+    /// The timeline to move to, resolved against the entity's markers.
     direction: SwitchDirection,
-    /// Blend length in seconds, already resolved against
-    /// [`TimelineSwitchSettings`]. `<= 0` (or non-finite) snaps.
+    /// Blend length in seconds, resolved against [`TimelineSwitchSettings`].
+    /// `<= 0` (or non-finite) snaps.
     total_secs: f32,
-    /// Ease curve shaping the blend, already resolved.
+    /// Ease curve shaping the blend, resolved.
     ease: CorrectionEase,
 }
 
@@ -317,15 +251,10 @@ impl PendingSwitch {
     }
 }
 
-/// Marks an entity with an in-flight timeline-switch blend, and carries the
-/// blend's shared schedule.
+
+/// Marks an entity while a switch is ongoing.
 ///
-/// One window per switch, not one per corrected type: every corrected component
-/// gets its own error against this same schedule, so the clock is read off the
-/// marker rather than accumulated per type and can never drift between types.
-/// The marker also separates entities that are blending for the archetype scans
-/// and backs the query filters (`Without` / `Has`). While present, new
-/// [`TimelineSwitch`] requests for the entity are ignored.
+///  While present, a new [`TimelineSwitch`] inserted on the entity is dropped.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 pub struct SwitchBlend {
     /// Visual-clock reading the blend started at, in seconds.
@@ -398,38 +327,61 @@ impl SwitchBlend {
 ///
 /// Runs in `PostUpdate` after frame interpolation and after the correction
 /// apply, so what it reads is what this frame renders, whatever point of the
-/// frame the request was sent from. What each corrected type saves depends on
-/// where the entity is going — see the save handler in [`crate::correction`] —
-/// and [`PendingSwitch`] carries the request to the next frame.
+/// frame the request was inserted from. 
 ///
-/// Requests for entities that are despawned, already blending, or not on the
-/// timeline they want to leave are dropped.
+/// Requests for entities that are already blending, or that already have a
+/// committed switch waiting for its apply pass, are dropped.
 pub(crate) fn save_previous_visuals(
     correction_world: CorrectionWorld,
     registry: Res<PredictionRegistry>,
     settings: Res<TimelineSwitchSettings>,
-    mut cursor: ResMut<SwitchRequestCursor>,
-    messages: Res<Messages<TimelineSwitch>>,
+    mut requests: Query<(
+        Entity,
+        &TimelineSwitch,
+        Has<Predicted>,
+        Has<Interpolated>,
+        Has<SwitchBlend>,
+        Has<PendingSwitch>,
+    )>,
     mut commands: Commands,
 ) {
     let world = correction_world.world();
-    for request in cursor.0.read(&messages) {
-        let entity = request.entity;
-        let Ok(entity_cell) = world.get_entity(entity) else {
-            trace!(?entity, "dropping timeline switch for despawned entity");
-            continue;
-        };
-        let is_predicted = entity_cell.contains::<Predicted>();
-        let is_interpolated = entity_cell.contains::<Interpolated>();
+    for (entity, switch, is_predicted, is_interpolated, is_blending, is_committed) in &mut requests
+    {
         // Saving while a blend is running would fight the window that is still
         // converging, so the request waits for it to end. A policy that
-        // re-sends every frame produces this routinely, so it is not a user
+        // re-inserts every frame produces this routinely, so it is not a user
         // error; it is also what makes a repeated request harmless.
-        if entity_cell.contains::<SwitchBlend>() {
+        if is_blending {
             trace!(?entity, "dropping switch while a blend is active");
+            commands.entity(entity).remove::<TimelineSwitch>();
             continue;
         }
-        match request.direction {
+        // A committed switch owns the entity until it is applied. Resolving a
+        // request on top of it would clobber the resolution the save pass already
+        // recorded a value for, leaving that value to be measured as a jump that
+        // never happened.
+        if is_committed {
+            trace!(
+                ?entity,
+                "dropping switch while one is waiting to be applied"
+            );
+            commands.entity(entity).remove::<TimelineSwitch>();
+            continue;
+        }
+        // A flip resolves against the markers the entity has now, so it is the
+        // same value the checks below compare against.
+        let Some(pending) = switch.resolve(is_predicted, is_interpolated, &settings) else {
+            warn!(
+                ?entity,
+                ?is_predicted,
+                ?is_interpolated,
+                "dropping invalid switch to the other timeline: entity is on neither timeline"
+            );
+            commands.entity(entity).remove::<TimelineSwitch>();
+            continue;
+        };
+        match pending.direction {
             SwitchDirection::ToPredicted if !is_interpolated => {
                 warn!(
                     ?entity,
@@ -437,6 +389,7 @@ pub(crate) fn save_previous_visuals(
                     ?is_interpolated,
                     "dropping invalid switch to predicted: entity must be interpolated"
                 );
+                commands.entity(entity).remove::<TimelineSwitch>();
                 continue;
             }
             SwitchDirection::ToInterpolated if !is_predicted => {
@@ -446,23 +399,11 @@ pub(crate) fn save_previous_visuals(
                     ?is_interpolated,
                     "dropping invalid switch to interpolated: entity must be predicted"
                 );
+                commands.entity(entity).remove::<TimelineSwitch>();
                 continue;
             }
             _ => {}
         }
-        // Blend length and curve are resolved here rather than when the request
-        // is sent, so games can retune mid-session. The resolved values ride on
-        // the pending switch so the save and the apply agree on whether there is
-        // a blend at all.
-        let total_secs = request
-            .transition_secs
-            .unwrap_or(settings.default_transition_secs);
-        let ease = request.ease.unwrap_or(settings.default_ease);
-        let pending = PendingSwitch {
-            direction: request.direction,
-            total_secs,
-            ease,
-        };
         let mut saves = DeferredEntityCommands::default();
         // Nothing is saved for a switch that snaps: with no window there is
         // nothing to measure a correction from, and a saved value would be left
@@ -478,24 +419,16 @@ pub(crate) fn save_previous_visuals(
                 );
             }
         }
+        let total_secs = pending.total_secs;
+        let direction = pending.direction;
+        saves.remove::<TimelineSwitch>(entity);
         saves.insert(entity, pending);
         saves.apply(&mut commands);
-        trace!(
-            ?entity,
-            direction = ?request.direction,
-            total_secs,
-            "saved switch visual"
-        );
+        trace!(?entity, ?direction, total_secs, "saved switch visual");
     }
 }
 
-/// Swaps the timeline markers of every switch whose value was saved last frame.
-///
-/// Runs in `PreUpdate` after replication receive and before the rollback check,
-/// which is what lets a switch to the prediction timeline ask for a forced
-/// rollback and have the world rewound and replayed under the new markers in
-/// this same frame. The shared creation system in [`crate::correction`] records
-/// the blend's error against the replayed value later this frame.
+/// Swaps the timeline markers of every switch the save pass committed last frame.
 pub(crate) fn apply_saved_switches(
     time: Res<Time<Virtual>>,
     mut pending: Query<(Entity, &PendingSwitch)>,
@@ -536,6 +469,8 @@ pub(crate) fn apply_saved_switches(
                 deferred.remove::<FrameInterpolate>(entity);
             }
         }
+        // The switch has been served: it is one-shot, so the committed state goes
+        // with the markers it swapped.
         deferred.remove::<PendingSwitch>(entity);
         if switch.blends() {
             deferred.insert(
@@ -564,12 +499,6 @@ pub(crate) fn apply_saved_switches(
 }
 
 /// Lifts expired blend markers and clears the window's state.
-///
-/// Expiry cannot live in the blend system alone: that only runs for entities
-/// with a live window, but the marker must also lift when an external removal
-/// leaves a window with nothing to blend. Without this, an entity could never
-/// switch again. Runs after the correction apply, so a live window still
-/// converges exactly on its expiry pass first.
 pub(crate) fn expire_switch_blends(
     registry: Res<PredictionRegistry>,
     time: Res<Time<Virtual>>,
@@ -598,9 +527,7 @@ pub(crate) fn expire_switch_blends(
 /// All systems only run for client/P2P topologies (same gate as the rest of
 /// prediction): host-servers stay authoritative and never switch.
 pub(crate) fn add_timeline_switch_systems(app: &mut App) {
-    app.add_message::<TimelineSwitch>();
     app.init_resource::<TimelineSwitchSettings>();
-    app.init_resource::<SwitchRequestCursor>();
     app.add_systems(
         PreUpdate,
         apply_saved_switches
@@ -637,7 +564,7 @@ pub(crate) fn add_timeline_switch_systems(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::correction::{CorrectionPolicy, PreviousVisual, VisualCorrection};
+    use crate::correction::{PreviousVisual, VisualCorrection};
     use crate::plugin::PredictionMarkerPlugin;
     use crate::predicted_history::PredictionHistory;
     use crate::registry::{PredictionBuilderExt, PredictionRegistry};
@@ -723,11 +650,8 @@ mod tests {
             InterpolationMarkerPlugin,
         ));
         app.init_resource::<PredictionRegistry>();
-        // Same message plus per-handler cursors the plugin installs via
-        // `add_timeline_switch_systems`. (Requests are one-shot messages, so
-        // there is no request component to insert or remove.)
-        app.add_message::<TimelineSwitch>();
-        app.init_resource::<SwitchRequestCursor>();
+        // Same resource the plugin installs via `add_timeline_switch_systems`.
+        // Requests are components, so there is no message or cursor to register.
         app.init_resource::<TimelineSwitchSettings>();
         app.init_resource::<lightyear_core::prelude::LocalTimeline>();
         app.init_resource::<lightyear_sync::prelude::LocalTimelineSync>();
@@ -742,7 +666,7 @@ mod tests {
     }
 
     /// Runs the `PostUpdate` pass that saves the on-screen value of the
-    /// requests sent since the last one.
+    /// requests inserted since the last one.
     fn run_save(app: &mut App) {
         app.world_mut()
             .run_system_once(save_previous_visuals)
@@ -779,11 +703,11 @@ mod tests {
         app.world_mut().flush();
     }
 
-    /// Sends one request and runs the two passes, the way the schedule does
+    /// Inserts one request and runs the two passes, the way the schedule does
     /// over two frames: the value is saved at the end of the frame the request
     /// is seen, and the markers swap at the start of the next one.
-    fn send_switch(app: &mut App, request: TimelineSwitch) {
-        app.world_mut().write_message(request);
+    fn send_switch(app: &mut App, entity: Entity, request: TimelineSwitch) {
+        app.world_mut().entity_mut(entity).insert(request);
         run_save(app);
         run_apply(app);
     }
@@ -794,26 +718,15 @@ mod tests {
     }
 
     #[test]
-    fn prediction_plugin_registers_switch_pipeline() {
-        let mut app = App::new();
-        app.add_plugins((bevy_time::TimePlugin, crate::plugin::PredictionPlugin));
-        app.init_resource::<lightyear_core::prelude::LocalTimeline>();
-        app.init_resource::<lightyear_sync::prelude::LocalTimelineSync>();
-        // Schedule build validates the switch systems' ordering constraints.
-        app.update();
-        assert!(app.world().contains_resource::<TimelineSwitchSettings>());
-    }
-
-    #[test]
     fn switch_to_predicted_swaps_markers_and_saves_visual() {
         let mut app = switch_app();
         let entity = app.world_mut().spawn((TestPos(10.0), Interpolated)).id();
         app.world_mut().flush();
 
-        let request = TimelineSwitch::to_predicted(entity).with_transition_secs(0.5);
-        assert_eq!(request.direction(), SwitchDirection::ToPredicted);
+        let request = TimelineSwitch::to_predicted().with_transition_secs(0.5);
+        assert_eq!(request.direction(), Some(SwitchDirection::ToPredicted));
         assert_eq!(request.transition_override(), Some(0.5));
-        send_switch(&mut app, request);
+        send_switch(&mut app, entity, request);
 
         let world = app.world();
         assert!(world.get::<Predicted>(entity).is_some());
@@ -843,7 +756,8 @@ mod tests {
 
         send_switch(
             &mut app,
-            TimelineSwitch::to_interpolated(entity).with_transition_secs(0.25),
+            entity,
+            TimelineSwitch::to_interpolated().with_transition_secs(0.25),
         );
 
         let world = app.world();
@@ -876,7 +790,8 @@ mod tests {
 
         send_switch(
             &mut app,
-            TimelineSwitch::to_interpolated(entity).with_transition_secs(0.5),
+            entity,
+            TimelineSwitch::to_interpolated().with_transition_secs(0.5),
         );
         app.world_mut().entity_mut(entity).remove::<TestPos>();
         app.world_mut().flush();
@@ -905,112 +820,11 @@ mod tests {
         );
     }
 
-    /// The default ease has to release a useful amount of the gap on the first
-    /// frame. A curve with a flat start holds almost all of it — under 1% of the
-    /// gap for a frame of a one second window — which is a stop that then lurches,
-    /// and that is what the default used to be.
-    #[test]
-    fn default_ease_advances_the_render_immediately() {
-        let frame = 1.0 / 60.0;
-        let window = 1.0;
-        let default = TimelineSwitchSettings::default().default_ease;
-        // One definition of the default, shared by the blend and the rollback
-        // policy, so the two cannot drift apart.
-        assert_eq!(default, CorrectionEase::default());
-        assert_eq!(default, CorrectionPolicy::default().ease());
-        assert_eq!(
-            default,
-            CorrectionEase::Exponential {
-                decay_ratio: 0.5,
-                decay_period_secs: 0.2
-            }
-        );
-        let first_frame_keep = default.keep(0.0, frame, window);
-        assert!(
-            first_frame_keep <= 0.96,
-            "the default {default:?} holds {first_frame_keep} of the gap on the first frame"
-        );
-        // An exponential releases the same fraction every frame, so the second
-        // frame moves too: no warm-up, which is the point of choosing it.
-        let later_frame_keep = default.keep(0.5, frame, window);
-        assert!(
-            (later_frame_keep - first_frame_keep).abs() < 1e-6,
-            "an exponential should keep {first_frame_keep} every frame, later {later_frame_keep}"
-        );
-        // A flat-starting curve is kept for callers who want it, but it is not
-        // the default for exactly this reason.
-        let flat = CorrectionEase::Smoothstep.keep(0.0, frame, window);
-        assert!(
-            flat > 0.999,
-            "smoothstep should hold nearly the whole gap, got {flat}"
-        );
-    }
-
-    /// A window may run the unbounded curve: then the window is what bounds it.
-    /// The ratio is constant per frame instead of following a normalised curve,
-    /// and the window still ends on its own length.
-    #[test]
-    fn window_can_run_the_exponential_ease() {
-        use crate::correction::update_visual_correction;
-        use crate::manager::PredictionManager;
-        use bevy_ecs::system::RunSystemOnce;
-
-        let mut app = switch_app();
-        app.insert_resource(PredictionManager::default());
-        let exponential = CorrectionEase::Exponential {
-            decay_ratio: 0.5,
-            decay_period_secs: 0.2,
-        };
-        let entity = app
-            .world_mut()
-            .spawn((
-                TestPos(10.0),
-                Predicted,
-                SwitchBlend::new(0.0, 0.5, exponential),
-                VisualCorrection::new(TestPos(-1.0), 0.0),
-            ))
-            .id();
-        app.world_mut().flush();
-
-        // Two frames of the same length give up the same fraction: the
-        // exponential has no curve to advance along.
-        let mut ratios = alloc::vec::Vec::new();
-        for _ in 0..2 {
-            let before = app
-                .world()
-                .get::<VisualCorrection<TestPos>>(entity)
-                .map(|c| c.error.0)
-                .unwrap();
-            app.world_mut()
-                .resource_mut::<Time<Virtual>>()
-                .advance_by(Duration::from_millis(16));
-            app.world_mut()
-                .run_system_once(update_visual_correction::<TestPos, TestPos>)
-                .unwrap();
-            app.world_mut().flush();
-            let after = app
-                .world()
-                .get::<VisualCorrection<TestPos>>(entity)
-                .map(|c| c.error.0)
-                .unwrap();
-            ratios.push(after / before);
-        }
-        assert!(
-            (ratios[0] - ratios[1]).abs() < 1e-5,
-            "an exponential gives up the same fraction each frame, got {ratios:?}"
-        );
-        // The policy's rate is a floor, and here it is the same curve, so the
-        // observed ratio is that of one 16 ms step.
-        assert!(
-            (ratios[0] - exponential.remaining(0.016, 1.0)).abs() < 1e-5,
-            "got {}",
-            ratios[0]
-        );
-    }
-
     /// A blend's error decays on its window's curve, not on the entity's
     /// correction policy: the length and curve the caller asked for are what the
-    /// transition looks like.
+    /// transition looks like. An unbounded curve keeps that shape through the
+    /// window too — its per-frame keep ratio is constant, so the window bounds it
+    /// by its length rather than by normalising it.
     #[test]
     fn blend_error_decays_on_the_window_curve() {
         use crate::correction::update_visual_correction;
@@ -1039,6 +853,24 @@ mod tests {
                 VisualCorrection::new(TestPos(-1.0), 0.0),
             ))
             .id();
+        // Slower than the policy's own exponential: the window and the policy
+        // combine by taking whichever gives the error up more slowly, so only a
+        // curve that is slower than the floor can be the one observed here. (A
+        // faster one would be floored, and the assertion below could not tell the
+        // two exponential periods apart.)
+        let exponential = CorrectionEase::Exponential {
+            decay_ratio: 0.5,
+            decay_period_secs: 0.4,
+        };
+        let unbounded = app
+            .world_mut()
+            .spawn((
+                TestPos(10.0),
+                Predicted,
+                SwitchBlend::new(0.0, 1.0, exponential),
+                VisualCorrection::new(TestPos(-1.0), 0.0),
+            ))
+            .id();
         app.world_mut().flush();
 
         app.world_mut()
@@ -1049,20 +881,27 @@ mod tests {
             .unwrap();
         app.world_mut().flush();
 
-        let blend_error = app
-            .world()
-            .get::<VisualCorrection<TestPos>>(blended)
-            .map(|c| c.error.0)
-            .unwrap();
-        let policy_error = app
-            .world()
-            .get::<VisualCorrection<TestPos>>(policy)
-            .map(|c| c.error.0)
-            .unwrap();
+        let error = |entity| {
+            app.world()
+                .get::<VisualCorrection<TestPos>>(entity)
+                .map(|c| c.error.0)
+                .unwrap()
+        };
+        let blend_error = error(blended);
+        let policy_error = error(policy);
         assert!(
             blend_error < policy_error,
             "the window's curve should hold the error longer than the policy, \
              got blend {blend_error} and policy {policy_error}"
+        );
+        // The unbounded curve has no ramp to advance along, so one step of it is
+        // exactly the fraction its own period gives up in 50 ms — and that is
+        // visible here only because the window's period is slower than the
+        // policy floor.
+        assert!(
+            (error(unbounded) - -exponential.remaining(0.05, 1.0)).abs() < 1e-5,
+            "an unbounded window keeps its constant ratio, got {}",
+            error(unbounded)
         );
     }
 
@@ -1215,7 +1054,8 @@ mod tests {
 
         // Now switch to the interpolation timeline.
         app.world_mut()
-            .write_message(TimelineSwitch::to_interpolated(entity).with_transition_secs(0.5));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_interpolated().with_transition_secs(0.5));
         run_save(&mut app);
         run_apply(&mut app);
         // The destination timeline writes its first value.
@@ -1254,7 +1094,8 @@ mod tests {
         app.world_mut().flush();
 
         app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.5));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_predicted().with_transition_secs(0.5));
         run_save(&mut app);
         run_apply(&mut app);
         rollback_frame(&mut app, 30.0);
@@ -1306,7 +1147,8 @@ mod tests {
 
         // Frame F: the switch saves nothing in this direction.
         app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.5));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_predicted().with_transition_secs(0.5));
         run_save(&mut app);
         assert!(app.world().get::<PreviousVisual<TestPos>>(entity).is_none());
 
@@ -1406,7 +1248,8 @@ mod tests {
         // Frame F: save the value on screen. F+1: swap the markers, roll back,
         // and let the blend compute its correction.
         app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.5));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_predicted().with_transition_secs(0.5));
         run_save(&mut app);
         run_apply(&mut app);
         frame_with_rollback(&mut app, 30.0);
@@ -1437,64 +1280,6 @@ mod tests {
         assert!(
             error < -70.0,
             "the correction must be re-measured against the new destination, got {error}"
-        );
-    }
-
-    /// A rollback landing during a window replaces the error and is then given
-    /// up on the window's curve, floored by the correction policy. The hold the
-    /// rollback recorded has to stay: neither dropped by the switch nor dumped by
-    /// the curve's steep tail.
-    #[test]
-    fn rollback_during_a_blend_stays_smoothed() {
-        use crate::correction::update_visual_correction;
-        use crate::manager::PredictionManager;
-        use bevy_ecs::system::RunSystemOnce;
-
-        let mut app = switch_app();
-        app.insert_resource(PredictionManager::default());
-        // 90% through a half second window. The window has already taken its
-        // jump (no saved value left), and a rollback has just recorded the move
-        // from 10 to 20 as the error.
-        let entity = app
-            .world_mut()
-            .spawn((
-                TestPos(20.0),
-                Predicted,
-                SwitchBlend::new(0.0, 0.5, CorrectionEase::Smoothstep),
-                VisualCorrection::new(TestPos(10.0 - 20.0), 0.0),
-            ))
-            .id();
-        app.world_mut().flush();
-        // Move the clock to 90% of the window without turning this frame into a
-        // 450 ms frame, which would decay the error by the whole elapsed time.
-        app.world_mut()
-            .resource_mut::<Time<Virtual>>()
-            .advance_by(Duration::from_millis(434));
-        app.world_mut()
-            .resource_mut::<Time<Virtual>>()
-            .advance_by(Duration::from_millis(16));
-
-        run_blend(&mut app);
-        app.world_mut()
-            .run_system_once(update_visual_correction::<TestPos, TestPos>)
-            .unwrap();
-        app.world_mut().flush();
-
-        let rendered = app.world().get::<TestPos>(entity).unwrap().0;
-        assert!(
-            (rendered - 10.0).abs() < 1.5,
-            "the rollback's hold must stay, got {rendered} (jumped toward 20)"
-        );
-        // The curve alone would have dumped most of it this late in the window;
-        // the correction policy's rate is the floor.
-        let error = app
-            .world()
-            .get::<VisualCorrection<TestPos>>(entity)
-            .map(|c| c.error.0)
-            .unwrap();
-        assert!(
-            (error + 10.0).abs() < 1.5,
-            "the error should be held, got {error}"
         );
     }
 
@@ -1533,7 +1318,8 @@ mod tests {
         let on_screen = app.world().get::<TestPos>(entity).unwrap().0;
 
         app.world_mut()
-            .write_message(TimelineSwitch::to_interpolated(entity).with_transition_secs(0.5));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_interpolated().with_transition_secs(0.5));
         run_save(&mut app);
         run_apply(&mut app);
         app.world_mut().get_mut::<TestPos>(entity).unwrap().0 = 16.0;
@@ -1571,7 +1357,8 @@ mod tests {
 
         send_switch(
             &mut app,
-            TimelineSwitch::to_interpolated(entity).with_transition_secs(0.5),
+            entity,
+            TimelineSwitch::to_interpolated().with_transition_secs(0.5),
         );
         // The destination timeline writes its first value between the apply and
         // the seed.
@@ -1612,7 +1399,7 @@ mod tests {
             .id();
         app.world_mut().flush();
 
-        send_switch(&mut app, TimelineSwitch::to_interpolated(entity));
+        send_switch(&mut app, entity, TimelineSwitch::to_interpolated());
 
         let world = app.world();
         assert_eq!(
@@ -1646,43 +1433,6 @@ mod tests {
         );
     }
 
-    /// The window ends on its own: the marker and everything it kept go, and by
-    /// then the blend has given up the whole error, so the entity is exactly on
-    /// its destination value. A correction from a rollback that landed during
-    /// the window does not survive either — the window owned the error for its
-    /// whole length.
-    #[test]
-    fn switch_to_predicted_drops_stale_frame_histories() {
-        let mut app = switch_app();
-        let entity = app.world_mut().spawn((TestPos(0.6), Interpolated)).id();
-        // History written before the switch to interpolation: while
-        // `FrameInterpolate` was absent no frame history was recorded, so these
-        // values are older than the live value by that whole period.
-        app.world_mut()
-            .entity_mut(entity)
-            .insert(FrameInterpolationHistory::<TestPos> {
-                previous_value: Some(TestPos(47.0)),
-                current_value: Some(TestPos(47.7)),
-            });
-        app.world_mut().flush();
-
-        send_switch(&mut app, TimelineSwitch::to_predicted(entity));
-
-        let world = app.world();
-        assert!(world.get::<Predicted>(entity).is_some());
-        assert!(world.get::<FrameInterpolate>(entity).is_some());
-        // The old history must be gone: re-adding the marker without dropping
-        // it would make frame restore put +47.7 back onto live simulation, and
-        // the switch blend would read it as the value on screen. The next
-        // history update starts again from the live value instead.
-        assert!(
-            world
-                .get::<FrameInterpolationHistory<TestPos>>(entity)
-                .is_none()
-        );
-        assert_eq!(world.get::<TestPos>(entity), Some(&TestPos(0.6)));
-    }
-
     /// The frame history belongs to the era the entity is leaving, and neither
     /// direction can keep it: while interpolated, frame interpolation is not
     /// recording it (it only runs for archetypes with `FrameInterpolate`), and
@@ -1700,7 +1450,7 @@ mod tests {
                 current_value: Some(TestPos(47.7)),
             });
         app.world_mut().flush();
-        send_switch(&mut app, TimelineSwitch::to_predicted(entity));
+        send_switch(&mut app, entity, TimelineSwitch::to_predicted());
         assert!(
             app.world()
                 .get::<FrameInterpolationHistory<TestPos>>(entity)
@@ -1722,7 +1472,7 @@ mod tests {
                 current_value: Some(TestPos(10.0)),
             });
         app.world_mut().flush();
-        send_switch(&mut app, TimelineSwitch::to_interpolated(entity));
+        send_switch(&mut app, entity, TimelineSwitch::to_interpolated());
         assert!(
             app.world()
                 .get::<FrameInterpolationHistory<TestPos>>(entity)
@@ -1740,7 +1490,8 @@ mod tests {
 
             send_switch(
                 &mut app,
-                TimelineSwitch::to_predicted(entity).with_transition_secs(duration),
+                entity,
+                TimelineSwitch::to_predicted().with_transition_secs(duration),
             );
 
             let world = app.world();
@@ -1751,45 +1502,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn bare_request_blends_over_resource_default() {
-        let mut app = switch_app();
-        let entity = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
-        app.world_mut().flush();
-
-        let request = TimelineSwitch::to_predicted(entity);
-        assert_eq!(request.transition_override(), None);
-        send_switch(&mut app, request);
-
-        assert!(app.world().get::<SwitchBlend>(entity).is_some());
-        assert_eq!(
-            blend_marker(app.world(), entity).total_secs(),
-            TimelineSwitchSettings::default().default_transition_secs
-        );
-    }
-
-    #[test]
-    fn explicit_override_wins_over_customized_default() {
-        let mut app = switch_app();
-        app.world_mut().insert_resource(TimelineSwitchSettings {
-            default_transition_secs: 2.0,
-            default_ease: CorrectionEase::Linear,
-        });
-        let bare = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
-        let overridden = app.world_mut().spawn((TestPos(2.0), Interpolated)).id();
-        app.world_mut().flush();
-
-        send_switch(&mut app, TimelineSwitch::to_predicted(bare));
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_predicted(overridden).with_transition_secs(0.5),
-        );
-
-        let world = app.world();
-        assert_eq!(blend_marker(world, bare).total_secs(), 2.0);
-        assert_eq!(blend_marker(world, overridden).total_secs(), 0.5);
-    }
-
+    /// The contract every window curve is used through: whole at the start,
+    /// converged at the end, never growing in between. A curve ending above zero
+    /// would leave a permanent offset behind, and one that grew would make the
+    /// render move away from its destination.
     #[test]
     fn ease_remaining_bookends_and_monotonic() {
         // Bounded curves are normalised over the window they run in.
@@ -1805,10 +1521,39 @@ mod tests {
                 p += 0.05;
             }
         }
-        // Spot values pin the curves (smoothstep and cubic ease-out).
-        assert!((CorrectionEase::Smoothstep.remaining(0.5, 1.0) - 0.5).abs() < 1e-6);
-        assert!((CorrectionEase::EaseOutCubic.remaining(0.25, 1.0) - 0.421875).abs() < 1e-6);
-        assert!((CorrectionEase::EaseInOutCubic.remaining(0.5, 1.0) - 0.5).abs() < 1e-6);
+    }
+
+    /// The request's own overrides win; what is left resolves against
+    /// [`TimelineSwitchSettings`] when the request is saved, so a game retunes the
+    /// feel in one place and can still tune a single switch.
+    #[test]
+    fn settings_resolve_default_and_override() {
+        let mut app = switch_app();
+        app.world_mut().insert_resource(TimelineSwitchSettings {
+            default_transition_secs: 2.0,
+            default_ease: CorrectionEase::Smoothstep,
+        });
+        let bare = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
+        let overridden = app.world_mut().spawn((TestPos(2.0), Interpolated)).id();
+        app.world_mut().flush();
+
+        send_switch(&mut app, bare, TimelineSwitch::to_predicted());
+        send_switch(
+            &mut app,
+            overridden,
+            TimelineSwitch::to_predicted()
+                .with_transition_secs(0.5)
+                .with_ease(CorrectionEase::EaseOutCubic),
+        );
+
+        let world = app.world();
+        assert_eq!(blend_marker(world, bare).total_secs(), 2.0);
+        assert_eq!(blend_marker(world, bare).ease(), CorrectionEase::Smoothstep);
+        assert_eq!(blend_marker(world, overridden).total_secs(), 0.5);
+        assert_eq!(
+            blend_marker(world, overridden).ease(),
+            CorrectionEase::EaseOutCubic
+        );
     }
 
     /// The exponential is the unbounded curve: it never reaches zero, its keep
@@ -1838,52 +1583,6 @@ mod tests {
     }
 
     #[test]
-    fn switch_resolves_ease_default_and_override() {
-        let mut app = switch_app();
-        app.world_mut().insert_resource(TimelineSwitchSettings {
-            default_transition_secs: 0.5,
-            default_ease: CorrectionEase::Smoothstep,
-        });
-        let bare = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
-        let overridden = app.world_mut().spawn((TestPos(2.0), Interpolated)).id();
-        app.world_mut().flush();
-
-        send_switch(&mut app, TimelineSwitch::to_predicted(bare));
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_predicted(overridden).with_ease(CorrectionEase::EaseOutCubic),
-        );
-
-        let world = app.world();
-        assert_eq!(blend_marker(world, bare).ease(), CorrectionEase::Smoothstep);
-        assert_eq!(
-            blend_marker(world, overridden).ease(),
-            CorrectionEase::EaseOutCubic
-        );
-    }
-
-    #[test]
-    fn user_inserted_new_marker_only_needs_removal() {
-        let mut app = switch_app();
-        // User systems already inserted Predicted; the switch only removes Interpolated.
-        let entity = app
-            .world_mut()
-            .spawn((TestPos(7.0), Predicted, Interpolated))
-            .id();
-        app.world_mut().flush();
-
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_predicted(entity).with_transition_secs(0.5),
-        );
-
-        let world = app.world();
-        assert!(world.get::<Predicted>(entity).is_some());
-        assert!(world.get::<Interpolated>(entity).is_none());
-        assert!(world.get::<SwitchBlend>(entity).is_some());
-    }
-
-    #[test]
     fn invalid_requests_are_dropped() {
         let mut app = switch_app();
         let predicted = app.world_mut().spawn((TestPos(1.0), Predicted)).id();
@@ -1895,16 +1594,22 @@ mod tests {
         // blend.
         send_switch(
             &mut app,
-            TimelineSwitch::to_predicted(predicted).with_transition_secs(0.5),
+            predicted,
+            TimelineSwitch::to_predicted().with_transition_secs(0.5),
         );
         send_switch(
             &mut app,
-            TimelineSwitch::to_interpolated(interpolated).with_transition_secs(0.5),
+            interpolated,
+            TimelineSwitch::to_interpolated().with_transition_secs(0.5),
         );
         send_switch(
             &mut app,
-            TimelineSwitch::to_predicted(plain).with_transition_secs(0.5),
+            plain,
+            TimelineSwitch::to_predicted().with_transition_secs(0.5),
         );
+        // A flip has nothing to flip from there either: it resolves against the
+        // entity's markers, and there are none.
+        send_switch(&mut app, plain, TimelineSwitch::default());
 
         let world = app.world();
         assert!(world.get::<Predicted>(predicted).is_some());
@@ -1912,11 +1617,14 @@ mod tests {
         assert!(world.get::<Interpolated>(interpolated).is_some());
         assert!(world.get::<SwitchBlend>(interpolated).is_none());
         assert!(world.get::<SwitchBlend>(plain).is_none());
+        // A dropped request does not stay on the entity and fire later.
+        assert!(world.get::<TimelineSwitch>(plain).is_none());
 
         // A second request while blending is ignored.
         send_switch(
             &mut app,
-            TimelineSwitch::to_predicted(interpolated).with_transition_secs(0.5),
+            interpolated,
+            TimelineSwitch::to_predicted().with_transition_secs(0.5),
         );
         {
             let world = app.world();
@@ -1925,7 +1633,8 @@ mod tests {
         }
         send_switch(
             &mut app,
-            TimelineSwitch::to_interpolated(interpolated).with_transition_secs(0.5),
+            interpolated,
+            TimelineSwitch::to_interpolated().with_transition_secs(0.5),
         );
         let world = app.world();
         assert!(world.get::<Predicted>(interpolated).is_some());
@@ -1933,19 +1642,40 @@ mod tests {
         assert!(world.get::<SwitchBlend>(interpolated).is_some());
     }
 
+    /// A bare `TimelineSwitch::default()` carries no direction: the save pass
+    /// picks the timeline the entity is not on, so the same value works in both
+    /// directions and callers that only care about toggling never name one.
     #[test]
-    fn despawned_entity_takes_pending_request_with_it() {
-        // Requests are one-shot messages, so one can outlive its entity: the
-        // handler must simply skip it, no tombstoning needed.
+    fn default_flips_the_entity_to_the_other_timeline() {
         let mut app = switch_app();
-        let entity = app.world_mut().spawn((TestPos(10.0), Interpolated)).id();
+        let to_predicted = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
+        let to_interpolated = app
+            .world_mut()
+            .spawn((TestPos(2.0), Predicted, FrameInterpolate))
+            .id();
         app.world_mut().flush();
 
-        app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.5));
-        app.world_mut().despawn(entity);
-        run_save(&mut app);
-        run_apply(&mut app);
+        assert_eq!(TimelineSwitch::default().direction(), None);
+        send_switch(
+            &mut app,
+            to_predicted,
+            TimelineSwitch::default().with_transition_secs(0.5),
+        );
+        send_switch(
+            &mut app,
+            to_interpolated,
+            TimelineSwitch::default().with_transition_secs(0.5),
+        );
+
+        let world = app.world();
+        assert!(world.get::<Predicted>(to_predicted).is_some());
+        assert!(world.get::<Interpolated>(to_predicted).is_none());
+        assert!(world.get::<Interpolated>(to_interpolated).is_some());
+        assert!(world.get::<Predicted>(to_interpolated).is_none());
+        // Both flips blend, so both entities carry the window the save pass
+        // resolved from the override.
+        assert_eq!(blend_marker(world, to_predicted).total_secs(), 0.5);
+        assert_eq!(blend_marker(world, to_interpolated).total_secs(), 0.5);
     }
 
     #[test]
@@ -1957,7 +1687,8 @@ mod tests {
         app.world_mut().flush();
         send_switch(
             &mut app,
-            TimelineSwitch::to_interpolated(entity).with_transition_secs(0.5),
+            entity,
+            TimelineSwitch::to_interpolated().with_transition_secs(0.5),
         );
         app.world_mut().entity_mut(entity).remove::<TestPos>();
         app.world_mut().flush();
@@ -2041,94 +1772,66 @@ mod tests {
         assert!(world.get::<PreviousVisual<TestPos>>(interp).is_none());
     }
 
-    /// The forced rollback's EndRollback correction creation runs between the
-    /// drain's capture and the switch creation. It must not consume a capture
-    /// that belongs to a pending switch blend: the switch creation owns that
-    /// blend.
+    /// Which switches ask for a forced rollback. A switch to the prediction
+    /// timeline needs one: the world rewinds to the scanned frontier and replays
+    /// under the new marker, and that rollback is also the capture the blend
+    /// starts from. The other direction just presents the delayed value, and
+    /// before the first sync there is no scanned tick to rewind to, so the switch
+    /// applies without one.
     #[test]
-    fn switch_requests_forced_rollback_at_last_processed_tick() {
-        // No readiness check: even a young entity switches immediately, and
-        // the same-frame rollback check rewinds the world to the scanned
-        // frontier.
-        let mut app = switch_app();
+    fn forced_rollback_is_requested_only_for_to_predicted_with_a_scanned_tick() {
         let k = Tick(90);
-        app.init_resource::<StateRollbackMetadata>();
-        app.world_mut()
-            .resource_mut::<StateRollbackMetadata>()
-            .set_last_processed_confirmed_tick(k);
-        let entity = app.world_mut().spawn((TestPos(10.0), Interpolated)).id();
-        app.world_mut().flush();
+        for (direction, scanned, expect_forced) in [
+            (SwitchDirection::ToPredicted, Some(k), Some(k)),
+            (SwitchDirection::ToInterpolated, Some(k), None),
+            (SwitchDirection::ToPredicted, None, None),
+        ] {
+            let mut app = switch_app();
+            app.init_resource::<StateRollbackMetadata>();
+            if let Some(tick) = scanned {
+                app.world_mut()
+                    .resource_mut::<StateRollbackMetadata>()
+                    .set_last_processed_confirmed_tick(tick);
+            }
+            let entity = match direction {
+                SwitchDirection::ToPredicted => {
+                    app.world_mut().spawn((TestPos(10.0), Interpolated)).id()
+                }
+                SwitchDirection::ToInterpolated => app
+                    .world_mut()
+                    .spawn((TestPos(10.0), Predicted, FrameInterpolate))
+                    .id(),
+            };
+            app.world_mut().flush();
 
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_predicted(entity).with_transition_secs(0.5),
-        );
+            send_switch(
+                &mut app,
+                entity,
+                match direction {
+                    SwitchDirection::ToPredicted => {
+                        TimelineSwitch::to_predicted().with_transition_secs(0.5)
+                    }
+                    SwitchDirection::ToInterpolated => {
+                        TimelineSwitch::to_interpolated().with_transition_secs(0.5)
+                    }
+                },
+            );
 
-        let world = app.world();
-        assert!(world.get::<Predicted>(entity).is_some());
-        assert!(world.get::<Interpolated>(entity).is_none());
-        assert!(world.get::<SwitchBlend>(entity).is_some());
-        assert_eq!(
-            world
-                .resource::<StateRollbackMetadata>()
-                .forced_rollback_tick(),
-            Some(k)
-        );
-    }
-
-    #[test]
-    fn switch_to_interpolated_requests_no_rollback() {
-        // A switch to interpolation needs no forced rollback: delayed
-        // interpolation writes the delayed value once the markers are swapped,
-        // and the blend smooths the jump.
-        let mut app = switch_app();
-        app.init_resource::<StateRollbackMetadata>();
-        app.world_mut()
-            .resource_mut::<StateRollbackMetadata>()
-            .set_last_processed_confirmed_tick(Tick(90));
-        let entity = app.world_mut().spawn((TestPos(10.0), Predicted)).id();
-        app.world_mut().flush();
-
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_interpolated(entity).with_transition_secs(0.5),
-        );
-
-        let world = app.world();
-        assert!(world.get::<Predicted>(entity).is_none());
-        assert!(world.get::<Interpolated>(entity).is_some());
-        assert!(world.get::<SwitchBlend>(entity).is_some());
-        assert_eq!(
-            world
-                .resource::<StateRollbackMetadata>()
-                .forced_rollback_tick(),
-            None
-        );
-    }
-
-    #[test]
-    fn switch_without_scanned_tick_requests_no_rollback() {
-        // Before the first sync no rollback check has run, so there is no K to
-        // rewind to: the switch still applies, just without requesting a
-        // rollback.
-        let mut app = switch_app();
-        app.init_resource::<StateRollbackMetadata>();
-        let entity = app.world_mut().spawn((TestPos(10.0), Interpolated)).id();
-        app.world_mut().flush();
-
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_predicted(entity).with_transition_secs(0.5),
-        );
-
-        let world = app.world();
-        assert!(world.get::<Predicted>(entity).is_some());
-        assert_eq!(
-            world
-                .resource::<StateRollbackMetadata>()
-                .forced_rollback_tick(),
-            None
-        );
+            let world = app.world();
+            assert_eq!(
+                world.get::<Predicted>(entity).is_some(),
+                direction == SwitchDirection::ToPredicted,
+                "{direction:?} must swap the markers"
+            );
+            assert!(world.get::<SwitchBlend>(entity).is_some());
+            assert_eq!(
+                world
+                    .resource::<StateRollbackMetadata>()
+                    .forced_rollback_tick(),
+                expect_forced,
+                "{direction:?} with scanned tick {scanned:?}"
+            );
+        }
     }
 
     /// A switch to the prediction timeline has nothing saved by the switch
@@ -2144,7 +1847,8 @@ mod tests {
         app.world_mut().flush();
 
         app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.5));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_predicted().with_transition_secs(0.5));
         run_save(&mut app);
         assert!(
             app.world().get::<PreviousVisual<TestPos>>(entity).is_none(),
@@ -2169,91 +1873,112 @@ mod tests {
         assert!(world.get::<SwitchBlend>(entity).is_some());
     }
 
+    /// A committed switch owns the entity until it is applied: the save pass has
+    /// already recorded the value on screen for it, so a request arriving inside
+    /// that window must be dropped rather than resolved on top of it. Resolving
+    /// it would leave the recorded value to be measured as a jump that never
+    /// happened — the entity would be pinned back to the value from a frame the
+    /// replacement has nothing to do with — and would apply the replacement
+    /// against markers it never saw.
     #[test]
-    fn zero_error_blend_correction_survives_applies_while_marker_live() {
-        use crate::correction::update_visual_correction;
-        use crate::manager::PredictionManager;
-        use bevy_ecs::system::RunSystemOnce;
-
-        // A static entity whose destination value agrees with the one on screen:
-        // the seed records an offset of exactly zero, which is dropped like any
-        // converged offset. Nothing re-derives it, so the window does not need to
-        // keep it alive: a later rollback records a fresh correction.
+    fn requests_arriving_while_a_switch_is_committed_are_dropped() {
         let mut app = switch_app();
-        app.insert_resource(PredictionManager::default());
-        let entity = app.world_mut().spawn((TestPos(5.0), Predicted)).id();
+        let entity = app.world_mut().spawn((TestPos(10.0), Predicted)).id();
         app.world_mut().flush();
 
-        send_switch(
-            &mut app,
-            TimelineSwitch::to_interpolated(entity).with_transition_secs(1.0),
-        );
-        // One frame later: the entry is promoted, and the destination
-        // (delayed) value already landed. Here it equals the saved value, so
-        // the measured error is exactly zero.
-        run_blend(&mut app);
-        run_blend(&mut app);
-        assert_eq!(
-            app.world()
-                .get::<VisualCorrection<TestPos>>(entity)
-                .map(|c| c.error.clone()),
-            Some(TestPos(0.0))
-        );
-
-        for _ in 0..3 {
-            app.world_mut()
-                .resource_mut::<Time<Virtual>>()
-                .advance_by(Duration::from_millis(16));
-            app.world_mut()
-                .run_system_once(update_visual_correction::<TestPos, TestPos>)
-                .unwrap();
-            assert!(
-                app.world()
-                    .get::<VisualCorrection<TestPos>>(entity)
-                    .is_none(),
-                "a converged offset is dropped whether or not a window is live"
-            );
-            assert!(
-                app.world().get::<SwitchBlend>(entity).is_some(),
-                "the window itself lives out its length"
-            );
+        // Frame F: the request is committed, and its value on screen recorded.
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_interpolated().with_transition_secs(0.5));
+        run_save(&mut app);
+        {
+            let world = app.world();
+            assert!(world.get::<PendingSwitch>(entity).is_some());
+            assert!(world.get::<TimelineSwitch>(entity).is_none());
+            assert!(world.get::<PreviousVisual<TestPos>>(entity).is_some());
         }
+
+        // A replacement arrives before the apply pass, with every field set so
+        // its values cannot be told apart from a resolved request's. A second
+        // save pass — which is what the window is at risk from, since the
+        // recorded value is only meaningful for the switch it was taken for —
+        // drops it and leaves the committed switch alone.
+        app.world_mut().entity_mut(entity).insert(
+            TimelineSwitch::to_interpolated()
+                .with_transition_secs(0.25)
+                .with_ease(CorrectionEase::Linear),
+        );
+        run_save(&mut app);
+        {
+            let world = app.world();
+            assert!(
+                world.get::<TimelineSwitch>(entity).is_none(),
+                "a request that arrives while one is committed must not linger"
+            );
+            let committed = world
+                .get::<PendingSwitch>(entity)
+                .expect("committed switch");
+            assert_eq!(
+                committed.total_secs, 0.5,
+                "the committed switch is untouched"
+            );
+            assert_eq!(committed.ease, CorrectionEase::default());
+        }
+
+        // The committed switch is the one that applies, with the blend it was
+        // committed with.
+        run_apply(&mut app);
+        let world = app.world();
+        assert!(world.get::<Interpolated>(entity).is_some());
+        assert!(world.get::<Predicted>(entity).is_none());
+        assert!(world.get::<PendingSwitch>(entity).is_none());
+        assert_eq!(blend_marker(world, entity).total_secs(), 0.5);
+
+        // Nothing is left over to be applied later.
+        run_save(&mut app);
+        run_apply(&mut app);
+        let world = app.world();
+        assert!(world.get::<Interpolated>(entity).is_some());
+        assert_eq!(blend_marker(world, entity).total_secs(), 0.5);
     }
 
-    /// A request only starts from the timeline the entity is on when the
-    /// request is seen. Two requests that contradict each other in one frame
-    /// cannot both be carried, so the one whose source timeline matches the
-    /// entity is the one that survives; the other is dropped as invalid.
+    /// A request is a component, so two requests for the same entity in one
+    /// frame are two inserts: the second replaces the first. Only the request
+    /// that is left is served, and it is served against the timeline the entity
+    /// is actually on when the save pass runs.
     #[test]
-    fn contradictory_requests_in_one_frame_keep_the_matching_one() {
-        for (first, second, expect_predicted) in [
-            // Up first, then down: the down request wants to leave the
-            // prediction timeline, which the entity only reaches when the up
-            // request is applied, so it is dropped and the up one is applied.
+    fn contradictory_requests_in_one_frame_keep_the_last_insert() {
+        for (first, second, expect_predicted, expected_reason) in [
+            // Up first, then down: the request left on the entity wants to
+            // leave the prediction timeline, which an interpolated entity is
+            // not on, so it is dropped and nothing changes.
             (
                 SwitchDirection::ToPredicted,
                 SwitchDirection::ToInterpolated,
-                true,
+                false,
+                "the last insert is invalid on an interpolated entity",
             ),
-            // Down first, then up: the down request wants to leave the
-            // prediction timeline, which this entity is not on, so it is
-            // dropped and the up one is applied.
+            // Down first, then up: the request left is the valid one, so the
+            // entity moves to the prediction timeline.
             (
                 SwitchDirection::ToInterpolated,
                 SwitchDirection::ToPredicted,
                 true,
+                "the last insert is valid on an interpolated entity",
             ),
         ] {
             let mut app = switch_app();
             let entity = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
             app.world_mut().flush();
 
-            let send = |direction| match direction {
-                SwitchDirection::ToPredicted => TimelineSwitch::to_predicted(entity),
-                SwitchDirection::ToInterpolated => TimelineSwitch::to_interpolated(entity),
+            let request = |direction| match direction {
+                SwitchDirection::ToPredicted => TimelineSwitch::to_predicted(),
+                SwitchDirection::ToInterpolated => TimelineSwitch::to_interpolated(),
             };
-            app.world_mut().write_message(send(first));
-            app.world_mut().write_message(send(second));
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(request(first))
+                .insert(request(second));
             run_save(&mut app);
             run_apply(&mut app);
 
@@ -2261,29 +1986,21 @@ mod tests {
             assert_eq!(
                 world.get::<Predicted>(entity).is_some(),
                 expect_predicted,
-                "{second:?} sent after {first:?} on an interpolated entity"
+                "{second:?} inserted after {first:?}: {expected_reason}"
             );
         }
-    }
 
-    /// A policy that re-sends every frame must not apply the same switch twice:
-    /// the entity is carried once per frame, and the request that sticks is the
-    /// last one sent.
-    #[test]
-    fn repeated_requests_in_one_frame_carry_once() {
+        // Before the save pass commits, the last insert is the request that
+        // sticks, including its blend length.
         let mut app = switch_app();
         let entity = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
         app.world_mut().flush();
-
         app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.5));
-        app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.25));
-        app.world_mut()
-            .write_message(TimelineSwitch::to_predicted(entity).with_transition_secs(0.25));
+            .entity_mut(entity)
+            .insert(TimelineSwitch::to_predicted().with_transition_secs(0.5))
+            .insert(TimelineSwitch::to_predicted().with_transition_secs(0.25));
         run_save(&mut app);
         run_apply(&mut app);
-
         let world = app.world();
         assert!(world.get::<Predicted>(entity).is_some());
         assert_eq!(blend_marker(world, entity).total_secs(), 0.25);
@@ -2291,15 +2008,17 @@ mod tests {
 
     #[test]
     fn consumed_request_does_not_replay() {
-        // One-shot semantics: running a handler with no new message changes
-        // nothing, even right after a switch.
+        // One-shot semantics: running a handler with no request on the entity
+        // changes nothing, even right after a switch.
         let mut app = switch_app();
         let entity = app.world_mut().spawn((TestPos(1.0), Interpolated)).id();
         app.world_mut().flush();
 
-        send_switch(&mut app, TimelineSwitch::to_predicted(entity));
+        send_switch(&mut app, entity, TimelineSwitch::to_predicted());
         assert!(app.world().get::<Predicted>(entity).is_some());
-        // No new message: both passes are noops.
+        // The request went with the markers it swapped.
+        assert!(app.world().get::<TimelineSwitch>(entity).is_none());
+        // No request left: both passes are noops.
         run_save(&mut app);
         run_apply(&mut app);
         assert!(app.world().get::<Predicted>(entity).is_some());
