@@ -349,7 +349,6 @@ fn add_character_child_cosmetics(
     }
 }
 
-
 fn add_floor_cosmetics(
     mut commands: Commands,
     floor_query: Query<Entity, Added<FloorMarker>>,

@@ -69,8 +69,6 @@
 // a previous one was running, the highest decay ratio between the two is used
 // (the one that would give the biggest error).
 
-
-
 use crate::correction::{CorrectionEase, CorrectionWorld};
 use crate::manager::StateRollbackMetadata;
 use crate::plugin::PredictionSystems;
@@ -251,7 +249,6 @@ impl PendingSwitch {
     }
 }
 
-
 /// Marks an entity while a switch is ongoing.
 ///
 ///  While present, a new [`TimelineSwitch`] inserted on the entity is dropped.
@@ -327,7 +324,7 @@ impl SwitchBlend {
 ///
 /// Runs in `PostUpdate` after frame interpolation and after the correction
 /// apply, so what it reads is what this frame renders, whatever point of the
-/// frame the request was inserted from. 
+/// frame the request was inserted from.
 ///
 /// Requests for entities that are already blending, or that already have a
 /// committed switch waiting for its apply pass, are dropped.

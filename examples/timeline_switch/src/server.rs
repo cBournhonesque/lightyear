@@ -137,7 +137,7 @@ fn handle_carry_toggle(
 }
 
 fn setup(mut commands: Commands) {
-    // Inert blocks. 
+    // Inert blocks.
     for (i, (offset, sphere)) in [
         (Vec3::new(2.0, 1.0, 1.5), false),
         (Vec3::new(-0.5, 1.0, 3.0), true),
@@ -212,7 +212,7 @@ pub(crate) fn handle_connected(
             // Character templates also reconstruct their child colliders on every peer.
             DisableReplicateHierarchy,
             // Characters spawn predicted on every client (never interpolated
-            // at rest), so contacts always start on one timeline. 
+            // at rest), so contacts always start on one timeline.
             PredictionTarget::to_clients(NetworkTarget::All),
             ControlledBy {
                 owner: trigger.entity,
