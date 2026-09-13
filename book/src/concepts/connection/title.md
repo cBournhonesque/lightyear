@@ -15,7 +15,7 @@ Connection logic lives in components you add to the link entity, next to the IO 
 
 Multiple implementations are provided:
 - Netcode (`NetcodeClient` / `NetcodeServer`)
-- Steam (`SteamClientIo` / `SteamServerIo`)
+- Steam (`SteamClientIo` / `SteamEndpoint`; add `Server` for the authoritative role)
 - Local (`CrossbeamIo`, in-memory, for tests and host-server mode)
 
 

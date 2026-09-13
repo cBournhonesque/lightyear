@@ -15,7 +15,6 @@ use lightyear_connection::client_of::{ClientOf, SkipNetcode};
 use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::endpoint::{Endpoint, LinkOf};
-use lightyear_link::server::Server;
 use lightyear_link::{Link, LinkStart, Linked, Linking, UnlinkReason};
 use tracing::{info, trace};
 
@@ -49,8 +48,8 @@ impl Plugin for SteamEndpointPlugin {
 /// observe this, and use [`SessionRequest::respond`] to set how it should respond to this connection
 /// attempt.
 ///
-/// This is not a server role: a peer in a P2P session owns the same endpoint. Add [`Server`]
-/// alongside for the authority role.
+/// This is not a server role: add [`Server`](lightyear_link::server::Server) alongside
+/// for the authority role.
 #[derive(Debug, Component)]
 #[require(Endpoint)]
 pub struct SteamEndpoint {
