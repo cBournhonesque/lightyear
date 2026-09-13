@@ -7,7 +7,7 @@
 //! reachable on, regardless of how many peers it talks to.
 //!
 //! The endpoint is not tied to any role. A game server and a P2P peer both use it; only the markers
-//! layered on top differ — see [`ServerUdpIo`](crate::server::ServerUdpIo) for the server case.
+//! layered on top differ — `ServerUdpIo` (available with `server`) adds the server role.
 //!
 //! # Addressing
 //!
@@ -32,8 +32,9 @@ use bytes::BufMut;
 use core::net::SocketAddr;
 use lightyear_core::buffer_pool::BufferPool;
 use lightyear_core::time::Instant;
+use lightyear_link::endpoint::EndpointLinkPlugin;
 use lightyear_link::prelude::{Endpoint, LinkOf};
-use lightyear_link::{Link, LinkPlugin, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{Link, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
 
 /// UDP endpoint component.
 ///
@@ -103,6 +104,7 @@ impl UdpEndpoint {
 /// Bevy plugin that integrates the multi-peer UDP endpoint with Lightyear links.
 ///
 /// The plugin installs:
+/// - [`EndpointLinkPlugin`] for child unlink/despawn and receive-conditioner inheritance;
 /// - a [`LinkStart`] observer that binds the endpoint socket and marks the endpoint [`Linked`];
 /// - an [`Unlink`] observer that closes the socket;
 /// - a receive system that creates or finds a child link for each remote address and queues the
@@ -308,8 +310,8 @@ impl UdpEndpointPlugin {
 
 impl Plugin for UdpEndpointPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<LinkPlugin>() {
-            app.add_plugins(LinkPlugin);
+        if !app.is_plugin_added::<EndpointLinkPlugin>() {
+            app.add_plugins(EndpointLinkPlugin);
         }
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
@@ -322,6 +324,83 @@ impl Plugin for UdpEndpointPlugin {
 mod tests {
     use super::*;
     use core::net::Ipv4Addr;
+    use lightyear_link::prelude::LinkConditionerConfig;
+    use lightyear_link::{RecvLinkConditioner, UnlinkReason};
+
+    #[derive(Resource, Default)]
+    struct UnlinkedChildren(Vec<Entity>);
+
+    #[test]
+    fn standalone_endpoint_unlinks_and_despawns_children() {
+        let mut app = App::new();
+        app.add_plugins(UdpEndpointPlugin);
+        app.init_resource::<UnlinkedChildren>();
+        app.add_observer(
+            |trigger: On<Unlink>, mut unlinked: ResMut<UnlinkedChildren>| {
+                unlinked.0.push(trigger.entity);
+            },
+        );
+
+        let endpoint = app.world_mut().spawn((UdpEndpoint::default(), Linked)).id();
+        let child = app
+            .world_mut()
+            .spawn((LinkOf { endpoint }, Link::default(), UdpLinkOfIO, Linked))
+            .id();
+
+        app.world_mut().entity_mut(endpoint).insert(Unlinked {
+            reason: UnlinkReason::UserRequested(None),
+        });
+        app.world_mut().flush();
+
+        assert_eq!(app.world().resource::<UnlinkedChildren>().0, [child]);
+        assert!(app.world().get_entity(child).is_err());
+        assert!(app.world().get::<UdpEndpoint>(endpoint).is_some());
+    }
+
+    #[test]
+    fn standalone_endpoint_conditions_initial_and_subsequent_child_packets() {
+        let mut app = App::new();
+        app.add_plugins(UdpEndpointPlugin);
+        let endpoint = app
+            .world_mut()
+            .spawn((
+                UdpEndpoint::default(),
+                Endpoint::new(Some(RecvLinkConditioner::new(
+                    LinkConditionerConfig::default().with_fixed_loss(1.0),
+                ))),
+            ))
+            .id();
+
+        // UDP queues the first datagram before spawning the child relationship.
+        let mut link = Link::default();
+        link.recv
+            .push(bytes::BytesMut::from(&b"initial"[..]), Instant::now());
+        let child = app
+            .world_mut()
+            .spawn((LinkOf { endpoint }, link, UdpLinkOfIO, Linked))
+            .id();
+        app.update();
+
+        {
+            let mut link = app.world_mut().get_mut::<Link>(child).unwrap();
+            assert!(
+                link.recv.pop().is_none(),
+                "the first datagram must be dropped"
+            );
+            link.recv
+                .push(bytes::BytesMut::from(&b"subsequent"[..]), Instant::now());
+        }
+        app.update();
+        assert!(
+            app.world_mut()
+                .get_mut::<Link>(child)
+                .unwrap()
+                .recv
+                .pop()
+                .is_none(),
+            "later datagrams must inherit packet loss",
+        );
+    }
 
     #[test]
     fn link_updates_local_addr_with_os_assigned_port() {

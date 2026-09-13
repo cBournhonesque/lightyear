@@ -19,6 +19,15 @@ client = [
   "lightyear_link",
   "lightyear_connection/client",
 ]
+## Enables native accepting endpoints without selecting a Lightyear server role.
+p2p = [
+  "aeronet_io",
+  "aeronet_steam/server",
+  "lightyear_aeronet",
+  "lightyear_core",
+  "lightyear_link",
+  "dep:lightyear_connection",
+]
 server = [
   "aeronet_io",
   "aeronet_steam/server",

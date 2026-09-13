@@ -6,6 +6,8 @@
 //! It handles the setup of Steam P2P connections and wraps them in a way that
 //! can be used by Lightyear's `Link` component. This allows Lightyear to send
 //! and receive messages over the Steam network infrastructure.
+//! Native accepting endpoints are available with either `p2p` or `server`. The `p2p` feature
+//! enables Steam's accepting transport without enabling the Lightyear server role.
 //!
 //! Note: This crate requires the `steamworks` crate and a running Steam client.
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -20,7 +22,7 @@ use bevy_ecs::prelude::Res;
 
 #[cfg(feature = "client")]
 pub mod client;
-#[cfg(all(feature = "server", not(target_family = "wasm")))]
+#[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
 pub mod endpoint;
 
 #[derive(thiserror::Error, Debug)]
@@ -40,7 +42,8 @@ pub mod prelude {
         pub use aeronet_steam::client::ConnectTarget;
     }
 
-    #[cfg(all(feature = "server", not(target_family = "wasm")))]
+    /// Accepting endpoints, available with `p2p` or `server` on non-WASM targets.
+    #[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
     pub mod endpoint {
         pub use crate::endpoint::{SteamEndpoint, SteamEndpointPlugin};
         pub use aeronet_steam::server::ListenTarget;

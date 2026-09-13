@@ -2,8 +2,8 @@
 //!
 //! This crate adapts `aeronet_websocket` into Lightyear's transport-neutral
 //! [`Link`](lightyear_link::Link) model through `lightyear_aeronet`. Client support is available
-//! with the `client` feature. Server support is available with the `server` feature on non-WASM
-//! targets.
+//! with the `client` feature. Accepting endpoints are available with either `p2p` or `server` on
+//! non-WASM targets; `p2p` does not enable the Lightyear server role.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate alloc;
@@ -11,7 +11,7 @@ extern crate alloc;
 #[cfg(feature = "client")]
 /// Client-side WebSocket transport integration.
 pub mod client;
-#[cfg(all(feature = "server", not(target_family = "wasm")))]
+#[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
 /// WebSocket endpoint transport integration.
 pub mod endpoint;
 
@@ -47,8 +47,8 @@ pub mod prelude {
 
     /// WebSocket endpoint prelude.
     ///
-    /// Available with the `server` feature on non-WASM targets.
-    #[cfg(all(feature = "server", not(target_family = "wasm")))]
+    /// Available with the `p2p` or `server` feature on non-WASM targets.
+    #[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
     pub mod endpoint {
         pub use crate::endpoint::WebSocketEndpoint;
         pub use aeronet_websocket::server::ServerConfig;

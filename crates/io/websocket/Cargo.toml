@@ -22,6 +22,8 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 [features]
 default = ["self-signed"]
 client = ["aeronet_websocket/client"]
+## Enables native accepting endpoints without selecting a Lightyear server role.
+p2p = ["aeronet_websocket/server", "bevy_reflect/std"]
 server = ["aeronet_websocket/server", "bevy_reflect/std"]
 
 ## Enables `wtransport/self-signed`, allowing you to generate self-signed certificates easily for

@@ -5,10 +5,10 @@
 //! higher-level connection, reliability, replication, and message layers are responsible for any
 //! semantics above raw datagram delivery.
 //!
-//! [`UdpPlugin`] handles single-peer UDP link entities. With the `server` feature enabled, the
-//! [`endpoint`] module provides [`endpoint::UdpEndpoint`] and `UdpEndpointPlugin` for a peer socket
-//! that creates one child [`Link`] per remote address, and [`server::ServerUdpIo`] is the shorthand
-//! for an endpoint that is also a server.
+//! [`UdpPlugin`] handles single-peer UDP link entities. With the `p2p` or `server` feature enabled,
+//! the [`endpoint`] module provides [`endpoint::UdpEndpoint`] and `UdpEndpointPlugin` for a peer
+//! socket that creates one child [`Link`] per remote address. With `server`, `server::ServerUdpIo`
+//! is the shorthand for an endpoint that is also a server.
 
 // `core::io` is still unstable on the nightly toolchain used to build docs, and this crate already
 // requires `std` for `UdpSocket`.
@@ -31,8 +31,8 @@ use tracing::{error, info, trace};
 
 /// UDP endpoint: one socket per peer, fanning out to one link per remote address.
 ///
-/// This module is available with the `server` feature.
-#[cfg(feature = "server")]
+/// This module is available with the `p2p` or `server` feature.
+#[cfg(any(feature = "p2p", feature = "server"))]
 pub mod endpoint;
 
 /// Server-side UDP socket support.
@@ -48,8 +48,8 @@ pub mod prelude {
 
     /// UDP endpoint prelude: the transport's socket and per-peer link fan-out.
     ///
-    /// Available with the `server` feature.
-    #[cfg(feature = "server")]
+    /// Available with the `p2p` or `server` feature.
+    #[cfg(any(feature = "p2p", feature = "server"))]
     pub mod endpoint {
         pub use crate::endpoint::{UdpEndpoint, UdpEndpointPlugin, UdpLinkOfIO};
     }

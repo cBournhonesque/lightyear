@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Standalone `UdpEndpointPlugin` now installs endpoint child lifecycle and receive-conditioner support.
+- The `p2p` feature exposes native UDP, WebSocket, WebTransport, and Steam accepting endpoints without enabling Lightyear's `server` feature.
+
 ## v0.21.0 (2025-07-03)
 
 <csr-id-5dc2e81f8c2b1171df33703d73e38a49e7b4695d/>
