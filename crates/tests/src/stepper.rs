@@ -357,7 +357,7 @@ impl ClientServerStepper {
         }
         #[cfg(feature = "std")]
         if io == IoType::Udp {
-            server.insert((LocalAddr(server_addr), ServerUdpIo::default()));
+            server.insert((LocalAddr(server_addr), ServerUdpIo));
         }
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         if io == IoType::WebTransport {

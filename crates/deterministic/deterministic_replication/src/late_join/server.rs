@@ -209,9 +209,11 @@ fn mark_server_has_revealed_catchup_state(
     if let Ok(mut server_state) = server_state.get_mut(link_of.endpoint) {
         server_state.has_revealed_catchup_state = true;
     } else {
-        commands.entity(link_of.endpoint).insert(CatchUpServerState {
-            has_revealed_catchup_state: true,
-        });
+        commands
+            .entity(link_of.endpoint)
+            .insert(CatchUpServerState {
+                has_revealed_catchup_state: true,
+            });
     }
 }
 

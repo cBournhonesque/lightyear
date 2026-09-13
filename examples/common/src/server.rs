@@ -79,7 +79,7 @@ impl ExampleServer {
                 ServerTransports::Udp { local_port } => {
                     add_netcode(&mut entity_mut);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
-                    entity_mut.insert((LocalAddr(server_addr), ServerUdpIo::default()));
+                    entity_mut.insert((LocalAddr(server_addr), ServerUdpIo));
                 }
                 ServerTransports::WebTransport {
                     local_port,
@@ -108,7 +108,11 @@ impl ExampleServer {
                         .with_identity(
                             lightyear::websocket::endpoint::Identity::self_signed(sans).unwrap(),
                         );
-                    entity_mut.insert((LocalAddr(server_addr), WebSocketEndpoint { config }, Server));
+                    entity_mut.insert((
+                        LocalAddr(server_addr),
+                        WebSocketEndpoint { config },
+                        Server,
+                    ));
                 }
                 #[cfg(feature = "steam")]
                 ServerTransports::Steam { local_port } => {

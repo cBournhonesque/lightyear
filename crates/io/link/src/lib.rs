@@ -56,7 +56,7 @@ pub mod prelude {
 
     pub mod server {
         pub use crate::endpoint::{Endpoint, LinkOf};
-    pub use crate::server::Server;
+        pub use crate::server::Server;
     }
 }
 

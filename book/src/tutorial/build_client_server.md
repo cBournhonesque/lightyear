@@ -98,7 +98,7 @@ let server = commands
     .spawn((
         NetcodeServer::new(NetcodeConfig::default()),
         LocalAddr(SERVER_ADDR),
-        ServerUdpIo::default(),
+        ServerUdpIo,
     ))
     .id();
 commands.trigger_targets(Start, server);
