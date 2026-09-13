@@ -2,7 +2,7 @@ use crate::protocol::StringMessage;
 use crate::stepper::*;
 use lightyear::prelude::client::*;
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-use lightyear::prelude::endpoint::WebTransportEndpoint;
+use lightyear::prelude::server::WebTransportEndpoint;
 use lightyear::prelude::*;
 use lightyear_connection::server::{Started, Stop, Stopped};
 use lightyear_crossbeam::CrossbeamIo;
