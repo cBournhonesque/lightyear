@@ -198,7 +198,7 @@ struct PeerInfo {
     state: PeerState,
     /// Whether a Link to this peer is connected right now.
     linked: bool,
-    /// Whether we have already asked the transport to dial this peer.
+    /// Whether a dial was attempted or a member's previous connection needs an explicit retry.
     dialed: bool,
     /// How to dial this peer.
     context: DialContext,
@@ -221,6 +221,19 @@ impl PeerInfo {
             context: DialContext::new(),
             dial_explicitly: false,
         }
+    }
+
+    /// Re-arms a failed dial or disconnected member once until the next attempt.
+    fn rearm(&mut self) -> bool {
+        if self.state == PeerState::Foreign
+            || (self.linked && (self.state != PeerState::Wanted || !self.dialed))
+            || (!self.dialed && self.dial_explicitly)
+        {
+            return false;
+        }
+        self.dialed = false;
+        self.dial_explicitly = true;
+        true
     }
 }
 
@@ -426,17 +439,18 @@ impl Lobby {
 
     /// Asks for `peer` to be dialed again.
     ///
-    /// A dial is attempted once, so a peer that was unreachable when we first tried stays
-    /// unreachable. This re-arms it, so the lobby emits [`DialPeer`] for it again on the next
-    /// frame.
+    /// A dial is attempted once. This re-arms a failed attempt or a disconnected
+    /// [`PeerState::Member`], retaining its membership and dial context. An unlinked peer is dialed
+    /// on the next dispatch regardless of the automatic dial tie-break.
     ///
-    /// Returns `false` when there is nothing to retry — the peer is unknown, already confirmed, or
-    /// known to be in another lobby. Retrying is the application's decision and its pacing: the
-    /// lobby has no clock, and a peer that is simply slow must not be dialed in a loop.
+    /// Returns `true` only when newly re-armed. Unknown peers, [`PeerState::Foreign`] peers,
+    /// connected members, and peers already re-armed before dispatch return `false`.
+    /// Retrying is the application's decision and its pacing: the lobby has no clock.
     ///
     /// A peer that is [`PeerState::Wanted`] is retryable even while a Link exists, because a Link is
     /// not evidence that anyone is listening: a connectionless transport reports one as soon as it
-    /// is dialed. Reaching such a peer is exactly what a retry is for.
+    /// is dialed. Such a peer re-announces after an attempted dial; an inbound-only Wanted Link
+    /// has no failed attempt to retry.
     ///
     /// Re-arming also marks the lobby dirty. On a transport where dialing carries an announce, the
     /// announce that went with the failed dial is as likely to be what was lost as the dial itself,
@@ -445,45 +459,20 @@ impl Lobby {
         let Some(info) = self.peers.get_mut(&peer) else {
             return false;
         };
-        if info.state == PeerState::Foreign || (info.linked && info.state != PeerState::Wanted) {
-            return false;
-        }
-        // Already dialed: re-arming makes the lobby speak again, which is what recovers a
-        // connectionless transport whose announce went missing.
-        if core::mem::replace(&mut info.dialed, false) {
-            self.dirty = true;
-            return true;
-        }
-        // Connected without us dialing: an inbound Link with nothing to retry.
-        if info.linked || info.dial_explicitly {
-            return false;
-        }
-        // Never dialed and not connected: the tie-break may be what held it back, and the peer may
-        // never dial us in turn. Asking for it settles the question.
-        info.dial_explicitly = true;
-        true
+        let rearmed = info.rearm();
+        self.dirty |= rearmed;
+        rearmed
     }
 
-    /// Asks for every peer we wanted but could not reach to be dialed again.
+    /// Re-arms failed Wanted peers and disconnected members, as [`retry`](Self::retry) does.
     ///
-    /// Returns how many were re-armed. This is the recovery call: after an invite's peer was not
-    /// up yet, or after a Link dropped, this is what makes the lobby try again.
+    /// Returns how many were newly re-armed; repeated calls before dispatch count them only once.
+    /// Members retain their membership and dial context. Foreign peers and connected members are
+    /// excluded, while a dialed Wanted peer may re-announce over its existing connectionless Link.
     pub fn retry_failed(&mut self) -> usize {
         let mut rearmed = 0;
         for info in self.peers.values_mut() {
-            if info.state != PeerState::Wanted {
-                continue;
-            }
-            // Connected without us dialing: nothing to retry.
-            if info.linked && !info.dialed {
-                continue;
-            }
-            let was_dialed = core::mem::replace(&mut info.dialed, false);
-            // A peer we never dialed is one the tie-break left to the other side, which may never
-            // dial either; asking for it is the whole point of a retry.
-            let newly_explicit = !info.dial_explicitly;
-            info.dial_explicitly = true;
-            if was_dialed || (newly_explicit && !info.linked) {
+            if info.rearm() {
                 rearmed += 1;
             }
         }
@@ -577,6 +566,11 @@ impl Lobby {
     /// know, neither of which changes when a Link goes away (a departed peer stays a member).
     fn mark_unlinked(&mut self, peer: PeerId) {
         if let Some(info) = self.peers.get_mut(&peer) {
+            if info.linked && info.state == PeerState::Member {
+                // An inbound connection also consumes the initial attempt: losing it must not
+                // silently dial again just because this side is lower in the tie-break.
+                info.dialed = true;
+            }
             info.linked = false;
         }
     }
@@ -956,15 +950,30 @@ fn on_link_connected(
     lobby.mark_linked(remote_id.0);
 }
 
-/// Records a Link going away.
+/// Records the last live Link to a peer going away, ignoring obsolete replacement entities.
 fn on_link_disconnected(
     trigger: On<Remove, Connected>,
     links: Query<&RemoteId, With<P2P>>,
+    connected: Query<
+        (Entity, &RemoteId),
+        (
+            With<P2P>,
+            With<Connected>,
+            Without<Disconnected>,
+            Without<Unlinked>,
+        ),
+    >,
     mut lobby: ResMut<Lobby>,
 ) {
     let Ok(remote_id) = links.get(trigger.entity) else {
         return;
     };
+    if connected
+        .iter()
+        .any(|(entity, id)| entity != trigger.entity && id.0 == remote_id.0)
+    {
+        return;
+    }
     lobby.mark_unlinked(remote_id.0);
 }
 
@@ -1195,6 +1204,39 @@ mod tests {
                 .peer_map
                 .contains_key(&raw_peer(50))
         );
+    }
+
+    #[test]
+    fn an_obsolete_link_disconnect_does_not_disconnect_its_replacement() {
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+        app.add_observer(on_link_disconnected);
+        let mut lobby = pinned();
+        lobby.mark_local(raw_peer(1));
+        let obsolete = accepted_link(app.world_mut(), &mut lobby, raw_peer(2));
+        lobby.set_state(raw_peer(2), PeerState::Member);
+        let replacement = accepted_link(app.world_mut(), &mut lobby, raw_peer(2));
+        app.insert_resource(lobby);
+
+        app.world_mut()
+            .entity_mut(obsolete)
+            .insert(Disconnected::default());
+        app.world_mut().flush();
+        let lobby = app.world().resource::<Lobby>();
+        assert!(lobby.is_connected(raw_peer(2)));
+        assert!(lobby.is_member(raw_peer(2)));
+        assert_eq!(
+            lobby.connected_members().collect::<Vec<_>>(),
+            vec![raw_peer(2)]
+        );
+
+        app.world_mut()
+            .entity_mut(replacement)
+            .insert(Disconnected::default());
+        app.world_mut().flush();
+        let lobby = app.world().resource::<Lobby>();
+        assert!(!lobby.is_connected(raw_peer(2)));
+        assert!(lobby.is_member(raw_peer(2)));
     }
 
     #[test]
@@ -1576,6 +1618,57 @@ mod tests {
     }
 
     #[test]
+    fn a_disconnected_inbound_member_waits_for_explicit_recovery() {
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.mark_linked(peer(1));
+        lobby.accept_announce(peer(1), announce(Some(id()), &[]));
+        lobby.mark_unlinked(peer(1));
+
+        // Being the lower id does not authorize an automatic retry of an accepted connection.
+        assert!(lobby.to_dial().is_empty());
+        assert!(lobby.is_member(peer(1)));
+        assert_eq!(lobby.retry_failed(), 1);
+        assert_eq!(lobby.retry_failed(), 0);
+        assert!(!lobby.retry(peer(1)));
+        assert_eq!(lobby.to_dial(), vec![peer(1)]);
+        assert!(lobby.is_member(peer(1)));
+
+        lobby.mark_dialed(peer(1));
+        lobby.mark_linked(peer(1));
+        assert!(!lobby.retry(peer(1)));
+        assert_eq!(lobby.retry_failed(), 0);
+        lobby.mark_unlinked(peer(1));
+        assert!(
+            lobby.retry(peer(1)),
+            "a later disconnection can be re-armed"
+        );
+        assert!(!lobby.retry(peer(1)));
+        assert_eq!(lobby.retry_failed(), 0);
+        assert_eq!(lobby.to_dial(), vec![peer(1)]);
+    }
+
+    #[test]
+    fn retry_bypasses_the_tie_break_even_after_an_automatic_dial() {
+        let mut lobby = pinned();
+        lobby.learn(peer(1), Bytes::from_static(b"peer-key"));
+        // With no local id yet, the initial automatic dial is allowed.
+        assert_eq!(lobby.to_dial(), vec![peer(1)]);
+        lobby.mark_dialed(peer(1));
+        lobby.mark_local(peer(2));
+        lobby.mark_linked(peer(1));
+        lobby.accept_announce(peer(1), announce(Some(id()), &[]));
+        lobby.mark_unlinked(peer(1));
+
+        assert!(lobby.retry(peer(1)));
+        assert!(!lobby.retry(peer(1)));
+        assert_eq!(lobby.retry_failed(), 0);
+        assert_eq!(lobby.to_dial(), vec![peer(1)]);
+        assert!(lobby.is_member(peer(1)));
+        assert_eq!(lobby.dial_context(peer(1)).as_ref(), b"peer-key");
+    }
+
+    #[test]
     fn the_lower_id_dials_a_peer_learned_second_hand() {
         // Two peers that hear of each other at the same moment must not both dial: a transport
         // where dialing and accepting create different entities would end up with two Links to one
@@ -1754,6 +1847,7 @@ mod tests {
         }
         lobby.mark_linked(peer(1));
         assert!(!lobby.is_member(peer(1)), "nothing has confirmed the peer");
+        lobby.dirty = false;
 
         assert!(
             lobby.retry(peer(1)),
@@ -1763,6 +1857,8 @@ mod tests {
         // lobby speak again, which is how a connectionless transport is actually recovered.
         assert!(lobby.dirty, "...and it re-announces");
         assert!(lobby.to_dial().is_empty(), "the Link is already there");
+        assert!(!lobby.retry(peer(1)));
+        assert_eq!(lobby.retry_failed(), 0);
 
         // Once it announces, it is a member and there is nothing left to retry.
         lobby.mark_dialed(peer(1));

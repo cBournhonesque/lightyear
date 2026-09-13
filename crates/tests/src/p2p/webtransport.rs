@@ -25,6 +25,7 @@ use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use lightyear::p2p::{Lobby, LobbyId, LobbyIdPolicy, LobbyPlugin};
 use lightyear::prelude::*;
+use lightyear::webtransport::client::WebTransportClientIo;
 use lightyear::webtransport::endpoint::WebTransportEndpoint;
 use lightyear::webtransport::lobby::WebTransportLobbyPlugin;
 use std::thread;
@@ -279,4 +280,137 @@ fn three_peers_join_one_seed_without_identity_collisions() {
             "all peers must resolve by endpoint identity"
         );
     }
+}
+
+#[test]
+fn explicit_retry_reconnects_webtransport_members_in_both_directions() {
+    let base_port = next_base_port();
+    let mut stepper = Stepper::new(
+        base_port,
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
+    );
+    stepper.bootstrap(base_port, 0, &[1]);
+    stepper.wait_until(|stepper| {
+        stepper
+            .peers
+            .iter()
+            .all(|peer| peer.lobby().connected_members().count() == 1)
+    });
+
+    let assert_links = |stepper: &mut Stepper| -> [Entity; 2] {
+        core::array::from_fn(|slot| {
+            let peer = &mut stepper.peers[slot];
+            let remote = peer_id(base_port, 1 - slot as u8);
+            assert!(!peer.in_session(), "recovery must not require admission");
+            assert_eq!(peer.lobby().members().collect::<Vec<_>>(), vec![remote]);
+            assert_eq!(
+                peer.lobby().connected_members().collect::<Vec<_>>(),
+                vec![remote]
+            );
+            assert_eq!(peer.connected_links(), 1);
+            let world = peer.app.world_mut();
+            assert_eq!(
+                world
+                    .query_filtered::<Entity, (With<P2P>, With<Linked>)>()
+                    .iter(world)
+                    .count(),
+                1
+            );
+            let metadata = world.resource::<NetworkingMetadata>();
+            assert_eq!(
+                metadata.peer_map.keys().copied().collect::<Vec<_>>(),
+                vec![remote],
+                "only the advertised endpoint may own a peer-map entry"
+            );
+            let entity = metadata.peer_map[&remote];
+            assert_eq!(world.get::<RemoteId>(entity), Some(&RemoteId(remote)));
+            assert!(world.get::<P2P>(entity).is_some());
+            assert!(world.get::<Linked>(entity).is_some());
+            assert!(world.get::<Connected>(entity).is_some());
+            entity
+        })
+    };
+    let mut live_links = assert_links(&mut stepper);
+    let original_dialer = (0..2)
+        .find(|slot| {
+            stepper.peers[*slot]
+                .app
+                .world()
+                .get::<WebTransportClientIo>(live_links[*slot])
+                .is_some()
+        })
+        .expect("one peer must have opened the original socket");
+    let original_acceptor = 1 - original_dialer;
+    assert!(
+        stepper.peers[original_acceptor]
+            .app
+            .world()
+            .get::<LinkOf>(live_links[original_acceptor])
+            .is_some()
+    );
+
+    for (cycle, retrying) in [original_dialer, original_acceptor].into_iter().enumerate() {
+        // Close only the actual session. The endpoint and its original certificate stay alive
+        // throughout both recoveries, so the retained dial context must still authenticate it.
+        stepper.peers[original_dialer]
+            .app
+            .world_mut()
+            .trigger(Unlink {
+                entity: live_links[original_dialer],
+                reason: UnlinkReason::UserRequested(None),
+            });
+        stepper.wait_until(|stepper| {
+            stepper.peers.iter_mut().all(|peer| {
+                peer.lobby().connected_members().count() == 0 && peer.connected_links() == 0
+            })
+        });
+        stepper.step(10);
+        for (slot, peer) in stepper.peers.iter_mut().enumerate() {
+            assert_eq!(peer.lobby().connected_members().count(), 0);
+            assert_eq!(
+                peer.connected_links(),
+                0,
+                "recovery must wait for explicit retry"
+            );
+            assert_eq!(
+                peer.lobby().members().collect::<Vec<_>>(),
+                vec![peer_id(base_port, 1 - slot as u8)],
+                "transport loss must preserve lobby membership"
+            );
+        }
+
+        let remote = peer_id(base_port, 1 - retrying as u8);
+        {
+            let mut lobby = stepper.peers[retrying]
+                .app
+                .world_mut()
+                .resource_mut::<Lobby>();
+            if cycle == 0 {
+                assert_eq!(lobby.retry_failed(), 1);
+                assert_eq!(lobby.retry_failed(), 0, "already rearmed before dispatch");
+            } else {
+                // The original acceptor must be allowed to dial against the automatic tie-break,
+                // even though its peer previously owned an outgoing Link for this identity.
+                assert!(lobby.retry(remote));
+                assert!(!lobby.retry(remote), "already rearmed before dispatch");
+            }
+            assert!(lobby.is_member(remote));
+            assert!(!lobby.is_connected(remote));
+        }
+        stepper.wait_until(|stepper| {
+            stepper
+                .peers
+                .iter()
+                .all(|peer| peer.lobby().connected_members().count() == 1)
+        });
+        stepper.step(10);
+        live_links = assert_links(&mut stepper);
+    }
+
+    // Recovery must leave a usable cohort, not stale duplicate candidates for P2PStart.
+    stepper.start_session_when_ready(&[0, 1]);
+    stepper.wait_for_session(&[0, 1]);
 }

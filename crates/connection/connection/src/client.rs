@@ -134,10 +134,11 @@ pub struct Disconnected {
 impl Disconnected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         if let Some(peer_id) = world.get::<RemoteId>(context.entity).map(|c| c.0) {
-            world
-                .resource_mut::<NetworkingMetadata>()
-                .peer_map
-                .remove(&peer_id);
+            let mut metadata = world.resource_mut::<NetworkingMetadata>();
+            // An old connection can finish disconnecting after its replacement is connected.
+            if metadata.peer_map.get(&peer_id) == Some(&context.entity) {
+                metadata.peer_map.remove(&peer_id);
+            }
         }
         world
             .commands()
@@ -235,7 +236,30 @@ mod tests {
     use lightyear_core::id::PeerId;
 
     #[test]
-    fn test_connection() {}
+    fn stale_disconnect_preserves_replacement_peer_lookup() {
+        let mut world = World::new();
+        world.init_resource::<NetworkingMetadata>();
+        let peer = PeerId::Local(1);
+        let old = world.spawn((RemoteId(peer), Connected)).id();
+        let replacement = world.spawn((RemoteId(peer), Connected)).id();
+
+        world.entity_mut(old).insert(Disconnected::default());
+        assert_eq!(
+            world.resource::<NetworkingMetadata>().peer_map.get(&peer),
+            Some(&replacement)
+        );
+        assert!(world.get::<Connected>(replacement).is_some());
+
+        world
+            .entity_mut(replacement)
+            .insert(Disconnected::default());
+        assert!(
+            !world
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .contains_key(&peer)
+        );
+    }
 
     #[test]
     fn client_state_query_reads_lifecycle_markers() {

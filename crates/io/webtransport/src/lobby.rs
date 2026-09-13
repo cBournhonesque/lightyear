@@ -34,10 +34,10 @@
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
-use lightyear_connection::client::{Client, Connect, Connected};
+use lightyear_connection::client::{Client, Connect, Connected, Disconnected};
 use lightyear_connection::p2p::P2P;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked};
+use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked, Unlinked};
 use lightyear_p2p::{DialContext, DialPeer, Lobby};
 use tracing::{debug, warn};
 
@@ -70,6 +70,7 @@ impl Plugin for WebTransportLobbyPlugin {
         app.add_observer(on_dial);
         app.add_observer(on_accepted_link);
         app.add_observer(on_link_linked);
+        app.add_observer(on_accepted_identity);
     }
 }
 
@@ -143,11 +144,24 @@ fn local_id(
 }
 
 /// Opens a client session to the peer the lobby asked for.
+///
+/// Live and pending Links retain their identity reservation. A retry replaces only obsolete
+/// WebTransport-owned Links for this peer, keeping the endpoint and its certificate alive.
 fn on_dial(
     trigger: On<DialPeer>,
     endpoints: Query<Entity, With<WebTransportEndpoint>>,
     addresses: Query<&LocalAddr, With<WebTransportEndpoint>>,
-    existing: Query<&RemoteId, (With<P2P>, With<Client>)>,
+    existing: Query<
+        (
+            Entity,
+            &RemoteId,
+            Has<Disconnected>,
+            Has<Unlinked>,
+            Has<WebTransportClientIo>,
+            Option<&LinkOf>,
+        ),
+        (With<P2P>, With<Client>),
+    >,
     mut commands: Commands,
 ) {
     let peer = trigger.peer;
@@ -169,12 +183,29 @@ fn on_dial(
         warn!(?peer, "the WebTransportEndpoint has no bound address yet");
         return;
     };
-    if existing.iter().any(|remote| remote.0 == peer) {
+    // Match the lobby's identity reservation: a pending Link owns its id, but a disconnected
+    // or unlinked entity must not suppress application-controlled recovery.
+    if existing
+        .iter()
+        .any(|(_, remote, disconnected, unlinked, _, _)| {
+            remote.0 == peer && !disconnected && !unlinked
+        })
+    {
         debug!(
             ?peer,
             "a Link to this peer already exists; not dialing again"
         );
         return;
+    }
+    for (entity, remote, disconnected, unlinked, dialed, link_of) in &existing {
+        if remote.0 == peer
+            && (disconnected || unlinked)
+            && (dialed || link_of.is_some_and(|link| link.endpoint == endpoint))
+        {
+            // LinkOf removal preserves the listening endpoint; AeronetLink's linked-spawn
+            // relationship disposes of any remaining session owned by this obsolete Link.
+            commands.entity(entity).despawn();
+        }
     }
 
     // `WebTransportClientIo` parses the digest as hex, so the peer's context is passed through as
@@ -215,6 +246,42 @@ fn on_dial(
         ))
         .id();
     commands.trigger(Connect { entity: link });
+}
+
+/// Retires obsolete transport-owned Links when an inbound replacement settles its identity.
+fn on_accepted_identity(
+    trigger: On<Insert, (RemoteId, Connected)>,
+    accepted: Query<(&RemoteId, &LinkOf), (With<P2P>, With<Connected>)>,
+    endpoints: Query<(), With<WebTransportEndpoint>>,
+    obsolete: Query<
+        (
+            Entity,
+            &RemoteId,
+            Has<WebTransportClientIo>,
+            Option<&LinkOf>,
+        ),
+        (
+            With<P2P>,
+            With<Client>,
+            Or<(With<Disconnected>, With<Unlinked>)>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    let Ok((remote, owner)) = accepted.get(trigger.entity) else {
+        return;
+    };
+    if !endpoints.contains(owner.endpoint) {
+        return;
+    }
+    for (entity, old_remote, dialed, link_of) in &obsolete {
+        if entity != trigger.entity
+            && old_remote == remote
+            && (dialed || link_of.is_some_and(|link| link.endpoint == owner.endpoint))
+        {
+            commands.entity(entity).despawn();
+        }
+    }
 }
 
 /// Annotates the session a peer opened towards our endpoint.
