@@ -121,6 +121,14 @@ pub const MAX_DIAL_CONTEXT: usize = 64;
 pub struct LobbyAnnounce {
     /// The sender's lobby, or `None` if it has not settled on one.
     pub lobby: Option<LobbyId>,
+    /// Who sent this.
+    ///
+    /// A receiver can usually infer this from the Link it arrived on, and for a datagram transport
+    /// that is exact: the peer's identity *is* the address its datagrams come from. A stream
+    /// transport cannot do that — an accepted session reports the ephemeral port the peer dialed
+    /// from, not the endpoint it listens on — so the sender names itself and the receiver re-keys
+    /// the Link. See [`Lobby::rename_peer`].
+    pub from: PeerId,
     /// Every peer the sender knows how to dial, **including itself**, with how to dial it.
     ///
     /// The sender is in the list on purpose. Nothing else would carry how to dial it, and without
@@ -551,6 +559,45 @@ impl Lobby {
         }
     }
 
+    /// Moves everything we know about `old` to `new`, returning whether there was anything to move.
+    ///
+    /// A stream transport reports the ephemeral source address of an accepted session, so the first
+    /// announce to arrive on it is the only thing that can say which peer is actually there. This is
+    /// what carries that correction through: the link keeps its identity, and so do the membership
+    /// and dial state gathered under it.
+    ///
+    /// Returns `false` for an unknown `old`, or when `new` is already the local peer — either way
+    /// there is nothing to move.
+    pub fn rename_peer(&mut self, old: PeerId, new: PeerId) -> bool {
+        if old == new || self.local == Some(new) {
+            return false;
+        }
+        let Some(info) = self.peers.remove(&old) else {
+            return false;
+        };
+        match self.peers.entry(new) {
+            // Keep whatever the known entry already has: it may have been learned from an announce
+            // and so carry a context this provisional entry lacks.
+            Entry::Occupied(mut slot) => {
+                let existing = slot.get_mut();
+                existing.linked |= info.linked;
+                existing.dialed |= info.dialed;
+                existing.dial_explicitly |= info.dial_explicitly;
+                if existing.context.is_empty() {
+                    existing.context = info.context;
+                }
+                if existing.state == PeerState::Wanted && info.state != PeerState::Wanted {
+                    existing.state = info.state;
+                }
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(info);
+            }
+        }
+        self.dirty = true;
+        true
+    }
+
     /// Records a peer we have heard of but not verified, and how to dial it.
     ///
     /// A context we already hold is never overwritten by an empty one: the peer that introduced two
@@ -718,12 +765,16 @@ impl Lobby {
         known
     }
 
-    /// The announce to send to our peers.
-    fn announce(&self) -> LobbyAnnounce {
-        LobbyAnnounce {
+    /// The announce to send to our peers, or `None` while we do not know our own id.
+    ///
+    /// An announce names its sender, so there is nothing truthful to send before a Link has told us
+    /// our own id — and nothing to send it over either.
+    fn announce(&self) -> Option<LobbyAnnounce> {
+        Some(LobbyAnnounce {
             lobby: self.id,
+            from: self.local?,
             known: self.known(),
-        }
+        })
     }
 }
 
@@ -772,12 +823,28 @@ impl Plugin for LobbyPlugin {
 
 /// Unions every announce received this frame.
 fn drain_announcements(
+    mut commands: Commands,
     mut lobby: ResMut<Lobby>,
-    mut links: Query<(&RemoteId, &mut MessageReceiver<LobbyAnnounce>), With<P2P>>,
+    mut links: Query<(Entity, &RemoteId, &mut MessageReceiver<LobbyAnnounce>), With<P2P>>,
 ) {
-    for (remote_id, mut receiver) in &mut links {
+    for (entity, remote_id, mut receiver) in &mut links {
+        // `RemoteId` is immutable, so the correction is written through commands and carried here
+        // for the rest of this frame's announces.
+        let mut effective = remote_id.0;
         for message in receiver.receive() {
-            lobby.accept_announce(remote_id.0, message);
+            // The sender is the authority on its own identity. Usually the Link already agrees, and
+            // for a datagram transport it always does; a stream transport sees the ephemeral port
+            // the peer dialed from, so this is where the link learns which peer it holds.
+            if message.from != effective && lobby.rename_peer(effective, message.from) {
+                debug!(
+                    was = ?effective,
+                    now = ?message.from,
+                    "re-keying a Link to the id the peer named itself"
+                );
+                effective = message.from;
+                commands.entity(entity).insert(RemoteId(effective));
+            }
+            lobby.accept_announce(effective, message);
         }
     }
 }
@@ -819,7 +886,9 @@ fn announce_changes(
     if !lobby.dirty {
         return;
     }
-    let announce = lobby.announce();
+    let Some(announce) = lobby.announce() else {
+        return;
+    };
     let mut sent = false;
     for mut sender in &mut links {
         sender.send::<P2PChannel>(announce.clone());
@@ -890,6 +959,7 @@ mod tests {
     fn announce(lobby: Option<LobbyId>, known: &[PeerId]) -> LobbyAnnounce {
         LobbyAnnounce {
             lobby,
+            from: peer(9),
             known: known.iter().map(|peer| (*peer, Bytes::new())).collect(),
         }
     }
@@ -901,6 +971,7 @@ mod tests {
         entries.push((sender, Bytes::copy_from_slice(context)));
         LobbyAnnounce {
             lobby: Some(id()),
+            from: sender,
             known: entries,
         }
     }
@@ -1202,6 +1273,41 @@ mod tests {
     }
 
     #[test]
+    fn a_rename_moves_membership_and_dial_state_to_the_named_id() {
+        // A stream transport reports the ephemeral port an accepted session dialed from, so the
+        // first announce on it is the only thing that can say which peer is really there. Everything
+        // gathered under the provisional id has to survive the correction.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.mark_linked(peer(50));
+        lobby.accept_announce(peer(50), announce(Some(id()), &[]));
+        assert!(lobby.is_member(peer(50)));
+
+        assert!(lobby.rename_peer(peer(50), peer(2)));
+        assert!(!lobby.is_member(peer(50)), "the provisional id is gone");
+        assert!(lobby.is_member(peer(2)), "the named id inherits membership");
+        assert!(lobby.is_connected(peer(2)), "and the Link");
+        assert!(lobby.roster().contains(&peer(2)));
+    }
+
+    #[test]
+    fn a_rename_keeps_a_context_the_named_peer_already_had() {
+        // A peer can be known from an announce — with a context — before its own announce arrives
+        // over the session it opened. The correction must not throw that away.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.add_bootstrap_with_context([(peer(2), Bytes::from_static(b"named-key"))]);
+        lobby.mark_linked(peer(50));
+
+        assert!(lobby.rename_peer(peer(50), peer(2)));
+        assert_eq!(
+            lobby.dial_context(peer(2)).as_ref(),
+            b"named-key",
+            "the key learned from another peer survives the correction"
+        );
+    }
+
+    #[test]
     fn a_dial_context_travels_with_the_peer_that_announced_it() {
         // The lobby carries the transport's bytes without reading them, and hands them back when
         // the peer is dialed.
@@ -1218,7 +1324,7 @@ mod tests {
 
         // We do the same, so peers can dial us.
         lobby.set_dial_context(Bytes::from_static(b"our-key"));
-        let announce = lobby.announce();
+        let announce = lobby.announce().expect("we know our own id");
         let own = announce
             .known
             .iter()
@@ -1236,7 +1342,7 @@ mod tests {
         lobby.mark_linked(peer(2));
         lobby.accept_announce(peer(2), announce_from(peer(2), b"peer-two-key", &[]));
 
-        let announce = lobby.announce();
+        let announce = lobby.announce().expect("we know our own id");
         let relayed = announce
             .known
             .iter()
@@ -1391,7 +1497,7 @@ mod tests {
         lobby.mark_unlinked(peer(2));
         lobby.forget_disconnected();
 
-        let announce = lobby.announce();
+        let announce = lobby.announce().expect("we know our own id");
         let announced = known_ids(&announce);
         assert!(announced.contains(&peer(1)), "the remaining peer is still named");
         assert!(!announced.contains(&peer(2)), "the forgotten peer is not");
@@ -1465,7 +1571,7 @@ mod tests {
         lobby.accept_announce(peer(1), announce(Some(id()), &[peer(3)]));
         lobby.accept_announce(peer(2), announce(Some(other_id()), &[]));
 
-        let announce = lobby.announce();
+        let announce = lobby.announce().expect("we know our own id");
         assert_eq!(announce.lobby, Some(id()));
         let announced = known_ids(&announce);
         assert!(announced.contains(&peer(1)), "members are announced");

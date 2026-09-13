@@ -183,6 +183,8 @@ crossbeam = ["dep:lightyear_crossbeam"]
 ## Enable WebTransport support as an IO layer (defers to aeronet_webtransport)
 webtransport = ["std", "dep:lightyear_webtransport"]
 webtransport_self_signed = ["lightyear_webtransport/self-signed"]
+## Peer discovery over WebTransport, via `lightyear_webtransport::lobby`.
+webtransport_lobby = ["lightyear_webtransport/lobby"]
 ## Enable unsafe configurations for WebTransport (e.g. allowing unencrypted connections) as a convenience for testing
 webtransport_dangerous_configuration = [
   "lightyear_webtransport/dangerous-configuration",
@@ -190,6 +192,8 @@ webtransport_dangerous_configuration = [
 ## Enable WebSocket support as an IO layer (defers to aeronet_websocket)
 websocket = ["std", "dep:lightyear_websocket"]
 websocket_self_signed = ["lightyear_websocket/self-signed"]
+## Peer discovery over WebSocket, via `lightyear_websocket::lobby`.
+websocket_lobby = ["lightyear_websocket/lobby"]
 
 # CONNECTION LAYERS
 ## Enables Steam as a connection layer
