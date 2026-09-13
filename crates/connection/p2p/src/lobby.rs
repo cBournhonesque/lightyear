@@ -39,7 +39,7 @@ use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::session::{P2PChannel, P2PProtocolPlugin};
 
@@ -94,6 +94,24 @@ pub enum PeerState {
     Foreign,
 }
 
+/// Transport-defined bytes that tell a peer how to dial whoever they describe.
+///
+/// The lobby treats this as opaque: only the transport's lobby glue knows how to produce it and how
+/// to read it. It exists because an identity and an address are different facts — a transport that
+/// addresses peers by key (rather than by a socket address that is already the [`PeerId`]) has to
+/// publish that key, and the lobby is what carries the publication.
+///
+/// Inline capacity holds a SHA-256 certificate digest without spilling, which is the case that
+/// motivated it. Nothing here is trusted: see [`MAX_DIAL_CONTEXT`].
+pub type DialContext = SmallVec<[u8; 32]>;
+
+/// Longest [`DialContext`] the lobby will store from an announce.
+///
+/// The context arrives from an untrusted peer, so it is bounded before being kept. A longer one is
+/// discarded rather than truncated: a transport would misread a partial key, and dialing without a
+/// key is a clean failure that `Lobby::retry` can recover from.
+pub const MAX_DIAL_CONTEXT: usize = 64;
+
 /// Sent on every connected peer Link to describe the sender's lobby and the peers it knows.
 ///
 /// A full snapshot, not a delta, which is what makes the protocol idempotent and order-free.
@@ -101,13 +119,23 @@ pub enum PeerState {
 pub struct LobbyAnnounce {
     /// The sender's lobby, or `None` if it has not settled on one.
     pub lobby: Option<LobbyId>,
-    /// Every peer the sender knows, excluding itself.
+    /// How to dial the sender.
+    ///
+    /// Present so that a peer whose Link drops can be dialed again. A receiver that still has its
+    /// Link to the sender does not need this, but [`Lobby::retry`] has to re-dial without one.
+    pub dial_context: DialContext,
+    /// Every peer the sender knows, excluding itself, each with how to dial it.
+    ///
+    /// The context per peer is what makes an announce *hop* work: the peer that introduces two
+    /// others is the only one holding the key for the introduced peer, so it has to pass it along.
+    /// A peer the sender has no context for carries an empty one, and a transport that can derive a
+    /// target from the [`PeerId`] alone does not need it.
     ///
     /// A `SmallVec` rather than a `Vec` because the message is cloned once per Link before being
     /// serialized (`MessageSender::send` takes its message by value), and a lobby is a handful of
-    /// peers. Inline, that copy — build and every clone — allocates nothing. `[PeerId; 4]` matches
+    /// peers. Inline, that copy — build and every clone — allocates nothing. `[_; 4]` matches
     /// the convention `P2PSession` already uses for its peer lists.
-    pub known: SmallVec<[PeerId; 4]>,
+    pub known: SmallVec<[(PeerId, DialContext); 4]>,
 }
 
 /// Emitted when the lobby wants a Link to a peer it has not dialed yet.
@@ -136,11 +164,14 @@ pub struct LobbyAnnounce {
 /// emits this for a peer that is already linked, already dialed, or known to be in another lobby
 /// ([`Lobby::retry`] re-arms a peer, which is the only way it is emitted twice) — so a glue may
 /// dial on every event without defending against repeats.
-#[derive(Event, Debug, Clone, Copy)]
+#[derive(Event, Debug, Clone)]
 pub struct DialPeer {
     /// The peer to reach, in the lobby's vocabulary. See the type docs for how a transport turns
     /// this into its own dial target.
     pub peer: PeerId,
+    /// Transport-defined bytes from the peer's own announce, needed to dial it when the [`PeerId`]
+    /// alone is not a target. Empty when the lobby has never heard one.
+    pub context: DialContext,
 }
 
 /// Everything the lobby knows about one peer.
@@ -149,7 +180,7 @@ pub struct DialPeer {
 /// whether we have already tried to reach it — so each is a field here rather than an entry in a
 /// set beside the map. Keeping them on the entry is what makes `forget_disconnected` and
 /// `retry_failed` single loops instead of code that has to keep three collections in step.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct PeerInfo {
     /// Our verdict on the peer's lobby. `Wanted` until an announce settles it.
     state: PeerState,
@@ -157,6 +188,12 @@ struct PeerInfo {
     linked: bool,
     /// Whether we have already asked the transport to dial this peer.
     dialed: bool,
+    /// How to dial this peer, as last announced or supplied. Empty when nobody has said.
+    context: DialContext,
+    /// Whether the application named this peer directly rather than us hearing of it second-hand.
+    ///
+    /// Bootstrap peers are dialed whatever their id says; see the tie-break in [`Lobby::to_dial`].
+    dial_explicitly: bool,
 }
 
 impl PeerInfo {
@@ -166,6 +203,8 @@ impl PeerInfo {
             state: PeerState::Wanted,
             linked: false,
             dialed: false,
+            context: DialContext::new(),
+            dial_explicitly: false,
         }
     }
 }
@@ -192,6 +231,21 @@ pub struct Lobby {
     peers: BTreeMap<PeerId, PeerInfo>,
     /// Whether there is something to announce that our peers have not been told.
     dirty: bool,
+    /// How our peers should dial us, published in every announce we send.
+    dial_context: DialContext,
+}
+
+/// Keeps a context from an untrusted peer only if it is a size a transport can read.
+fn bounded_context(context: DialContext) -> DialContext {
+    if context.len() > MAX_DIAL_CONTEXT {
+        warn!(
+            len = context.len(),
+            max = MAX_DIAL_CONTEXT,
+            "discarding an oversized dial context from an announce"
+        );
+        return DialContext::new();
+    }
+    context
 }
 
 impl Lobby {
@@ -207,7 +261,30 @@ impl Lobby {
             local: None,
             peers: BTreeMap::new(),
             dirty: true,
+            dial_context: DialContext::new(),
         }
+    }
+
+    /// Sets the bytes our peers get in every announce so they can dial us.
+    ///
+    /// The transport's lobby glue owns the encoding; the lobby only carries it. Marks the lobby
+    /// dirty, because peers that already have our previous context need the new one.
+    pub fn set_dial_context(&mut self, context: DialContext) {
+        if self.dial_context == context {
+            return;
+        }
+        self.dial_context = context;
+        self.dirty = true;
+    }
+
+    /// How to dial `peer`, as last announced. Empty when nobody has said.
+    ///
+    /// The transport's lobby glue reads this when it turns a [`DialPeer`] into a Link.
+    pub fn dial_context(&self, peer: PeerId) -> DialContext {
+        self.peers
+            .get(&peer)
+            .map(|info| info.context.clone())
+            .unwrap_or_default()
     }
 
     /// The lobby's identity, or `None` if it has none (or has not settled on one yet).
@@ -292,8 +369,23 @@ impl Lobby {
     /// and hands them over. Each becomes [`PeerState::Wanted`] and is dialed by
     /// the lobby's dial emitter, so the application never creates Links itself.
     pub fn add_bootstrap(&mut self, peers: impl IntoIterator<Item = PeerId>) {
-        for peer in peers {
-            self.learn(peer);
+        self.add_bootstrap_with_context(peers.into_iter().map(|peer| (peer, DialContext::new())));
+    }
+
+    /// [`add_bootstrap`](Self::add_bootstrap) for a transport whose targets need more than the
+    /// [`PeerId`].
+    ///
+    /// A seed is reached before any announce can arrive, so a transport that cannot derive a target
+    /// from the id alone — one that needs a certificate digest, say — has no other way to learn it.
+    pub fn add_bootstrap_with_context(
+        &mut self,
+        peers: impl IntoIterator<Item = (PeerId, DialContext)>,
+    ) {
+        for (peer, context) in peers {
+            self.learn(peer, context);
+            if let Some(info) = self.peers.get_mut(&peer) {
+                info.dial_explicitly = true;
+            }
         }
     }
 
@@ -321,11 +413,20 @@ impl Lobby {
         if info.state == PeerState::Foreign || (info.linked && info.state != PeerState::Wanted) {
             return false;
         }
-        let rearmed = core::mem::replace(&mut info.dialed, false);
-        if rearmed {
+        // Already dialed: re-arming makes the lobby speak again, which is what recovers a
+        // connectionless transport whose announce went missing.
+        if core::mem::replace(&mut info.dialed, false) {
             self.dirty = true;
+            return true;
         }
-        rearmed
+        // Connected without us dialing: an inbound Link with nothing to retry.
+        if info.linked || info.dial_explicitly {
+            return false;
+        }
+        // Never dialed and not connected: the tie-break may be what held it back, and the peer may
+        // never dial us in turn. Asking for it settles the question.
+        info.dial_explicitly = true;
+        true
     }
 
     /// Asks for every peer we wanted but could not reach to be dialed again.
@@ -335,11 +436,19 @@ impl Lobby {
     pub fn retry_failed(&mut self) -> usize {
         let mut rearmed = 0;
         for info in self.peers.values_mut() {
-            // Retryable: a peer whose Link is gone, or one that has never confirmed itself. See
-            // `retry` for why an existing Link is not enough to call a peer reachable.
-            let reachable = info.linked && info.state != PeerState::Wanted;
-            if info.dialed && !reachable && info.state != PeerState::Foreign {
-                info.dialed = false;
+            if info.state != PeerState::Wanted {
+                continue;
+            }
+            // Connected without us dialing: nothing to retry.
+            if info.linked && !info.dialed {
+                continue;
+            }
+            let was_dialed = core::mem::replace(&mut info.dialed, false);
+            // A peer we never dialed is one the tie-break left to the other side, which may never
+            // dial either; asking for it is the whole point of a retry.
+            let newly_explicit = !info.dial_explicitly;
+            info.dial_explicitly = true;
+            if was_dialed || (newly_explicit && !info.linked) {
                 rearmed += 1;
             }
         }
@@ -437,17 +546,31 @@ impl Lobby {
         }
     }
 
-    /// Records a peer we have heard of but not verified.
-    fn learn(&mut self, peer: PeerId) {
+    /// Records a peer we have heard of but not verified, and how to dial it.
+    ///
+    /// A context we already hold is never overwritten by an empty one: the peer that introduced two
+    /// others may have a key where a later announce does not, and losing it would strand a dial.
+    fn learn(&mut self, peer: PeerId, context: DialContext) {
         if self.local == Some(peer) {
             return;
         }
-        // Only insert if we do not already track the peer: a third party's announce may race ahead
-        // of our own membership decision, and `Member`/`Foreign` must not be downgraded back to
-        // `Wanted`.
-        if let Entry::Vacant(slot) = self.peers.entry(peer) {
-            slot.insert(PeerInfo::known());
-            self.dirty = true;
+        match self.peers.entry(peer) {
+            Entry::Occupied(mut slot) => {
+                let info = slot.get_mut();
+                if info.context.is_empty() && !context.is_empty() {
+                    info.context = context;
+                }
+            }
+            // Only insert if we do not already track the peer: a third party's announce may race
+            // ahead of our own membership decision, and `Member`/`Foreign` must not be downgraded
+            // back to `Wanted`.
+            Entry::Vacant(slot) => {
+                slot.insert(PeerInfo {
+                    context,
+                    ..PeerInfo::known()
+                });
+                self.dirty = true;
+            }
         }
     }
 
@@ -516,8 +639,16 @@ impl Lobby {
             debug!(?from, "peer joined the lobby");
         }
         self.set_state(from, PeerState::Member);
-        for peer in announce.known {
-            self.learn(peer);
+        // The sender's own context, so that a dropped Link can be dialed again.
+        let sender_context = bounded_context(announce.dial_context);
+        if let Some(info) = self.peers.get_mut(&from)
+            && info.context.is_empty()
+            && !sender_context.is_empty()
+        {
+            info.context = sender_context;
+        }
+        for (peer, context) in announce.known {
+            self.learn(peer, bounded_context(context));
         }
     }
 
@@ -525,25 +656,61 @@ impl Lobby {
     ///
     /// Our own id cannot appear here: [`learn`] refuses it, and [`mark_local`] purges it if it was
     /// learned before we knew which id was ours.
+    ///
+    /// # The tie-break
+    ///
+    /// Only the lower of two ids dials the other; see [`should_dial`](Self::should_dial).
     fn to_dial(&self) -> Vec<PeerId> {
         self.peers
             .iter()
-            .filter(|(_, info)| {
-                info.state != PeerState::Foreign && !info.linked && !info.dialed
+            .filter(|(peer, info)| {
+                info.state != PeerState::Foreign
+                    && !info.linked
+                    && !info.dialed
+                    && self.should_dial(**peer, info)
             })
             .map(|(peer, _)| *peer)
             .collect()
+    }
+
+    /// Whether we are the side that dials `peer`, rather than the side that waits to be dialed.
+    ///
+    /// Two peers that discover each other at the same moment would otherwise both dial, and a
+    /// transport that cannot absorb that — one where dialing and accepting produce different
+    /// entities, as WebTransport does — ends up with two Links to one peer, which
+    /// [`P2PStart`](crate::P2PStart) rejects outright as a duplicate identity. Ordering the dial by
+    /// id removes the duplicate by construction, and every peer computes the same order from ids it
+    /// already has, so it needs no coordination.
+    ///
+    /// Exemptions:
+    /// - A peer the application asked for ([`add_bootstrap`](Self::add_bootstrap), or a
+    ///   [`retry`](Self::retry)) is always dialed. An invitee has to dial its host whatever the ids
+    ///   say, and the host may not know the invitee exists.
+    /// - Before our own id is known there is nothing to compare, so we dial. That is the safe
+    ///   direction: a redundant dial is recoverable, silence is not.
+    ///
+    /// A peer we skip stays [`PeerState::Wanted`] but was never dialed, so re-arming it is what
+    /// [`retry`](Self::retry) does. That is the recovery for the case this cannot cover: we are the
+    /// higher id, so we wait, but the peer never learned of us and so never dials.
+    fn should_dial(&self, peer: PeerId, info: &PeerInfo) -> bool {
+        if info.dial_explicitly {
+            return true;
+        }
+        match self.local {
+            Some(local) => local < peer,
+            None => true,
+        }
     }
 
     /// Peers to announce: everyone in the lobby plus anyone still unverified.
     ///
     /// A [`PeerState::Foreign`] peer is deliberately absent: the lobby does not spread membership
     /// of gatherings that are not its own.
-    fn known(&self) -> SmallVec<[PeerId; 4]> {
+    fn known(&self) -> SmallVec<[(PeerId, DialContext); 4]> {
         self.peers
             .iter()
             .filter(|(_, info)| matches!(info.state, PeerState::Member | PeerState::Wanted))
-            .map(|(peer, _)| *peer)
+            .map(|(peer, info)| (*peer, info.context.clone()))
             .collect()
     }
 
@@ -551,6 +718,7 @@ impl Lobby {
     fn announce(&self) -> LobbyAnnounce {
         LobbyAnnounce {
             lobby: self.id,
+            dial_context: self.dial_context.clone(),
             known: self.known(),
         }
     }
@@ -668,8 +836,9 @@ fn announce_changes(
 fn dial_new_peers(mut commands: Commands, mut lobby: ResMut<Lobby>) {
     for peer in lobby.to_dial() {
         lobby.mark_dialed(peer);
+        let context = lobby.dial_context(peer);
         debug!(?peer, "lobby dialing a peer");
-        commands.trigger(DialPeer { peer });
+        commands.trigger(DialPeer { peer, context });
     }
 }
 
@@ -707,10 +876,27 @@ mod tests {
         Lobby::new(LobbyIdPolicy::Adopt)
     }
 
+    fn known_ids(announce: &LobbyAnnounce) -> Vec<PeerId> {
+        announce.known.iter().map(|(peer, _)| *peer).collect()
+    }
+
     fn announce(lobby: Option<LobbyId>, known: &[PeerId]) -> LobbyAnnounce {
+        announce_with_context(lobby, &[], known)
+    }
+
+    /// An announce that also carries dial contexts: the sender's own, then one per known peer.
+    fn announce_with_context(
+        lobby: Option<LobbyId>,
+        sender_context: &[u8],
+        known: &[PeerId],
+    ) -> LobbyAnnounce {
         LobbyAnnounce {
             lobby,
-            known: SmallVec::from_slice(known),
+            dial_context: SmallVec::from_slice(sender_context),
+            known: known
+                .iter()
+                .map(|peer| (*peer, DialContext::new()))
+                .collect(),
         }
     }
 
@@ -755,7 +941,7 @@ mod tests {
             Some(PeerState::Foreign)
         );
         assert!(
-            !lobby.known().contains(&peer(2)),
+            !lobby.known().iter().any(|(known, _)| *known == peer(2)),
             "a foreign peer must not be spread to the rest of the lobby"
         );
         assert_eq!(lobby.roster(), vec![peer(0), peer(1)]);
@@ -961,6 +1147,150 @@ mod tests {
     }
 
     #[test]
+    fn the_lower_id_dials_a_peer_learned_second_hand() {
+        // Two peers that hear of each other at the same moment must not both dial: a transport
+        // where dialing and accepting create different entities would end up with two Links to one
+        // peer, and P2PStart rejects a duplicate identity outright.
+        let mut lower = pinned();
+        lower.mark_local(peer(1));
+        lower.mark_linked(peer(0));
+        lower.accept_announce(peer(0), announce(Some(id()), &[peer(2)]));
+        assert_eq!(lower.to_dial(), vec![peer(2)], "the lower id dials");
+
+        let mut higher = pinned();
+        higher.mark_local(peer(2));
+        higher.mark_linked(peer(0));
+        higher.accept_announce(peer(0), announce(Some(id()), &[peer(1)]));
+        assert!(
+            higher.to_dial().is_empty(),
+            "the higher id waits to be dialed instead"
+        );
+    }
+
+    #[test]
+    fn a_peer_the_application_asked_for_is_dialed_whatever_the_ids_say() {
+        // An invitee has to dial its host even when its own id is higher: the host may not know the
+        // invitee exists, so waiting to be dialed would stall forever.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(5));
+        lobby.add_bootstrap([peer(1)]);
+        assert_eq!(lobby.to_dial(), vec![peer(1)]);
+    }
+
+    #[test]
+    fn the_tie_break_leaves_a_skipped_peer_retryable() {
+        // The tie-break cannot cover the case where the other side never learns of us: it holds the
+        // dial back, and nothing ever dials. The peer stays `Wanted` and was never dialed, so
+        // asking for it is the recovery.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(2));
+        lobby.mark_linked(peer(0));
+        lobby.accept_announce(peer(0), announce(Some(id()), &[peer(1)]));
+        assert!(lobby.to_dial().is_empty(), "held back by the tie-break");
+
+        assert!(lobby.retry_failed() == 1, "the skipped peer is re-armable");
+        assert_eq!(lobby.to_dial(), vec![peer(1)]);
+
+        // And it is only reported once: a second call has nothing new to re-arm.
+        lobby.mark_dialed(peer(1));
+        assert_eq!(lobby.retry_failed(), 1, "a dial that was attempted");
+    }
+
+    #[test]
+    fn a_dial_context_travels_with_the_peer_that_announced_it() {
+        // The lobby carries the transport's bytes without reading them, and hands them back when
+        // the peer is dialed.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.mark_linked(peer(1));
+        lobby.accept_announce(
+            peer(1),
+            LobbyAnnounce {
+                lobby: Some(id()),
+                dial_context: SmallVec::from_slice(b"peer-one-key"),
+                known: SmallVec::new(),
+            },
+        );
+
+        assert_eq!(
+            lobby.dial_context(peer(1)).as_slice(),
+            b"peer-one-key",
+            "the sender's own context is kept for re-dialing it"
+        );
+
+        // Announcing includes our own context, so peers can dial us.
+        lobby.set_dial_context(SmallVec::from_slice(b"our-key"));
+        let announce = lobby.announce();
+        assert_eq!(announce.dial_context.as_slice(), b"our-key");
+    }
+
+    #[test]
+    fn an_announce_hop_passes_along_how_to_reach_the_peer_it_introduces() {
+        // Peer 0 is the only one holding peer 2's context, so it has to relay it: peer 1 cannot
+        // dial a peer it has no key for.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.mark_linked(peer(2));
+        lobby.accept_announce(
+            peer(2),
+            LobbyAnnounce {
+                lobby: Some(id()),
+                dial_context: SmallVec::from_slice(b"peer-two-key"),
+                known: SmallVec::new(),
+            },
+        );
+
+        let announce = lobby.announce();
+        let relayed = announce
+            .known
+            .iter()
+            .find(|(announced, _)| *announced == peer(2))
+            .expect("peer 2 is announced");
+        assert_eq!(
+            relayed.1.as_slice(),
+            b"peer-two-key",
+            "the introduced peer's context is relayed, not just its id"
+        );
+    }
+
+    #[test]
+    fn an_oversized_context_is_discarded_rather_than_truncated() {
+        // The bytes come from an untrusted peer. A transport would misread a partial key, so the
+        // lobby drops it entirely and lets the dial fail cleanly.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.mark_linked(peer(1));
+        lobby.accept_announce(
+            peer(1),
+            LobbyAnnounce {
+                lobby: Some(id()),
+                dial_context: SmallVec::from_slice(&[7u8; MAX_DIAL_CONTEXT + 1]),
+                known: SmallVec::new(),
+            },
+        );
+
+        assert!(lobby.dial_context(peer(1)).is_empty());
+    }
+
+    #[test]
+    fn an_empty_context_never_replaces_one_we_already_have() {
+        // The peer that introduces two others may hold a key where a later announce does not, and
+        // losing it would strand a dial.
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.add_bootstrap_with_context([(peer(1), SmallVec::from_slice(b"key"))]);
+        assert_eq!(lobby.dial_context(peer(1)).as_slice(), b"key");
+
+        lobby.mark_linked(peer(2));
+        lobby.accept_announce(peer(2), announce(Some(id()), &[peer(1)]));
+        assert_eq!(
+            lobby.dial_context(peer(1)).as_slice(),
+            b"key",
+            "an announce with no context must not erase the key we were given"
+        );
+    }
+
+    #[test]
     fn a_linked_but_unconfirmed_peer_can_be_retried() {
         // A connectionless transport reports a Link as soon as it is dialed, with nothing to confirm
         // that anyone is listening. Such a peer is still `Wanted`, so a retry is still meaningful —
@@ -1046,7 +1376,7 @@ mod tests {
         assert_eq!(lobby.roster(), vec![peer(0), peer(1)]);
         assert!(!lobby.is_member(peer(2)));
         assert!(
-            !lobby.known().contains(&peer(2)),
+            !lobby.known().iter().any(|(known, _)| *known == peer(2)),
             "a forgotten peer is no longer advertised"
         );
         assert!(
@@ -1070,7 +1400,7 @@ mod tests {
         lobby.forget_disconnected();
 
         let announce = lobby.announce();
-        assert_eq!(announce.known.as_slice(), &[peer(1)]);
+        assert_eq!(known_ids(&announce), vec![peer(1)]);
     }
 
     #[test]
@@ -1142,9 +1472,10 @@ mod tests {
 
         let announce = lobby.announce();
         assert_eq!(announce.lobby, Some(id()));
-        assert!(announce.known.contains(&peer(1)), "members are announced");
-        assert!(announce.known.contains(&peer(3)), "pending peers are announced");
-        assert!(!announce.known.contains(&peer(2)), "a foreign peer is not");
+        let announced = known_ids(&announce);
+        assert!(announced.contains(&peer(1)), "members are announced");
+        assert!(announced.contains(&peer(3)), "pending peers are announced");
+        assert!(!announced.contains(&peer(2)), "a foreign peer is not");
     }
 
     #[test]
