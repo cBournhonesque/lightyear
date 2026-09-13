@@ -49,7 +49,9 @@ lightyear_link.workspace = true
 lightyear_core.workspace = true
 lightyear_aeronet.workspace = true
 lightyear_p2p = { workspace = true, optional = true, features = ["std"] }
-lightyear_connection = { workspace = true, optional = true, features = ["client"] }
+lightyear_connection = { workspace = true, optional = true, features = [
+  "client",
+] }
 
 tracing.workspace = true
 

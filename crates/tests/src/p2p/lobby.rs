@@ -94,8 +94,10 @@ impl LobbyPeer {
 
         // The whole application-supplied configuration for reaching other peers: this peer's own
         // socket. Binding port 0 would also do; the endpoint reports the address it got.
-        app.world_mut()
-            .spawn((UdpEndpoint::default(), LocalAddr(peer_addr(base_port, slot))));
+        app.world_mut().spawn((
+            UdpEndpoint::default(),
+            LocalAddr(peer_addr(base_port, slot)),
+        ));
 
         app.finish();
         app.cleanup();
@@ -103,7 +105,11 @@ impl LobbyPeer {
         // datagram to an unbound address.
         app.world_mut().flush();
 
-        Self { app, slot, base_port }
+        Self {
+            app,
+            slot,
+            base_port,
+        }
     }
 
     fn lobby(&self) -> &Lobby {
@@ -228,7 +234,10 @@ fn two_peers_discover_each_other_over_udp_and_start_a_session() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         base_port,
-        [LobbyIdPolicy::Pinned(Some(lobby_id())), LobbyIdPolicy::Adopt],
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
     );
     // Only one side is seeded. The peer that is dialed learns the dialer from the datagram it
     // receives, so a UDP pair does not need a dial in each direction.
@@ -274,7 +283,10 @@ fn the_two_peers_agree_on_slots() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         base_port,
-        [LobbyIdPolicy::Pinned(Some(lobby_id())), LobbyIdPolicy::Adopt],
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
     );
     stepper.bootstrap(base_port, 0, &[1]);
     stepper.start_session_when_ready(&[0, 1]);
@@ -383,8 +395,18 @@ fn a_peer_pinned_to_another_lobby_is_excluded_from_discovery() {
     );
     assert_eq!(stepper.peers[0].lobby().id(), Some(lobby_id()));
     assert_eq!(stepper.peers[1].lobby().id(), Some(lobby_id()));
-    assert!(!stepper.peers[0].lobby().roster().contains(&peer_id(base_port, 2)));
-    assert!(!stepper.peers[1].lobby().roster().contains(&peer_id(base_port, 2)));
+    assert!(
+        !stepper.peers[0]
+            .lobby()
+            .roster()
+            .contains(&peer_id(base_port, 2))
+    );
+    assert!(
+        !stepper.peers[1]
+            .lobby()
+            .roster()
+            .contains(&peer_id(base_port, 2))
+    );
     assert!(stepper.peers[2].lobby().members().next().is_none());
 
     // The lobby leaves the stranger's Link alone: what to do with a connected peer from another

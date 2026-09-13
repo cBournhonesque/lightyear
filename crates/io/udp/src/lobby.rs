@@ -163,7 +163,10 @@ fn on_dial(
         .iter()
         .any(|(link_of, peer_addr)| link_of.endpoint == endpoint && peer_addr.0 == address)
     {
-        debug!(?peer, "a Link to this peer already exists; not dialing again");
+        debug!(
+            ?peer,
+            "a Link to this peer already exists; not dialing again"
+        );
         return;
     }
 
