@@ -199,7 +199,10 @@ fn two_peers_discover_each_other_over_websocket_and_start_a_session() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         base_port,
-        [LobbyIdPolicy::Pinned(Some(lobby_id())), LobbyIdPolicy::Adopt],
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
     );
     // Only the host is seeded. The dial tie-break picks the one direction.
     stepper.bootstrap(base_port, 0, &[1]);
@@ -222,6 +225,23 @@ fn two_peers_discover_each_other_over_websocket_and_start_a_session() {
     }
     assert_eq!(stepper.peers[0].connected_links(), 1);
     assert_eq!(stepper.peers[1].connected_links(), 1);
+    for (slot, peer) in stepper.peers.iter_mut().enumerate() {
+        let advertised = peer_id(base_port, 1 - slot as u8);
+        let world = peer.app.world_mut();
+        let entity = world.resource::<NetworkingMetadata>().peer_map[&advertised];
+        assert_eq!(world.get::<RemoteId>(entity), Some(&RemoteId(advertised)));
+        assert!(world.get::<Connected>(entity).is_some());
+        assert_eq!(
+            world
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .values()
+                .filter(|owner| **owner == entity)
+                .count(),
+            1,
+            "the accepted Link must no longer be looked up by its ephemeral address"
+        );
+    }
 }
 
 #[test]
@@ -229,7 +249,10 @@ fn the_websocket_peers_agree_on_slots() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         base_port,
-        [LobbyIdPolicy::Pinned(Some(lobby_id())), LobbyIdPolicy::Adopt],
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
     );
     stepper.bootstrap(base_port, 0, &[1]);
     stepper.start_session_when_ready(&[0, 1]);

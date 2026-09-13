@@ -18,10 +18,10 @@
 //! sees `127.0.0.1:52795` rather than the endpoint the peer listens on, and has no way to know who
 //! dialed it.
 //!
-//! The announce fixes this by naming its sender, and the lobby re-keys the Link to that id (see
-//! [`Lobby::rename_peer`](lightyear_p2p::Lobby::rename_peer)). So the accepted session starts out provisionally labelled with the
-//! observed address — enough for the announce to arrive on it — and settles on the right peer as
-//! soon as that announce is processed.
+//! The announce fixes this by naming its sender. Accepted Links opt into one address-based identity
+//! correction with [`ProvisionalPeerId`](lightyear_p2p::ProvisionalPeerId); dialed Links keep their
+//! configured identity. The lobby updates both the Link and the peer lookup, and rejects occupied
+//! identities. This is collision prevention, not authentication or proof of endpoint ownership.
 //!
 //! # Both directions of a session
 //!
@@ -152,7 +152,10 @@ fn on_dial(
     // The tie-break stops a conforming pair from both dialing, but a peer that does it anyway would
     // otherwise give us two Links to one identity, which the session rejects outright.
     if existing.iter().any(|remote| remote.0 == peer) {
-        debug!(?peer, "a Link to this peer already exists; not dialing again");
+        debug!(
+            ?peer,
+            "a Link to this peer already exists; not dialing again"
+        );
         return;
     }
 
@@ -202,6 +205,7 @@ fn on_accepted_link(
         Client,
         LocalId(local_id),
         RemoteId(PeerId::Raw(peer_addr.0)),
+        lightyear_p2p::ProvisionalPeerId,
     ));
 }
 

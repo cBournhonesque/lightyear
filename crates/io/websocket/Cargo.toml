@@ -36,7 +36,7 @@ self-signed = ["aeronet_websocket/self-signed"]
 ## Peer discovery over WebSocket: dials peers a `lightyear_p2p::Lobby` discovers, and annotates the
 ## sessions they open towards this endpoint. Needs both halves of the transport, since one peer
 ## dials and the other accepts.
-lobby = ["client", "server", "dep:lightyear_p2p", "dep:lightyear_connection"]
+lobby = ["client", "p2p", "dep:lightyear_p2p", "dep:lightyear_connection"]
 
 [dependencies]
 aeronet_websocket.workspace = true
