@@ -192,7 +192,10 @@ fn two_peers_discover_each_other_over_webtransport_and_start_a_session() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         base_port,
-        [LobbyIdPolicy::Pinned(Some(lobby_id())), LobbyIdPolicy::Adopt],
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
     );
     // Only the host is seeded. The dial tie-break picks the one direction.
     stepper.bootstrap(base_port, 0, &[1]);
@@ -222,7 +225,10 @@ fn the_webtransport_peers_agree_on_slots() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         base_port,
-        [LobbyIdPolicy::Pinned(Some(lobby_id())), LobbyIdPolicy::Adopt],
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ],
     );
     stepper.bootstrap(base_port, 0, &[1]);
     stepper.start_session_when_ready(&[0, 1]);
@@ -241,4 +247,36 @@ fn the_webtransport_peers_agree_on_slots() {
         stepper.peers[0].lobby().local_slot(),
         stepper.peers[1].lobby().local_slot(),
     );
+}
+
+#[test]
+fn three_peers_join_one_seed_without_identity_collisions() {
+    let base_port = next_base_port();
+    let mut stepper = Stepper::new(
+        base_port,
+        [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+            LobbyIdPolicy::Adopt,
+        ],
+    );
+    stepper.bootstrap(base_port, 1, &[0]);
+    stepper.bootstrap(base_port, 2, &[0]);
+    stepper.start_session_when_ready(&[0, 1, 2]);
+    stepper.wait_for_session(&[0, 1, 2]);
+    for (slot, peer) in stepper.peers.iter_mut().enumerate() {
+        assert_eq!(peer.connected_links(), 2);
+        let local = peer_id(base_port, slot as u8);
+        let expected: Vec<_> = (0..3)
+            .map(|slot| peer_id(base_port, slot))
+            .filter(|id| *id != local)
+            .collect();
+        let metadata = peer.app.world().resource::<NetworkingMetadata>();
+        let mut actual: Vec<_> = metadata.peer_map.keys().copied().collect();
+        actual.sort_unstable();
+        assert_eq!(
+            actual, expected,
+            "all peers must resolve by endpoint identity"
+        );
+    }
 }
