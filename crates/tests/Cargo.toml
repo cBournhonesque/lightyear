@@ -32,6 +32,9 @@ test_utils = [
   "lightyear_udp?/test_utils",
 ]
 steam = ["lightyear/steam"]
+# P2P sessions with peer discovery over raw UDP Links. Enables the lobby and the UDP IO glue that
+# turns `DialPeer` into a Link.
+p2p = ["std", "lightyear/p2p", "lightyear/udp", "lightyear_udp/lobby"]
 webtransport = [
   "std",
   "lightyear/webtransport",

@@ -438,8 +438,12 @@ enum P2PSessionMessage {
     },
 }
 
-/// Private reliable delivery queue for P2P lifecycle control messages.
-struct P2PSessionChannel;
+/// Private unordered-reliable channel shared by the P2P control protocols.
+///
+/// Carries both the session's start handshake and the lobby's announces: both are small, both
+/// tolerate reordering, and both want reliable delivery, so one channel serves them without
+/// coupling P2P traffic to the replication channels.
+pub(crate) struct P2PChannel;
 
 /// Registers the private P2P control protocol.
 ///
@@ -455,7 +459,7 @@ impl Plugin for P2PProtocolPlugin {
         // channels are optional and must not become a dependency of the P2P session. The two
         // handshake messages tolerate reordering, so a private unordered-reliable channel is
         // sufficient and avoids coupling their delivery queue to gameplay traffic.
-        app.add_channel::<P2PSessionChannel>(ChannelSettings {
+        app.add_channel::<P2PChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             ..Default::default()
         })
@@ -816,7 +820,7 @@ fn drive_session(
         };
         for &message in &outbound {
             tracing::trace!(?entity, ?message, tick = ?timeline.tick(), "sending P2P session message");
-            sender.send::<P2PSessionChannel>(message);
+            sender.send::<P2PChannel>(message);
         }
     }
 }
