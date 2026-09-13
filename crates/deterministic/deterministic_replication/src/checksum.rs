@@ -35,7 +35,8 @@ use lightyear_core::tick::Tick;
 #[cfg(feature = "client")]
 use lightyear_inputs::{InputChannel, client::InputSystems};
 #[cfg(feature = "server")]
-use lightyear_link::server::{LinkOf, Server};
+use lightyear_link::endpoint::LinkOf;
+use lightyear_link::server::Server;
 #[cfg(feature = "client")]
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::AppMessageExt;
@@ -494,7 +495,7 @@ impl ChecksumReceivePlugin {
         server: Query<&ChecksumHistory, (With<Server>, With<Started>)>,
     ) {
         messages.iter_mut().for_each(|(mut receiver, link_of, remote_id)| {
-            if let Ok(history) = server.get(link_of.server) {
+            if let Ok(history) = server.get(link_of.endpoint) {
                 receiver.receive().for_each(|message| {
                     let Some(&expected) = history.history.get(&message.tick) else {
                         return;

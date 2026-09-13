@@ -12,8 +12,8 @@ extern crate alloc;
 /// Client-side WebTransport transport integration.
 pub mod client;
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
-/// Server-side WebTransport transport integration.
-pub mod server;
+/// WebTransport endpoint transport integration.
+pub mod endpoint;
 
 use alloc::string::String;
 
@@ -27,7 +27,7 @@ pub enum WebTransportError {
     #[error("PeerAddr is required to start the WebTransportClientIo link when target is None")]
     PeerAddrMissing,
     /// A [`LocalAddr`](aeronet_io::connection::LocalAddr) component was required but missing.
-    #[error("LocalAddr is required to start the WebTransportServerIo")]
+    #[error("LocalAddr is required to start the WebTransportEndpoint")]
     LocalAddrMissing,
 }
 
@@ -46,11 +46,11 @@ pub mod prelude {
         pub use crate::client::WebTransportClientIo;
     }
 
-    /// Server-side WebTransport prelude.
+    /// WebTransport endpoint prelude.
     ///
     /// Available with the `server` feature on non-WASM targets.
     #[cfg(all(feature = "server", not(target_family = "wasm")))]
-    pub mod server {
-        pub use crate::server::WebTransportServerIo;
+    pub mod endpoint {
+        pub use crate::endpoint::WebTransportEndpoint;
     }
 }

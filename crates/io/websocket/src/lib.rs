@@ -12,8 +12,8 @@ extern crate alloc;
 /// Client-side WebSocket transport integration.
 pub mod client;
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
-/// Server-side WebSocket transport integration.
-pub mod server;
+/// WebSocket endpoint transport integration.
+pub mod endpoint;
 
 use alloc::string::String;
 
@@ -27,7 +27,7 @@ pub enum WebSocketError {
     #[error("PeerAddr is required to start the WebSocketClientIo link")]
     PeerAddrMissing,
     /// A [`LocalAddr`](aeronet_io::connection::LocalAddr) component was required but missing.
-    #[error("LocalAddr is required to start the WebSocketServerIo")]
+    #[error("LocalAddr is required to start the WebSocketEndpoint")]
     LocalAddrMissing,
 }
 
@@ -45,12 +45,12 @@ pub mod prelude {
         pub use aeronet_websocket::client::ClientConfig;
     }
 
-    /// Server-side WebSocket prelude.
+    /// WebSocket endpoint prelude.
     ///
     /// Available with the `server` feature on non-WASM targets.
     #[cfg(all(feature = "server", not(target_family = "wasm")))]
-    pub mod server {
-        pub use crate::server::WebSocketServerIo;
+    pub mod endpoint {
+        pub use crate::endpoint::WebSocketEndpoint;
         pub use aeronet_websocket::server::ServerConfig;
     }
 }

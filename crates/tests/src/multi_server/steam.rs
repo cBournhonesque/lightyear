@@ -5,7 +5,7 @@ use crate::stepper::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use lightyear::prelude::client::*;
-use lightyear::prelude::server::{ListenTarget, SteamServerIo};
+use lightyear::prelude::server::{ListenTarget, SteamEndpoint};
 use lightyear::prelude::*;
 use lightyear::prelude::{SessionConfig, SteamAppExt};
 use lightyear_connection::client_of::SkipNetcode;
@@ -19,10 +19,13 @@ struct StepperPointer(*mut ClientServerStepper);
 fn add_steam_server_io(stepper: &mut ClientServerStepper) {
     stepper.server_app.add_steam_resources(STEAM_APP_ID);
     let server_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, SERVER_PORT));
-    stepper.server_mut().insert(SteamServerIo {
-        target: ListenTarget::Addr(server_addr),
-        config: SessionConfig::default(),
-    });
+    stepper.server_mut().insert((
+        SteamEndpoint {
+            target: ListenTarget::Addr(server_addr),
+            config: SessionConfig::default(),
+        },
+        Server,
+    ));
 }
 
 /// Test that it is possible to create a Server entity with both the SteamServerIO and the NetcodeServerIO components.
@@ -32,7 +35,7 @@ fn add_steam_server_io(stepper: &mut ClientServerStepper) {
 // only run this manually since it requires Steam to be started
 #[ignore]
 fn test_steam_server_with_netcode_server() {
-    // the server will have both SteamServerIo and NetcodeServerIo
+    // the server will have both SteamEndpoint and NetcodeServerIo
     let mut stepper = ClientServerStepper::from_config(StepperConfig::from_connection_types(
         vec![ClientType::Steam, ClientType::Netcode],
         ServerType::Netcode,

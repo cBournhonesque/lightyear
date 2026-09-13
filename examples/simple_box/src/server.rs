@@ -107,7 +107,7 @@ fn movement(
 /// and cannot do input handling)
 pub(crate) fn send_message(
     mut sender: ServerMultiMessageSender,
-    server: Single<&Server>,
+    server: Single<&Endpoint>,
     input: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     if input.is_some_and(|input| input.just_pressed(KeyCode::KeyM)) {

@@ -162,7 +162,7 @@ impl DetStepper {
             .world_mut()
             .spawn((
                 LinkOf {
-                    server: self.server_entity,
+                    endpoint: self.server_entity,
                 },
                 PingManager::new(PingConfig {
                     ping_interval: Duration::default(),

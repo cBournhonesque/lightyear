@@ -15,7 +15,7 @@ use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
 use lightyear_connection::shared::ConnectionRequestHandler;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::prelude::{Endpoint, LinkOf, Server};
 use lightyear_link::{Link, LinkSystems, Unlink, UnlinkReason};
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_utils::adaptive_for_each_mut;
@@ -181,7 +181,7 @@ impl NetcodeServerPlugin {
     /// Takes packets from the Link, process them through the server,
     /// and buffer them back into the link to be sent by the IO
     fn send(
-        mut server_query: Query<(&mut NetcodeServer, &Server), (With<Server>, Without<Stopped>)>,
+        mut server_query: Query<(&mut NetcodeServer, &Endpoint), (With<Server>, Without<Stopped>)>,
         client_query: Query<
             (
                 Entity,
@@ -277,7 +277,7 @@ impl NetcodeServerPlugin {
             (
                 Entity,
                 &mut NetcodeServer,
-                &mut Server,
+                &mut Endpoint,
                 Has<Stopping>,
                 Option<&LocalAddr>,
             ),
@@ -426,7 +426,7 @@ impl NetcodeServerPlugin {
     fn stop(
         trigger: On<Stop>,
         mut commands: Commands,
-        mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
+        mut query: Query<(Entity, &mut NetcodeServer, &Endpoint), Without<Stopped>>,
         mut link_query: Query<
             (Entity, &mut Link, &RemoteId),
             (

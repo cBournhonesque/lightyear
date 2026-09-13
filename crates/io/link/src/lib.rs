@@ -17,7 +17,8 @@
 //! - [`Linking`], [`Linked`], and [`Unlinked`] are mutually exclusive ECS marker components that
 //!   keep [`Link::state`] synchronized with the entity lifecycle.
 //!
-//! Server-side fan-out relationships live in [`server`].
+//! Fan-out relationships live in [`endpoint`], and role markers such as
+//! [`Server`](crate::server::Server) layer on top of them.
 #![no_std]
 
 extern crate alloc;
@@ -25,6 +26,7 @@ extern crate alloc;
 extern crate std;
 
 mod conditioner;
+pub mod endpoint;
 mod mtu;
 pub mod server;
 
@@ -45,14 +47,16 @@ use lightyear_utils::adaptive_for_each_mut;
 
 pub mod prelude {
     pub use crate::conditioner::{LinkConditionerConfig, LinkConditionerState};
-    pub use crate::server::{LinkOf, Server};
+    pub use crate::endpoint::{Endpoint, LinkOf};
+    pub use crate::server::Server;
     pub use crate::{
         DEFAULT_MTU, Link, LinkMtu, LinkStart, LinkStats, LinkSystems, Linked, Linking,
         MtuTooSmall, RecvLinkConditioner, Unlink, UnlinkReason, Unlinked,
     };
 
     pub mod server {
-        pub use crate::server::{LinkOf, Server};
+        pub use crate::endpoint::{Endpoint, LinkOf};
+    pub use crate::server::Server;
     }
 }
 

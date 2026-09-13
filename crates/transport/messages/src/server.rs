@@ -17,7 +17,7 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::network_target::{NetworkTarget, NetworkTargetResolver};
 use lightyear_connection::network_topology::NetworkingMetadata;
-use lightyear_link::prelude::Server;
+use lightyear_link::prelude::Endpoint;
 use lightyear_transport::channel::Channel;
 
 /// SystemParam to help send a message to the different [`ClientOf`] connected to a [`Server`].
@@ -37,7 +37,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
     pub fn send<M: Message, C: Channel>(
         &mut self,
         message: &M,
-        server: &Server,
+        server: &Endpoint,
         target: &NetworkTarget,
     ) -> Result {
         self.send_with_priority::<M, C>(message, server, target, 1.0)
@@ -49,7 +49,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
     pub fn send_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
-        server: &Server,
+        server: &Endpoint,
         target: &NetworkTarget,
         priority: Priority,
     ) -> Result {

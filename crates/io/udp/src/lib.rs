@@ -6,8 +6,9 @@
 //! semantics above raw datagram delivery.
 //!
 //! [`UdpPlugin`] handles single-peer UDP link entities. With the `server` feature enabled, the
-//! [`server`] module provides [`server::ServerUdpIo`] and `ServerUdpPlugin` for a listening server
-//! socket that creates one child [`Link`] per remote address.
+//! [`endpoint`] module provides [`endpoint::UdpEndpoint`] and `UdpEndpointPlugin` for a peer socket
+//! that creates one child [`Link`] per remote address, and [`server::ServerUdpIo`] is the shorthand
+//! for an endpoint that is also a server.
 
 // `core::io` is still unstable on the nightly toolchain used to build docs, and this crate already
 // requires `std` for `UdpSocket`.
@@ -28,6 +29,12 @@ use lightyear_link::{
 use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
+/// UDP endpoint: one socket per peer, fanning out to one link per remote address.
+///
+/// This module is available with the `server` feature.
+#[cfg(feature = "server")]
+pub mod endpoint;
+
 /// Server-side UDP socket support.
 ///
 /// This module is available with the `server` feature. It exposes a server endpoint component that
@@ -38,6 +45,14 @@ pub mod server;
 /// Re-exports commonly needed by applications and transport setup code.
 pub mod prelude {
     pub use crate::UdpIo;
+
+    /// UDP endpoint prelude: the transport's socket and per-peer link fan-out.
+    ///
+    /// Available with the `server` feature.
+    #[cfg(feature = "server")]
+    pub mod endpoint {
+        pub use crate::endpoint::{UdpEndpoint, UdpEndpointPlugin, UdpLinkOfIO};
+    }
 
     /// Server-side UDP prelude.
     ///
@@ -69,7 +84,7 @@ fn recv_buffer_pool() -> BufferPool {
 /// be present before [`LinkStart`] is triggered so the plugin can bind the socket, and [`PeerAddr`]
 /// must be present while linked so outgoing packets know their destination.
 ///
-/// For listening servers with many clients, use [`server::ServerUdpIo`] instead of one `UdpIo` per
+/// For an endpoint that many peers connect to, use [`endpoint::UdpEndpoint`] instead of one `UdpIo` per
 /// remote address.
 #[derive(Component)]
 #[require(Link)]

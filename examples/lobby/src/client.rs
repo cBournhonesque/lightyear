@@ -468,7 +468,7 @@ mod lobby {
 
                     // Any entity that is both a Client and a LinkOf will be a host-client.
                     // The corresponding server will be a HostServer.
-                    commands.entity(local_client).insert(LinkOf { server });
+                    commands.entity(local_client).insert(LinkOf { endpoint: server });
                     info!("Connecting as a Host Client");
                 } else {
                     info!(

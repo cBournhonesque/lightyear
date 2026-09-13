@@ -47,7 +47,7 @@ impl RawConnectionPlugin {
         mut commands: Commands,
     ) {
         if let Ok((link_of, peer_addr)) = link_of.get(trigger.entity)
-            && server.get(link_of.server).is_ok()
+            && server.get(link_of.endpoint).is_ok()
         {
             trace!("RawClient LinkOf Linked! Adding Connected");
             commands.entity(trigger.entity).insert((
@@ -63,7 +63,7 @@ impl RawConnectionPlugin {
     fn on_stop(
         trigger: On<Stop>,
         mut commands: Commands,
-        mut query: Query<&Server, (Without<Stopped>, With<RawServer>)>,
+        mut query: Query<&Endpoint, (Without<Stopped>, With<RawServer>)>,
         link_query: Query<(Entity, &RemoteId), (With<ClientOf>, Without<HostClient>)>,
     ) -> Result {
         if let Ok(server) = query.get_mut(trigger.entity) {
@@ -142,7 +142,7 @@ mod tests {
         let client = app
             .world_mut()
             .spawn((
-                LinkOf { server },
+                LinkOf { endpoint: server },
                 ClientOf,
                 RemoteId(PeerId::Raw("127.0.0.1:5000".parse().unwrap())),
             ))

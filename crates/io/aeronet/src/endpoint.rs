@@ -1,11 +1,14 @@
-//! Server-side Aeronet lifecycle bridge.
+//! Aeronet endpoint lifecycle bridge.
 //!
-//! [`ServerAeronetPlugin`](crate::server::ServerAeronetPlugin) mirrors Aeronet server endpoint
-//! state onto Lightyear server entities. Concrete Aeronet-backed server transports, such as
-//! WebSocket and WebTransport, spawn an Aeronet server entity with
+//! [`EndpointAeronetPlugin`](crate::endpoint::EndpointAeronetPlugin) mirrors Aeronet endpoint state
+//! onto the Lightyear entity that owns the socket. Concrete Aeronet-backed transports, such as
+//! WebSocket, WebTransport and Steam, spawn an Aeronet server entity with
 //! [`AeronetLinkOf`](crate::AeronetLinkOf) pointing at the Lightyear
-//! [`Server`](lightyear_link::server::Server). This module observes Aeronet open/close events and
-//! keeps the Lightyear lifecycle markers in sync.
+//! [`Endpoint`](lightyear_link::endpoint::Endpoint). This module observes Aeronet open/close events
+//! and keeps the Lightyear lifecycle markers in sync.
+//!
+//! Nothing here is tied to the Lightyear server role: Aeronet calls the accepting side of a
+//! session a "server", but the Lightyear entity it mirrors may be any endpoint.
 
 use alloc::{format, string::ToString};
 use bevy_app::{App, Plugin};
@@ -13,18 +16,18 @@ use bevy_ecs::prelude::*;
 
 use crate::AeronetLinkOf;
 use aeronet_io::server::{CloseReason, Closed, Server, ServerEndpoint};
-use lightyear_link::server::ServerLinkPlugin;
+use lightyear_link::endpoint::EndpointLinkPlugin;
 use lightyear_link::{Linked, Linking, UnlinkReason, Unlinked};
 use tracing::trace;
 
-/// Plugin that mirrors Aeronet server endpoint state into Lightyear server link state.
+/// Plugin that mirrors Aeronet endpoint state into Lightyear endpoint link state.
 ///
-/// The plugin ensures [`ServerLinkPlugin`] is installed, then observes Aeronet
+/// The plugin ensures [`EndpointLinkPlugin`] is installed, then observes Aeronet
 /// [`ServerEndpoint`], [`Server`], and [`Closed`] events to insert [`Linking`], [`Linked`], and
-/// [`Unlinked`] on the Lightyear server entity.
-pub struct ServerAeronetPlugin;
+/// [`Unlinked`] on the Lightyear endpoint entity.
+pub struct EndpointAeronetPlugin;
 
-impl ServerAeronetPlugin {
+impl EndpointAeronetPlugin {
     fn on_opening(
         trigger: On<Add, ServerEndpoint>,
         query: Query<&AeronetLinkOf>,
@@ -34,7 +37,7 @@ impl ServerAeronetPlugin {
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
-                "AeronetServer opening for {:?}. Adding Linking on Server",
+                "Aeronet endpoint opening for {:?}. Adding Linking",
                 child_of.0
             );
             c.insert(Linking);
@@ -46,7 +49,7 @@ impl ServerAeronetPlugin {
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
-                "AeronetServer opened for {:?}. Adding Linked on Server",
+                "Aeronet endpoint opened for {:?}. Adding Linked",
                 child_of.0
             );
             c.insert(Linked);
@@ -58,7 +61,7 @@ impl ServerAeronetPlugin {
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
-                "AeronetServer closed for {:?}. Adding unlinked on Server",
+                "Aeronet endpoint closed for {:?}. Adding Unlinked",
                 child_of.0
             );
             let reason = match &trigger.reason {
@@ -72,10 +75,10 @@ impl ServerAeronetPlugin {
     }
 }
 
-impl Plugin for ServerAeronetPlugin {
+impl Plugin for EndpointAeronetPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<ServerLinkPlugin>() {
-            app.add_plugins(ServerLinkPlugin);
+        if !app.is_plugin_added::<EndpointLinkPlugin>() {
+            app.add_plugins(EndpointLinkPlugin);
         }
         app.add_observer(Self::on_opening);
         app.add_observer(Self::on_opened);

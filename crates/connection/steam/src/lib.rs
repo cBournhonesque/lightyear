@@ -21,7 +21,7 @@ use bevy_ecs::prelude::Res;
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
-pub mod server;
+pub mod endpoint;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SteamError {}
@@ -41,8 +41,8 @@ pub mod prelude {
     }
 
     #[cfg(all(feature = "server", not(target_family = "wasm")))]
-    pub mod server {
-        pub use crate::server::{SteamServerIo, SteamServerPlugin};
+    pub mod endpoint {
+        pub use crate::endpoint::{SteamEndpoint, SteamEndpointPlugin};
         pub use aeronet_steam::server::ListenTarget;
     }
 }
