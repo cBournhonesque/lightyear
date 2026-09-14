@@ -7,13 +7,13 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 #[cfg(feature = "client")]
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
+#[cfg(all(feature = "client", feature = "p2p"))]
+use lightyear::p2p::Lobby;
 use lightyear::prelude::*;
 #[cfg(feature = "client")]
 use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
 #[cfg(feature = "client")]
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
-#[cfg(all(feature = "client", feature = "p2p"))]
-use lightyear_examples_common::p2p::P2PSettings;
 
 #[cfg(feature = "client")]
 use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
@@ -160,7 +160,7 @@ mod client {
         input_timeline: Option<SyncedLocalTimeline>,
         metadata: Res<NetworkingMetadata>,
         local_ids: Query<&LocalId>,
-        #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
+        #[cfg(feature = "p2p")] lobby: Option<Res<Lobby>>,
         players: Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -181,7 +181,7 @@ mod client {
                         &metadata,
                         &local_ids,
                         #[cfg(feature = "p2p")]
-                        p2p.as_deref(),
+                        lobby.as_deref(),
                     )
                 })
                 .flatten(),
@@ -220,7 +220,7 @@ mod client {
         input_timeline: Option<SyncedLocalTimeline>,
         metadata: Res<NetworkingMetadata>,
         local_ids: Query<&LocalId>,
-        #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
+        #[cfg(feature = "p2p")] lobby: Option<Res<Lobby>>,
         players: Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -239,7 +239,7 @@ mod client {
                         &metadata,
                         &local_ids,
                         #[cfg(feature = "p2p")]
-                        p2p.as_deref(),
+                        lobby.as_deref(),
                     )
                 })
                 .flatten(),
@@ -321,11 +321,11 @@ mod client {
     fn local_peer_id(
         metadata: &NetworkingMetadata,
         local_ids: &Query<&LocalId>,
-        #[cfg(feature = "p2p")] p2p: Option<&P2PSettings>,
+        #[cfg(feature = "p2p")] lobby: Option<&Lobby>,
     ) -> Option<PeerId> {
         #[cfg(feature = "p2p")]
-        if let Some(p2p) = p2p {
-            return Some(p2p.local_id());
+        if let Some(lobby) = lobby {
+            return lobby.local();
         }
         match metadata.mode {
             NetworkTopology::Client(link) | NetworkTopology::HostClient { client: link, .. } => {

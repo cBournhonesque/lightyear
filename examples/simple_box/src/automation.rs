@@ -2,9 +2,9 @@ use crate::protocol::Direction;
 #[cfg(feature = "p2p")]
 use crate::protocol::{PlayerId, PlayerPosition};
 use bevy::prelude::*;
-use lightyear::prelude::*;
 #[cfg(feature = "p2p")]
-use lightyear_examples_common::p2p::P2PSettings;
+use lightyear::p2p::Lobby;
+use lightyear::prelude::*;
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -63,8 +63,8 @@ fn exit_after_tick(
 fn log_p2p_positions(
     time: Res<Time>,
     timeline: Res<LocalTimeline>,
-    settings: Res<P2PSettings>,
-    links: Query<(&RemoteId, Has<Connected>, &PingManager), With<P2P>>,
+    lobby: Res<Lobby>,
+    links: Query<(&RemoteId, Has<Connected>), With<P2P>>,
     local_sync: Res<LocalTimelineSync>,
     players: Query<(&PlayerId, &PlayerPosition)>,
     mut timer: Local<Option<Timer>>,
@@ -74,19 +74,18 @@ fn log_p2p_positions(
     if !timer.just_finished() {
         return;
     }
-    for (remote, connected, ping) in &links {
+    for (remote, connected) in &links {
         info!(
-            local_peer = settings.local_peer_id,
+            local_peer = ?lobby.local(),
             ?remote,
             connected,
-            latency_samples = ping.latency_samples_recv(),
             input_timeline_synced = local_sync.is_synced(),
             "P2P Link status"
         );
     }
     for (player, position) in &players {
         info!(
-            local_peer = settings.local_peer_id,
+            local_peer = ?lobby.local(),
             tick = timeline.tick().0,
             ?player,
             position = ?position.0,

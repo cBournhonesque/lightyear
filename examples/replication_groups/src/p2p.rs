@@ -8,12 +8,13 @@ extern crate alloc;
 use crate::protocol::*;
 use alloc::collections::VecDeque;
 use bevy::prelude::*;
+use lightyear::p2p::Lobby;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
-use lightyear_examples_common::p2p::{input_target_for_peer, P2PSettings};
+use lightyear_examples_common::p2p::input_target_for_peer;
 use lightyear_frame_interpolation::FrameInterpolate;
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4752_4F55_5000_0000;
 
@@ -30,20 +31,23 @@ impl Plugin for ExampleP2PPlugin {
 fn spawn_fixed_roster(
     _trigger: On<P2PStarted>,
     mut commands: Commands,
-    settings: Res<P2PSettings>,
+    lobby: Res<Lobby>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
     let spacing = 180.0;
-    let center = (f32::from(settings.player_count) - 1.0) * 0.5;
-    for peer_id in settings.peer_ids() {
-        let id = PeerId::Entity(u64::from(peer_id));
-        let position = Vec2::new((f32::from(peer_id) - center) * spacing, 0.0);
-        let color = Color::hsl((f32::from(peer_id) * 0.23) % 1.0, 0.8, 0.5);
+    let roster = lobby.roster();
+    let local = lobby.local();
+    let center = (roster.len() as f32 - 1.0) * 0.5;
+    for (slot, peer) in roster.iter().enumerate() {
+        let slot = u8::try_from(slot).expect("P2P roster slot fits in u8");
+        let id = PeerId::Entity(u64::from(slot));
+        let position = Vec2::new((f32::from(slot) - center) * spacing, 0.0);
+        let color = Color::hsl((f32::from(slot) * 0.23) % 1.0, 0.8, 0.5);
         let target = input_target_for_peer(
-            &settings,
+            &lobby,
             &links,
-            peer_id,
-            PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
+            *peer,
+            PLAYER_INPUT_HASH_BASE | u64::from(slot),
         );
         let player = commands
             .spawn((
@@ -61,7 +65,7 @@ fn spawn_fixed_roster(
                 Name::from("P2P Head"),
             ))
             .id();
-        if peer_id == settings.local_peer_id {
+        if Some(*peer) == local {
             commands
                 .entity(player)
                 .insert(InputMarker::<Inputs>::default());

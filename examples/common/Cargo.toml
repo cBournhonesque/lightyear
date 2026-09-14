@@ -15,14 +15,21 @@ exclude = ["/tests"]
 default = ["client", "server", "netcode", "webtransport"]
 client = ["lightyear/client"]
 server = ["lightyear/server"]
-p2p = ["client", "udp", "lightyear/p2p", "lightyear/raw_connection"]
+p2p = [
+  "client",
+  "udp",
+  "lightyear/p2p",
+  "lightyear/raw_connection",
+  "lightyear/websocket_lobby",
+  "lightyear/webtransport_lobby",
+]
 netcode = ["lightyear/netcode"]
 webtransport = [
   "lightyear/webtransport",
   "lightyear/webtransport_self_signed",
   "lightyear/webtransport_dangerous_configuration",
 ]
-udp = ["lightyear/udp"]
+udp = ["lightyear/udp", "dep:lightyear_udp", "lightyear_udp/lobby"]
 steam = ["lightyear/steam"]
 structured-debug = ["lightyear/debug"]
 debug = ["gui2d", "structured-debug"]
@@ -56,6 +63,7 @@ lightyear = { "workspace" = true, features = [
   "websocket",
   "websocket_self_signed",
 ] }
+lightyear_udp = { workspace = true, optional = true, features = ["lobby"] }
 async-compat.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
