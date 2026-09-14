@@ -140,8 +140,13 @@ impl WebTransportClientPlugin {
                 config.with_server_certificate_hashes([])
             }
         } else {
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(&from_hex(&cert_digest)?);
+            let bytes = from_hex(&cert_digest)?;
+            let hash: [u8; 32] = bytes.try_into().map_err(|bytes: Vec<u8>| {
+                format!(
+                    "Expected a 32-byte SHA256 digest, got {} bytes.",
+                    bytes.len()
+                )
+            })?;
             let digest = Sha256Digest::new(hash);
             config.with_server_certificate_hashes([digest])
         };
@@ -184,4 +189,36 @@ fn from_hex_digit(d: u8) -> core::result::Result<u8, String> {
         }
     }
     Err(format!("Invalid hex digit '{}'", d as char))
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::WebTransportClientPlugin;
+
+    #[test]
+    fn short_hex_digest_is_an_error_not_a_panic() {
+        let err = match WebTransportClientPlugin::client_config("abcd".to_string()) {
+            Ok(_) => panic!("short hex digest unexpectedly built a config"),
+            Err(err) => err,
+        };
+        assert!(
+            alloc::format!("{err:?}").contains("32-byte"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_hex_digest_is_an_error() {
+        assert!(WebTransportClientPlugin::client_config("xyz".to_string()).is_err());
+        assert!(
+            WebTransportClientPlugin::client_config("zz".repeat(32).as_str().to_string()).is_err()
+        );
+    }
+
+    #[test]
+    fn full_length_hex_digest_builds_config() {
+        assert!(
+            WebTransportClientPlugin::client_config("ab".repeat(32).as_str().to_string()).is_ok()
+        );
+    }
 }
