@@ -29,15 +29,35 @@ simulation. Peers discover each other through a lobby instead of a preconfigured
 Every peer opens an endpoint on its `--port` that other peers can connect to, so peers on the same
 machine each need their own port. A joining peer only needs the address of one peer that is already
 started and discovers the rest of the roster through the lobby. The game starts on all peers as soon
-as the player count is reached (2 by default, override with `-n`).
+as the founding player count is reached (2 by default, override with `-n` on every peer).
 
 P2P mode supports two through four players.
-Every peer pre-spawns the same player roster with stable `PreSpawned` hashes, simulates every
+Every peer spawns the same founding roster with stable, peer-derived `PreSpawned` hashes, simulates every
 player locally, and sends only its own tick-indexed inputs to the other peers. Each peer predicts
 missing remote inputs by repeating the latest known input, then rolls back and replays the complete
 deterministic world when corrected input arrives. The peers wait until their discovered Links and
 the input timeline are ready, then acknowledge a shared future start tick. The normal client/server and host-client modes remain
 available in the same example.
+
+For sequential joins, start the two founders above, then run peer 2 with `LIGHTYEAR_P2P_JOIN=1`.
+The `--peer` seed is also its admission/bootstrap peer. After peer 2 activates, start peer 3 through
+peer 2 to exercise catch-up from a previously joined peer:
+
+```shell
+# Peer 2 joins through founder 0; its lower port also exercises changing lobby sort order.
+LIGHTYEAR_P2P_JOIN=1 cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6099 --peer 127.0.0.1:6100 -n 2
+# Wait for peer 2 to activate, then peer 3 joins through it.
+LIGHTYEAR_P2P_JOIN=1 cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6102 --peer 127.0.0.1:6099 -n 2
+```
+
+Use the same `-n` founding count on every process; it is not a predeclared final roster.
+Set `LIGHTYEAR_SIMPLE_BOX_AUTOMOVE=random:1` (a different seed per peer) and
+`LIGHTYEAR_SIMPLE_BOX_RANDOM_INTERVAL_TICKS=1` to exercise continuously changing inputs.
+
+Applications select a founding roster with `P2PStart { cohort: NetworkTarget::Only(peers) }`;
+`P2PStart::default()` selects all declared inactive Links. A running session admits a newcomer
+through `P2PJoinRequested` and an application-triggered `P2PJoinAdmission` reply. Once catch-up
+finishes, all peers agree one future activation tick; create the new player on `P2PJoined`.
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
