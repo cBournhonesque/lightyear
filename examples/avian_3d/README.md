@@ -29,11 +29,19 @@ https://github.com/user-attachments/assets/4e0eb373-2f46-4c48-8157-46e1e5085097
 
 ### P2P mode
 
-The example can also run as a deterministic input-only game with no server. Start peer 0 with
-`cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
-and peer 1 with the same command using `--peer-id 1`. Characters, the dynamic block, and
-projectiles are created and simulated by every peer, with Avian simulation state included in
-rollback.
+The example can also run as a deterministic input-only game with no server. Peers discover each
+other through a lobby instead of a preconfigured roster:
+
+- First peer (opens the lobby): `cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6100`
+- Each further peer, pointing at any peer that is already running: `cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6101 --peer 127.0.0.1:6100`
+
+Every peer opens an endpoint on its `--port` that other peers can connect to, so peers on the same
+machine each need their own port. A joining peer only needs the address of one peer that is already
+started and discovers the rest of the roster through the lobby. The game starts on all peers as soon
+as the player count is reached (2 by default, override with `-n`).
+
+Characters, the dynamic block, and projectiles are created and simulated by every peer, with Avian
+simulation state included in rollback.
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.

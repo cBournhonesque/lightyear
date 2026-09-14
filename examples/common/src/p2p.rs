@@ -1,169 +1,256 @@
-//! Shared setup for examples running as a direct P2P mesh.
+//! Shared setup for examples running as a P2P mesh with lobby-based discovery.
+//!
+//! Every peer opens an endpoint that other peers can connect to, no matter which
+//! transport is selected (UDP, WebSocket or WebTransport). Peers find each other
+//! through [`Lobby`](lightyear::p2p::Lobby) announces instead of a precomputed
+//! roster: run one peer with no `--peer` to open a lobby, then run the others
+//! with `--peer <addr>` pointing at any peer that is already in the lobby.
+//! Every example lobby uses the same [`P2P_LOBBY_ID`], so no lobby id ever has
+//! to be exchanged out of band.
 
 use core::net::{Ipv4Addr, SocketAddr};
-use core::ops::Range;
 use core::time::Duration;
 
 use bevy::prelude::*;
-use lightyear::link::RecvLinkConditioner;
-use lightyear::prelude::client::{ClientPlugins, RawClient};
+use clap::ValueEnum;
+use lightyear::p2p::Lobby;
+use lightyear::prelude::client::ClientPlugins;
 use lightyear::prelude::*;
+#[cfg(not(target_family = "wasm"))]
+use lightyear::websocket::endpoint::{ServerConfig, WebSocketEndpoint};
+#[cfg(not(target_family = "wasm"))]
+use lightyear::webtransport::endpoint::WebTransportEndpoint;
+#[cfg(not(target_family = "wasm"))]
+use lightyear::webtransport::prelude::Identity;
+#[cfg(all(feature = "udp", not(target_family = "wasm")))]
+use lightyear_udp::prelude::endpoint::UdpEndpoint;
 
 #[cfg(any(feature = "gui2d", feature = "gui3d"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 
 const MAX_P2P_PLAYERS: u8 = 4;
-pub(crate) const DEFAULT_P2P_BASE_PORT: u16 = 6000;
+pub(crate) const DEFAULT_P2P_PORT: u16 = 6000;
 
-/// Fixed roster used by an example running in direct P2P mode.
+/// Lobby identity shared by every example peer.
 ///
-/// The initial example transport assigns compact numeric peer identities. Iroh can replace the
-/// transport-specific identity construction later without changing the topology or game setup.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct P2PSettings {
-    pub local_peer_id: u8,
-    pub player_count: u8,
+/// A membership token, not an address: nothing ever dials it. All example peers
+/// pin this id, so a peer joins a lobby by dialing any member's endpoint
+/// address (via `--peer`), never by naming the lobby itself.
+pub const P2P_LOBBY_ID: LobbyId = LobbyId::from_bytes([0; 32]);
+
+/// Which transport a P2P example peer listens on and dials others with.
+///
+/// Every variant is an endpoint other peers can connect to; the lobby treats
+/// the endpoint's socket address as the peer's identity in all three cases.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum P2PTransport {
+    /// Raw UDP datagrams. Native targets only.
+    #[cfg(all(feature = "udp", not(target_family = "wasm")))]
+    #[value(name = "udp")]
+    Udp,
+    /// Plain (unencrypted) WebSocket.
+    #[value(name = "websocket")]
+    WebSocket,
+    /// WebTransport over QUIC with a per-peer self-signed certificate.
+    #[value(name = "webtransport")]
+    WebTransport,
 }
 
-/// Present until every configured remote peer has responded and the P2P start barrier is entered.
+impl Default for P2PTransport {
+    fn default() -> Self {
+        #[cfg(all(feature = "udp", not(target_family = "wasm")))]
+        return P2PTransport::Udp;
+        #[cfg(not(all(feature = "udp", not(target_family = "wasm"))))]
+        return P2PTransport::WebSocket;
+    }
+}
+
+impl core::fmt::Display for P2PTransport {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            #[cfg(all(feature = "udp", not(target_family = "wasm")))]
+            P2PTransport::Udp => write!(f, "udp"),
+            P2PTransport::WebSocket => write!(f, "websocket"),
+            P2PTransport::WebTransport => write!(f, "webtransport"),
+        }
+    }
+}
+
+/// How an example peer reaches its lobby.
+///
+/// The roster is discovered, never configured: `seed` names at most one peer
+/// that is already in the lobby. `None` opens a new lobby that later peers can
+/// join. `expected_players` only gates the session start barrier.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct P2PSettings {
+    pub expected_players: u8,
+    pub transport: P2PTransport,
+    pub local_port: u16,
+    pub seed: Option<SocketAddr>,
+}
+
+/// Present until the discovered roster is complete and the session starts.
 #[derive(Resource)]
 struct AwaitingP2PStart;
 
-impl P2PSettings {
-    pub fn peer_ids(&self) -> Range<u8> {
-        0..self.player_count
-    }
-
-    pub fn local_id(&self) -> PeerId {
-        PeerId::Entity(u64::from(self.local_peer_id))
-    }
-}
-
 /// Build the stable input target shared by every peer for one roster member.
 ///
-/// Remote targets are scoped to the Link that owns their input stream. The local target has no
-/// receiver because this app captures and originates its inputs.
+/// `peer` is the lobby identity of the roster member and `hash` its stable
+/// input-wire identity (hash base plus roster slot). Remote targets are scoped
+/// to the Link that owns their input stream. The local target has no receiver
+/// because this app captures and originates its inputs.
 pub fn input_target_for_peer(
-    settings: &P2PSettings,
+    lobby: &Lobby,
     links: &Query<(Entity, &RemoteId), With<P2P>>,
-    peer_id: u8,
+    peer: PeerId,
     hash: u64,
 ) -> PreSpawned {
     let mut target = PreSpawned::new(hash);
-    if peer_id == settings.local_peer_id {
+    if lobby.local() == Some(peer) {
         return target;
     }
 
-    let remote_id = PeerId::Entity(u64::from(peer_id));
     let owner_link = links
         .iter()
-        .find_map(|(entity, id)| (id.0 == remote_id).then_some(entity))
-        .unwrap_or_else(|| panic!("missing P2P Link for roster peer {peer_id}"));
+        .find_map(|(entity, id)| (id.0 == peer).then_some(entity))
+        .unwrap_or_else(|| panic!("missing P2P Link for lobby peer {peer:?}"));
     target = target.for_receiver(owner_link);
     target
 }
 
-/// Add the client-side Lightyear plugins used by a direct P2P example.
+/// Add the client-side Lightyear plugins and lobby discovery used by a P2P example.
 pub(crate) fn configure_app(
     app: &mut App,
     tick_duration: Duration,
     _headless: bool,
-    peer_id: u8,
-    player_count: u8,
+    settings: P2PSettings,
 ) {
-    validate_roster(peer_id, player_count);
+    validate_settings(settings.expected_players);
     app.add_plugins(ClientPlugins { tick_duration });
-    app.insert_resource(P2PSettings {
-        local_peer_id: peer_id,
-        player_count,
-    });
+    app.add_plugins(LobbyPlugin::new(LobbyIdPolicy::Pinned(Some(P2P_LOBBY_ID))));
+    match settings.transport {
+        #[cfg(all(feature = "udp", not(target_family = "wasm")))]
+        P2PTransport::Udp => {
+            app.add_plugins(lightyear_udp::lobby::UdpLobbyPlugin);
+        }
+        #[cfg(not(target_family = "wasm"))]
+        P2PTransport::WebSocket => {
+            app.add_plugins(lightyear::websocket::lobby::WebSocketLobbyPlugin::new(
+                lightyear::websocket::prelude::client::ClientConfig::builder()
+                    .with_no_cert_validation(),
+                lightyear::websocket::prelude::client::WebSocketScheme::Plain,
+            ));
+        }
+        #[cfg(not(target_family = "wasm"))]
+        P2PTransport::WebTransport => {
+            app.add_plugins(lightyear::webtransport::lobby::WebTransportLobbyPlugin);
+        }
+        #[cfg(target_family = "wasm")]
+        _ => panic!("P2P endpoints are not supported on wasm"),
+    }
+    app.insert_resource(settings);
 
     #[cfg(any(feature = "gui2d", feature = "gui3d"))]
     if !_headless {
         app.add_plugins(ExampleClientRendererPlugin::new(format!(
-            "P2P Peer {peer_id}"
+            "P2P Peer ({} players expected)",
+            settings.expected_players
         )));
     }
 }
 
-/// Spawn one directed raw UDP Link for every other member of the fixed roster.
+/// Open this peer's endpoint and join (or open) the lobby.
+///
+/// The endpoint is what other peers connect to, whichever transport is
+/// selected. When `settings.seed` names a lobby member, the lobby dials it and
+/// learns everyone else through announces; otherwise this peer waits to be
+/// dialed. Nothing else is configured per peer.
 pub(crate) fn spawn_connections(
     app: &mut App,
     conditioner: &LinkConditionerConfig,
-    peer_id: u8,
-    player_count: u8,
-    base_port: u16,
+    settings: P2PSettings,
 ) {
-    validate_roster(peer_id, player_count);
-    let local_id = PeerId::Entity(u64::from(peer_id));
-    for remote_peer_id in 0..player_count {
-        if remote_peer_id == peer_id {
-            continue;
+    validate_settings(settings.expected_players);
+    let conditioner = RecvLinkConditioner::new(conditioner.clone());
+    // Bind localhost explicitly: the bound address is this peer's lobby identity
+    // (`PeerId::Raw`), so it must be an address other peers can dial back. An
+    // unspecified address would be unusable as an identity.
+    let bind = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), settings.local_port);
+    match settings.transport {
+        #[cfg(all(feature = "udp", not(target_family = "wasm")))]
+        P2PTransport::Udp => {
+            app.world_mut().spawn((
+                Endpoint::new(Some(conditioner)),
+                UdpEndpoint::default(),
+                LocalAddr(bind),
+                Name::new("P2P Endpoint"),
+            ));
         }
-        let local_addr = peer_addr(base_port, peer_id, remote_peer_id);
-        let remote_addr = peer_addr(base_port, remote_peer_id, peer_id);
-        app.world_mut().spawn((
-            P2P::default(),
-            RawClient,
-            LocalId(local_id),
-            RemoteId(PeerId::Entity(u64::from(remote_peer_id))),
-            PingManager::default(),
-            LocalAddr(local_addr),
-            PeerAddr(remote_addr),
-            UdpIo::default(),
-            Link::default().with_conditioner(Some(RecvLinkConditioner::new(conditioner.clone()))),
-            Name::new(format!("P2P Link {peer_id} -> {remote_peer_id}")),
-        ));
+        #[cfg(not(target_family = "wasm"))]
+        P2PTransport::WebSocket => {
+            let config = ServerConfig::builder()
+                .with_bind_address(bind)
+                .with_no_encryption();
+            app.world_mut().spawn((
+                Endpoint::new(Some(conditioner)),
+                WebSocketEndpoint { config },
+                LocalAddr(bind),
+                Name::new("P2P Endpoint"),
+            ));
+        }
+        #[cfg(not(target_family = "wasm"))]
+        P2PTransport::WebTransport => {
+            let certificate = Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap();
+            app.world_mut().spawn((
+                Endpoint::new(Some(conditioner)),
+                WebTransportEndpoint { certificate },
+                LocalAddr(bind),
+                Name::new("P2P Endpoint"),
+            ));
+        }
+        #[cfg(target_family = "wasm")]
+        _ => panic!("P2P endpoints are not supported on wasm"),
+    }
+    if let Some(seed) = settings.seed {
+        app.world_mut()
+            .resource_mut::<Lobby>()
+            .add_bootstrap([PeerId::Raw(seed)]);
     }
     app.insert_resource(AwaitingP2PStart);
-    app.add_systems(Startup, connect_links);
-    app.add_systems(Update, start_when_roster_connected);
+    app.add_systems(Update, start_when_lobby_ready);
 }
 
-fn validate_roster(peer_id: u8, player_count: u8) {
+fn validate_settings(expected_players: u8) {
     assert!(
-        (2..=MAX_P2P_PLAYERS).contains(&player_count),
-        "P2P player_count must be between 2 and {MAX_P2P_PLAYERS}"
-    );
-    assert!(
-        peer_id < player_count,
-        "P2P peer_id {peer_id} is outside the {player_count}-player roster"
+        (2..=MAX_P2P_PLAYERS).contains(&expected_players),
+        "P2P players must be between 2 and {MAX_P2P_PLAYERS}"
     );
 }
 
-fn peer_addr(base_port: u16, local_peer_id: u8, remote_peer_id: u8) -> SocketAddr {
-    let offset = u16::from(local_peer_id) * u16::from(MAX_P2P_PLAYERS) + u16::from(remote_peer_id);
-    let port = base_port
-        .checked_add(offset)
-        .expect("P2P base port plus roster offset must fit in u16");
-    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)
-}
-
-fn connect_links(mut commands: Commands, links: Query<Entity, With<P2P>>) {
-    for entity in &links {
-        commands.trigger(Connect { entity });
-    }
-}
-
-fn start_when_roster_connected(
+/// Start the deterministic session once the discovered roster is complete.
+///
+/// Every peer computes the same sorted roster from the same announces, so
+/// gating on the roster (rather than a configured address list) starts all
+/// peers with the same cohort.
+fn start_when_lobby_ready(
     mut commands: Commands,
     settings: Res<P2PSettings>,
+    lobby: Res<Lobby>,
     awaiting_start: Option<Res<AwaitingP2PStart>>,
-    links: Query<(Has<Connected>, &PingManager), With<P2P>>,
 ) {
-    let expected_remote_count = usize::from(settings.player_count.saturating_sub(1));
-    if awaiting_start.is_none()
-        || links.iter().count() != expected_remote_count
-        || links
-            .iter()
-            .any(|(connected, ping)| !connected || ping.latency_samples_recv() == 0)
-    {
+    if awaiting_start.is_none() {
+        return;
+    }
+    let expected = usize::from(settings.expected_players);
+    // The roster holds every member plus ourselves; all of them must be linked.
+    if lobby.roster().len() != expected || lobby.connected_members().count() + 1 != expected {
         return;
     }
 
     tracing::info!(
-        player_count = settings.player_count,
-        "P2P roster connected; starting session negotiation"
+        expected_players = expected,
+        roster = ?lobby.roster(),
+        "P2P lobby complete; starting session negotiation"
     );
     commands.remove_resource::<AwaitingP2PStart>();
     commands.trigger(P2PStart);

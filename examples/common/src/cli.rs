@@ -19,7 +19,7 @@ use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "p2p")]
-use crate::p2p::{self, DEFAULT_P2P_BASE_PORT};
+use crate::p2p::{self, DEFAULT_P2P_PORT, P2PSettings, P2PTransport};
 #[cfg(feature = "server")]
 use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "server"))]
@@ -91,7 +91,7 @@ impl Cli {
             #[cfg(all(feature = "client", feature = "server"))]
             Some(Mode::HostClient { client_id }) => *client_id,
             #[cfg(feature = "p2p")]
-            Some(Mode::P2P { peer_id, .. }) => Some(u64::from(*peer_id)),
+            Some(Mode::P2P { .. }) => None,
             _ => None,
         }
     }
@@ -150,16 +150,21 @@ impl Cli {
             }
             #[cfg(feature = "p2p")]
             Some(Mode::P2P {
-                peer_id,
-                player_count,
-                ..
+                peer,
+                players,
+                port,
+                transport,
             }) => {
                 p2p::configure_app(
                     &mut app,
                     tick_duration,
                     self.headless(),
-                    peer_id,
-                    player_count,
+                    P2PSettings {
+                        expected_players: players,
+                        transport,
+                        local_port: port,
+                        seed: peer,
+                    },
                 );
                 app
             }
@@ -228,11 +233,21 @@ impl Cli {
             }
             #[cfg(feature = "p2p")]
             Some(Mode::P2P {
-                peer_id,
-                player_count,
-                base_port,
+                peer,
+                players,
+                port,
+                transport,
             }) => {
-                p2p::spawn_connections(app, &conditioner, peer_id, player_count, base_port);
+                p2p::spawn_connections(
+                    app,
+                    &conditioner,
+                    P2PSettings {
+                        expected_players: players,
+                        transport,
+                        local_port: port,
+                        seed: peer,
+                    },
+                );
             }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
@@ -299,17 +314,31 @@ pub enum Mode {
         client_id: Option<u64>,
     },
     #[cfg(feature = "p2p")]
-    /// Runs a fixed roster with one direct raw UDP Link to every other peer.
+    /// Runs a P2P mesh with lobby-based peer discovery.
+    ///
+    /// Every peer opens an endpoint that other peers can connect to. Run one
+    /// peer without `--peer` to open a lobby, then join it from the other
+    /// peers with `--peer <addr>` pointing at any lobby member's endpoint.
     P2P {
-        /// Zero-based identity of this peer within the fixed roster.
-        #[arg(short, long)]
-        peer_id: u8,
-        /// Number of players in the fixed roster (2 through 4).
+        /// Endpoint address of a peer that is already in the lobby.
+        ///
+        /// If provided, this peer dials it and discovers everyone else through
+        /// lobby announces. If omitted, this peer opens a new lobby that later
+        /// peers can join. All example lobbies share the same lobby id.
+        #[arg(long)]
+        peer: Option<core::net::SocketAddr>,
+        /// Number of players in the session (2 through 4).
+        ///
+        /// Only gates the session start barrier; the roster itself is
+        /// discovered, never configured.
         #[arg(short = 'n', long, default_value_t = 2)]
-        player_count: u8,
-        /// First UDP port reserved for the roster's directed peer Links.
-        #[arg(long, default_value_t = DEFAULT_P2P_BASE_PORT)]
-        base_port: u16,
+        players: u8,
+        /// Local port this peer's endpoint binds to.
+        #[arg(long, default_value_t = DEFAULT_P2P_PORT)]
+        port: u16,
+        /// Transport this peer listens and dials with.
+        #[arg(long, value_enum, default_value_t = P2PTransport::default())]
+        transport: P2PTransport,
     },
     #[cfg(feature = "server")]
     /// Runs the app in server mode
@@ -361,9 +390,10 @@ impl Default for Mode {
                 Mode::Server
             } else if #[cfg(feature = "p2p")] {
                 Mode::P2P {
-                    peer_id: 0,
-                    player_count: 2,
-                    base_port: DEFAULT_P2P_BASE_PORT,
+                    peer: None,
+                    players: 2,
+                    port: DEFAULT_P2P_PORT,
+                    transport: P2PTransport::default(),
                 }
             } else {
                 Mode::Client { client_id: None }

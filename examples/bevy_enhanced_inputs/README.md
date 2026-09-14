@@ -18,11 +18,17 @@ For example you can run the server in headless mode (without gui) by running `ca
 
 ### P2P mode
 
-The same movement example can run without a server. Every peer creates the fixed player roster and
-BEI action entities locally, then sends its action inputs directly to every other peer.
+The same movement example can run without a server. Peers discover each other through a lobby
+instead of a preconfigured roster. Every peer creates the player roster and BEI action entities
+locally, then sends its action inputs directly to every other peer.
 
-- Peer 0: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
-- Peer 1: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 1 --player-count 2`
+- First peer (opens the lobby): `cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6100`
+- Each further peer, pointing at any peer that is already running: `cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6101 --peer 127.0.0.1:6100`
+
+Every peer opens an endpoint on its `--port` that other peers can connect to, so peers on the same
+machine each need their own port. A joining peer only needs the address of one peer that is already
+started and discovers the rest of the roster through the lobby. The game starts on all peers as soon
+as the player count is reached (2 by default, override with `-n`).
 
 ### Testing in wasm with webtransport
 

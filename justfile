@@ -20,10 +20,6 @@ clippy:
     cargo clippy -p avian_3d --all-features --no-deps -- -D warnings
     cargo clippy -p launcher --all-features --no-deps -- -D warnings
 
-# Run two conditioned simple-box peers and verify remote prediction rollback plus convergence.
-simple_box_p2p_smoke:
-    bash examples/simple_box/p2p_smoke.sh
-
 # jq filters shared by the example/demo build recipe.
 [private]
 _example_demo_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup")) | .name'

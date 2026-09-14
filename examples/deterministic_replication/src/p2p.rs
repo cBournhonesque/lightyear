@@ -9,10 +9,11 @@ use crate::shared;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
+use lightyear::p2p::Lobby;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
-use lightyear_examples_common::p2p::{P2PSettings, input_target_for_peer};
+use lightyear_examples_common::p2p::input_target_for_peer;
 
 /// Namespace for stable deterministic-replication player hashes on the input wire.
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4445_5445_524D_0000;
@@ -30,7 +31,7 @@ fn spawn_fixed_world(
     trigger: On<P2PStarted>,
     mut commands: Commands,
     mode: Res<CatchUpMode>,
-    settings: Res<P2PSettings>,
+    lobby: Res<Lobby>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
     let start_tick = trigger.start_tick;
@@ -39,13 +40,16 @@ fn spawn_fixed_world(
     debug_assert_eq!(*mode, CatchUpMode::InputOnly);
     shared::spawn_world(&mut commands, &mode, false, true);
 
-    for peer_id in settings.peer_ids() {
-        let id = PeerId::Entity(u64::from(peer_id));
+    let roster = lobby.roster();
+    let local = lobby.local();
+    for (slot, peer) in roster.iter().enumerate() {
+        let slot = u8::try_from(slot).expect("P2P roster slot fits in u8");
+        let id = PeerId::Entity(u64::from(slot));
         let input_target = input_target_for_peer(
-            &settings,
+            &lobby,
             &links,
-            peer_id,
-            PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
+            *peer,
+            PLAYER_INPUT_HASH_BASE | u64::from(slot),
         );
         let player = commands
             .spawn((
@@ -61,7 +65,7 @@ fn spawn_fixed_world(
                 LeafwingBuffer::<PlayerActions>::default(),
             ))
             .id();
-        if peer_id == settings.local_peer_id {
+        if Some(*peer) == local {
             commands.entity(player).insert(player_input_map());
         }
     }

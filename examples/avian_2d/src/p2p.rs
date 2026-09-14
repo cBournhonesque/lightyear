@@ -4,11 +4,12 @@ use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::p2p::Lobby;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::leafwing::LeafwingBuffer;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
-use lightyear_examples_common::p2p::{input_target_for_peer, P2PSettings};
+use lightyear_examples_common::p2p::input_target_for_peer;
 use lightyear_frame_interpolation::FrameInterpolate;
 
 use crate::client::player_input_map;
@@ -30,7 +31,7 @@ impl Plugin for ExampleP2PPlugin {
 fn spawn_fixed_world(
     _trigger: On<P2PStarted>,
     mut commands: Commands,
-    settings: Res<P2PSettings>,
+    lobby: Res<Lobby>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
     commands.spawn((
@@ -47,19 +48,22 @@ fn spawn_fixed_world(
     ));
 
     let spacing = 100.0;
-    let center = (f32::from(settings.player_count) - 1.0) * 0.5;
-    for peer_id in settings.peer_ids() {
-        let id = PeerId::Entity(u64::from(peer_id));
+    let roster = lobby.roster();
+    let local = lobby.local();
+    let center = (roster.len() as f32 - 1.0) * 0.5;
+    for (slot, peer) in roster.iter().enumerate() {
+        let slot = u8::try_from(slot).expect("P2P roster slot fits in u8");
+        let id = PeerId::Entity(u64::from(slot));
         let target = input_target_for_peer(
-            &settings,
+            &lobby,
             &links,
-            peer_id,
-            PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
+            *peer,
+            PLAYER_INPUT_HASH_BASE | u64::from(slot),
         );
         let player = commands
             .spawn((
                 PlayerId(id),
-                Position::from(Vec2::new(-50.0, (f32::from(peer_id) - center) * spacing)),
+                Position::from(Vec2::new(-50.0, (f32::from(slot) - center) * spacing)),
                 Rotation::radians(0.15),
                 AngularVelocity(0.35),
                 ColorComponent(color_from_id(id)),
@@ -74,7 +78,7 @@ fn spawn_fixed_world(
                 Name::from("P2P Player"),
             ))
             .id();
-        if peer_id == settings.local_peer_id {
+        if Some(*peer) == local {
             commands.entity(player).insert(player_input_map());
         }
     }

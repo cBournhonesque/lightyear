@@ -5,11 +5,12 @@ use core::f32::consts::TAU;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
+use lightyear::p2p::Lobby;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::leafwing::LeafwingBuffer;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
-use lightyear_examples_common::p2p::{P2PSettings, input_target_for_peer};
+use lightyear_examples_common::p2p::input_target_for_peer;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use lightyear_frame_interpolation::FrameInterpolate;
 
@@ -35,7 +36,7 @@ impl Plugin for ExampleP2PPlugin {
 fn spawn_fixed_world(
     _trigger: On<P2PStarted>,
     mut commands: Commands,
-    settings: Res<P2PSettings>,
+    lobby: Res<Lobby>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
     const NUM_BALLS: usize = 6;
@@ -57,18 +58,21 @@ fn spawn_fixed_world(
         ));
     }
 
-    for peer_id in settings.peer_ids() {
-        let id = PeerId::Entity(u64::from(peer_id));
-        let angle = f32::from(peer_id) * (TAU / f32::from(settings.player_count));
+    let roster = lobby.roster();
+    let local = lobby.local();
+    for (slot, peer) in roster.iter().enumerate() {
+        let slot = u8::try_from(slot).expect("P2P roster slot fits in u8");
+        let id = PeerId::Entity(u64::from(slot));
+        let angle = f32::from(slot) * (TAU / roster.len() as f32);
         let target = input_target_for_peer(
-            &settings,
+            &lobby,
             &links,
-            peer_id,
-            PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
+            *peer,
+            PLAYER_INPUT_HASH_BASE | u64::from(slot),
         );
         let player = commands
             .spawn((
-                Player::new(id, format!("Peer {peer_id}")),
+                Player::new(id, format!("Peer {slot}")),
                 Score(0),
                 Position(Vec2::new(200.0 * angle.cos(), 200.0 * angle.sin())),
                 PhysicsBundle::player_ship(),
@@ -84,7 +88,7 @@ fn spawn_fixed_world(
                 Name::new("P2P Player"),
             ))
             .id();
-        if peer_id == settings.local_peer_id {
+        if Some(*peer) == local {
             // P2P has no authoritative replication stream to assign ownership, so mark the
             // locally owned player explicitly. The common client observer installs its InputMap.
             commands.entity(player).insert(Controlled);
