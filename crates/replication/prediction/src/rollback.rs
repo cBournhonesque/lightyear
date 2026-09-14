@@ -826,8 +826,8 @@ pub fn reset_input_rollback_tracker(
     last_confirmed_input
         .received_any_messages
         .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    // Each generic input plugin ANDs its own readiness into this value in PostUpdate. Resetting
-    // once here makes the result independent of input-plugin execution order.
+    // Each generic input plugin ANDs its own readiness into this value in PostUpdate.
+    // Resetting once here makes the result independent of input-plugin execution order.
     last_confirmed_input.received_for_all_clients = true;
     if let Some(prediction_manager) = prediction_manager {
         prediction_manager
@@ -1374,6 +1374,191 @@ mod tests {
                 confirmed_history_id,
                 frame_interpolation_history_id,
             );
+    }
+
+    #[test]
+    // Session start and newcomer activation both create actors before IncrementLocal.
+    // Their first corrected input must restore that pre-step state, not a later live value.
+    fn first_tick_input_rollback_matches_uninterrupted_simulation_and_entity_lifecycle() {
+        use crate::plugin::{PredictionPlugin, add_non_networked_rollback_systems};
+        use lightyear_connection::network_topology::NetworkTopology;
+        use lightyear_core::timeline::TimelineSystems;
+        use lightyear_sync::prelude::LocalTimelineSync;
+
+        #[derive(Component)]
+        struct Player;
+        #[derive(Component)]
+        struct FirstTickSpawn;
+        #[derive(Component)]
+        struct RemovedOnFirstTick;
+        #[derive(Resource)]
+        struct FirstInput(f32);
+
+        fn spawn_player(
+            mut commands: Commands,
+            timeline: Res<LocalTimeline>,
+            players: Query<(), With<Player>>,
+        ) {
+            if timeline.tick() == Tick(151) && players.is_empty() {
+                commands.spawn((
+                    Player,
+                    DeterministicPredicted::default(),
+                    TestComponent(-120.0),
+                ));
+                commands.spawn((
+                    RemovedOnFirstTick,
+                    DeterministicPredicted::default(),
+                    TestComponent(3.0),
+                ));
+            }
+        }
+
+        fn simulate(
+            mut commands: Commands,
+            timeline: Res<LocalTimeline>,
+            input: Res<FirstInput>,
+            mut players: Query<&mut TestComponent, With<Player>>,
+            removed_on_first_tick: Query<Entity, With<RemovedOnFirstTick>>,
+        ) {
+            for mut position in &mut players {
+                position.0 += if timeline.tick() == Tick(152) {
+                    input.0
+                } else {
+                    10.0
+                };
+            }
+            if timeline.tick() == Tick(152) {
+                for entity in &removed_on_first_tick {
+                    commands.entity(entity).remove::<TestComponent>();
+                }
+                commands.spawn((
+                    FirstTickSpawn,
+                    DeterministicPredicted::default(),
+                    TestComponent(7.0),
+                ));
+            }
+        }
+
+        fn step(app: &mut App) {
+            app.world_mut().run_schedule(FixedFirst);
+            app.world_mut().run_schedule(FixedPreUpdate);
+            app.world_mut().run_schedule(FixedUpdate);
+            app.world_mut().run_schedule(FixedPostUpdate);
+        }
+
+        fn test_app(first_input: f32) -> App {
+            let mut app = App::new();
+            app.add_plugins(PredictionPlugin);
+            app.insert_resource(PredictionManager::default());
+            app.insert_resource(FirstInput(first_input));
+            app.init_resource::<LocalTimeline>();
+            app.init_resource::<InputTimelineConfig>();
+            let mut sync = LocalTimelineSync::default();
+            sync.set_synced(true);
+            app.insert_resource(sync);
+            add_non_networked_rollback_systems::<TestComponent>(&mut app);
+            let client = app.world_mut().spawn_empty().id();
+            app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+                NetworkTopology::Client(client);
+            app.world_mut()
+                .resource_mut::<LocalTimeline>()
+                .apply_delta(151);
+            app.add_systems(
+                FixedFirst,
+                (
+                    spawn_player.before(TimelineSystems::IncrementLocal),
+                    (|mut timeline: ResMut<LocalTimeline>| timeline.apply_delta(1))
+                        .in_set(TimelineSystems::IncrementLocal),
+                ),
+            );
+            app.add_systems(FixedUpdate, simulate);
+            app
+        }
+
+        let mut app = test_app(10.0);
+        let mut uninterrupted_app = test_app(20.0);
+
+        for _ in 0..3 {
+            step(&mut app);
+            step(&mut uninterrupted_app);
+        }
+        let player = app
+            .world_mut()
+            .query_filtered::<Entity, With<Player>>()
+            .single(app.world())
+            .unwrap();
+        let original_spawn = app
+            .world_mut()
+            .query_filtered::<Entity, With<FirstTickSpawn>>()
+            .single(app.world())
+            .unwrap();
+        let removed = app
+            .world_mut()
+            .query_filtered::<Entity, With<RemovedOnFirstTick>>()
+            .single(app.world())
+            .unwrap();
+        assert!(app.world().get::<TestComponent>(removed).is_none());
+        assert_eq!(
+            app.world().get::<TestComponent>(player),
+            Some(&TestComponent(-90.0))
+        );
+        let uninterrupted = uninterrupted_app
+            .world_mut()
+            .query_filtered::<&TestComponent, With<Player>>()
+            .single(uninterrupted_app.world())
+            .unwrap()
+            .clone();
+        assert_eq!(uninterrupted, TestComponent(-80.0));
+
+        // A correction for the first input restores the pre-step boundary, not the first
+        // post-movement sample. Entities created by that input must instead be recreated.
+        app.world_mut().resource_mut::<FirstInput>().0 = 20.0;
+        let manager = app.world().resource::<PredictionManager>();
+        manager.earliest_mismatch_input.tick.set_if_lower(Tick(152));
+        manager
+            .earliest_mismatch_input
+            .has_mismatches
+            .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+        app.world_mut().run_system_once(check_rollback).unwrap();
+        app.world_mut().run_system_once(prepare_rollback).unwrap();
+        assert_eq!(
+            app.world().get::<TestComponent>(player),
+            Some(&TestComponent(-120.0))
+        );
+        assert_eq!(
+            app.world().get::<TestComponent>(removed),
+            Some(&TestComponent(3.0))
+        );
+        assert!(app.world().get_entity(original_spawn).is_err());
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(-3);
+        for _ in 0..3 {
+            step(&mut app);
+        }
+        assert_eq!(
+            app.world().get::<TestComponent>(player),
+            Some(&uninterrupted)
+        );
+        assert!(app.world().get::<TestComponent>(removed).is_none());
+        let replayed_spawn = app
+            .world_mut()
+            .query_filtered::<Entity, With<FirstTickSpawn>>()
+            .single(app.world())
+            .unwrap();
+        assert_ne!(replayed_spawn, original_spawn);
+        assert_eq!(
+            app.world().get::<TestComponent>(replayed_spawn),
+            Some(&TestComponent(7.0))
+        );
+        assert_eq!(
+            app.world()
+                .get::<PredictionHistory<TestComponent>>(replayed_spawn)
+                .unwrap()
+                .get_state(Tick(151)),
+            None,
+            "a replay-created entity must not acquire history before its spawn"
+        );
     }
 
     #[cfg(feature = "p2p")]

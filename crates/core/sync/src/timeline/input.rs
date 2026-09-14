@@ -9,7 +9,7 @@ use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use core::{marker::PhantomData, time::Duration};
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
-use lightyear_connection::p2p::P2P;
+
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{LocalTimeline, LocalTimelineShift};
@@ -62,18 +62,11 @@ impl InputTimelineConfig {
         tick_duration: Res<TickDuration>,
         metadata: Res<NetworkingMetadata>,
         links: Query<&Link>,
-        p2p_links: Query<(Entity, &P2P)>,
         config: Res<InputTimelineConfig>,
         mut timeline: ResMut<LocalTimelineSync>,
     ) {
         let before = timeline.input_delay();
-        if !timeline.recompute_input_delay(
-            &config,
-            &metadata.mode,
-            &links,
-            &p2p_links,
-            tick_duration.0,
-        ) {
+        if !timeline.recompute_input_delay(&config, &metadata.mode, &links, tick_duration.0) {
             return;
         }
         trace!(
@@ -94,17 +87,10 @@ impl InputTimelineConfig {
         tick_duration: Res<TickDuration>,
         metadata: Res<NetworkingMetadata>,
         links: Query<&Link>,
-        p2p_links: Query<(Entity, &P2P)>,
         config: Res<InputTimelineConfig>,
         mut timeline: ResMut<LocalTimelineSync>,
     ) {
-        if !timeline.recompute_input_delay(
-            &config,
-            &metadata.mode,
-            &links,
-            &p2p_links,
-            tick_duration.0,
-        ) {
+        if !timeline.recompute_input_delay(&config, &metadata.mode, &links, tick_duration.0) {
             // Configuration is commonly installed before a Client or HostClient connects. The
             // configured minimum is topology-independent; the first LocalTimelineShift will
             // replace it
@@ -524,16 +510,16 @@ unsafe impl ReadOnlySystemParam for SyncedLocalTimeline<'_, '_> {}
 impl LocalTimelineSync {
     /// Recompute the global input delay from the Links selected by the current topology.
     ///
-    /// Conventional modes use their sole client Link. P2P startup discovers candidate Links from
-    /// their [`P2P`] components; a running session uses the topology's joined Links. Both use the
-    /// maximum required delay so that one tick-indexed local input stream is safe for every member.
-    /// Returns `false` when the topology has no complete set of ready Link statistics.
+    /// Conventional modes use their sole client Link. A P2P session uses the membership cached in
+    /// its topology: the declared peers while it is forming or being joined, and the started peers
+    /// once it is playing. Both use the maximum required delay so that one tick-indexed local input
+    /// stream is safe for every peer. Returns `false` when the topology has no complete set of
+    /// ready Link statistics.
     pub(crate) fn recompute_input_delay(
         &mut self,
         config: &InputTimelineConfig,
         topology: &NetworkTopology,
         links: &Query<&Link>,
-        p2p_links: &Query<(Entity, &P2P)>,
         tick_duration: Duration,
     ) -> bool {
         let delay_for = |entity| {
@@ -543,34 +529,30 @@ impl LocalTimelineSync {
                     .input_delay_ticks(link.stats, &config.sync, tick_duration)
             })
         };
-        // Timeline synchronization also runs during the P2P start phase, before candidates have
-        // crossed the barrier and become `NetworkTopology::P2P`. Its synchronization objective
-        // uses input delay, so that delay must already include every candidate Link.
-        let mut has_candidates = false;
-        let candidate_delay = p2p_links
-            .iter()
-            .filter_map(|(entity, state)| {
-                if *state == P2P::Candidate {
-                    has_candidates = true;
-                    Some(entity)
+        let delay_for_all = |entities: &[Entity]| {
+            entities
+                .iter()
+                .try_fold(0, |maximum, entity| Some(maximum.max(delay_for(*entity)?)))
+        };
+        // A peer that is not playing yet owns the aggregate: it is forming a cohort, or it has been
+        // admitted and is following a running one. The delay decides the synchronization objective
+        // used to negotiate the start, so it must already account for a declared peer that has not
+        // connected. A started peer instead takes the delay from its started Links, because the
+        // delay is application-global: letting a peer that is still catching up set it would
+        // silently retime the whole session.
+        let input_delay_ticks = match topology {
+            NetworkTopology::Client(entity) => delay_for(*entity),
+            NetworkTopology::HostClient { client, .. } => delay_for(*client),
+            NetworkTopology::P2P(roster) => {
+                if roster.is_started_peer() {
+                    delay_for_all(&roster.started)
                 } else {
-                    None
+                    delay_for_all(&roster.declared_candidates())
                 }
-            })
-            .try_fold(0, |maximum, entity| Some(maximum.max(delay_for(entity)?)));
-        let input_delay_ticks = if has_candidates {
-            candidate_delay
-        } else {
-            match topology {
-                NetworkTopology::Client(entity) => delay_for(*entity),
-                NetworkTopology::HostClient { client, .. } => delay_for(*client),
-                NetworkTopology::P2P(peers) => peers
-                    .iter()
-                    .try_fold(0, |maximum, entity| Some(maximum.max(delay_for(*entity)?))),
-                NetworkTopology::Undefined
-                | NetworkTopology::Server(_)
-                | NetworkTopology::Invalid(_) => None,
             }
+            NetworkTopology::Undefined
+            | NetworkTopology::Server(_)
+            | NetworkTopology::Invalid(_) => None,
         };
         let Some(input_delay_ticks) = input_delay_ticks else {
             return false;
@@ -673,6 +655,7 @@ mod tests {
     use crate::timeline::remote::RemoteTimeline;
     use bevy_app::{App, Update};
     use bevy_utils::default;
+    use lightyear_connection::p2p::{P2P, P2PRoster, P2PSessionPhase};
     use lightyear_core::timeline::NetworkTimeline;
 
     fn assert_tick_instant_close(actual: TickInstant, expected: TickInstant) {
@@ -869,12 +852,18 @@ mod tests {
         let mut app = App::new();
         let mut fast_link = Link::default();
         fast_link.stats.rtt = Duration::from_millis(10);
-        app.world_mut().spawn((fast_link, P2P::Candidate));
+        let fast = app.world_mut().spawn((fast_link, P2P::Candidate)).id();
         let mut slow_link = Link::default();
         slow_link.stats.rtt = Duration::from_millis(50);
-        app.world_mut().spawn((slow_link, P2P::Candidate));
+        let slow = app.world_mut().spawn(slow_link).id();
 
         app.init_resource::<NetworkingMetadata>();
+        // A forming cohort: the declared peers own the aggregate, connected or not.
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::P2P(P2PRoster::from_links(
+                P2PSessionPhase::Starting,
+                [(fast, P2P::Candidate, true), (slow, P2P::Candidate, false)],
+            ));
         app.insert_resource(TickDuration(Duration::from_millis(10)));
         let mut config =
             InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced());
@@ -888,13 +877,11 @@ mod tests {
              config: Res<InputTimelineConfig>,
              metadata: Res<NetworkingMetadata>,
              links: Query<&Link>,
-             p2p_links: Query<(Entity, &P2P)>,
              tick_duration: Res<TickDuration>| {
                 assert!(timeline.recompute_input_delay(
                     &config,
                     &metadata.mode,
                     &links,
-                    &p2p_links,
                     tick_duration.0,
                 ));
             },
@@ -905,6 +892,60 @@ mod tests {
         // The 10ms Link needs one delayed tick, while the 50ms Link reaches the balanced
         // configuration's three-tick pre-prediction cap. The global delay must satisfy both.
         assert_eq!(app.world().resource::<LocalTimelineSync>().input_delay(), 3);
+    }
+
+    #[test]
+    fn a_started_peer_ignores_candidate_links_for_input_delay() {
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+
+        // The Link this peer actually plays with is fast.
+        let joined = app.world_mut().spawn((Link::default(), P2P::Joined)).id();
+        // A peer that is still catching up is slow. The delay is application-global, so letting
+        // it participate would silently retime the whole cohort.
+        let mut slow_link = Link::default();
+        slow_link.stats.rtt = Duration::from_millis(50);
+        let candidate = app.world_mut().spawn(slow_link).id();
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::P2P(P2PRoster::from_links(
+                P2PSessionPhase::Active,
+                [
+                    (joined, P2P::Joined, true),
+                    (candidate, P2P::Candidate, true),
+                ],
+            ));
+
+        app.init_resource::<LocalTimelineSync>();
+        app.insert_resource(TickDuration(Duration::from_millis(10)));
+        let mut config =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced());
+        config.sync.jitter_multiple = 0;
+        config.sync.jitter_margin = 0.0;
+        app.insert_resource(config);
+        app.add_systems(
+            Update,
+            |mut timeline: ResMut<LocalTimelineSync>,
+             config: Res<InputTimelineConfig>,
+             metadata: Res<NetworkingMetadata>,
+             links: Query<&Link>,
+             tick_duration: Res<TickDuration>| {
+                assert!(timeline.recompute_input_delay(
+                    &config,
+                    &metadata.mode,
+                    &links,
+                    tick_duration.0,
+                ));
+            },
+        );
+
+        app.update();
+
+        let fast_only = app.world().resource::<LocalTimelineSync>().input_delay();
+        assert!(
+            fast_only < 3,
+            "a started peer must take its delay from its started roster, not from a catching-up peer"
+        );
+        assert!(app.world().get_entity(candidate).is_ok());
     }
 
     #[test]

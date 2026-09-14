@@ -1,6 +1,8 @@
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+#[cfg(test)]
+use lightyear_connection::p2p::P2PRoster;
 use lightyear_inputs::client::InputSystems;
 use lightyear_prediction::prelude::{LastConfirmedInput, PredictionManager};
 use lightyear_sync::plugin::SyncSystems;
@@ -43,7 +45,9 @@ fn update_prediction_window_wait(
 
     let active_topology = match &metadata.mode {
         NetworkTopology::Client(_) => true,
-        NetworkTopology::P2P(_) => true,
+        // Only a started peer: the prediction window controls a deterministic simulation that does
+        // not exist before the session has started.
+        NetworkTopology::P2P(roster) => roster.is_started_peer(),
         NetworkTopology::Undefined
         | NetworkTopology::Server(_)
         | NetworkTopology::HostClient { .. }
@@ -138,7 +142,7 @@ mod tests {
             let mut topology_world = World::new();
             let link = topology_world.spawn_empty().id();
             let topology = if p2p {
-                NetworkTopology::P2P([link].into_iter().collect())
+                NetworkTopology::P2P(P2PRoster::from_started_links([link]))
             } else {
                 NetworkTopology::Client(link)
             };

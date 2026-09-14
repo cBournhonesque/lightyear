@@ -8,7 +8,8 @@ use crate::predicted_history::{
     apply_component_removal_predicted, backfill_confirmed_history_on_predicted,
     handle_local_timeline_shift_history_diff_receiver,
     handle_local_timeline_shift_prediction_history, prune_confirmed_history,
-    prune_history_diff_receiver, snap_to_confirmed_during_rollback, update_prediction_history,
+    prune_history_diff_receiver, seed_prediction_history, snap_to_confirmed_during_rollback,
+    update_prediction_history,
 };
 use crate::registry::{PredictionRegistry, register_rollback_metadata};
 use crate::rollback::DisabledDuringRollback;
@@ -22,6 +23,7 @@ use bevy_replicon::prelude::AppMarkerExt;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_connection::p2p::{P2PRoster, P2PSessionPhase};
 use lightyear_core::prelude::{ConfirmedHistory, is_in_rollback};
 use lightyear_replication::prelude::{PreSpawned, PredictedSend, ReplicationSystems};
 #[cfg(test)]
@@ -30,8 +32,8 @@ use lightyear_replication::prespawn::PreSpawnedReceiver;
 /// Plugin that installs client-side prediction systems.
 ///
 /// The systems run when the application contains a [`PredictionManager`] resource and its cached
-/// network topology is a conventional client or active P2P session. P2P candidates do not run the
-/// pipeline: deterministic play and its rollback history begin at the agreed session start tick.
+/// network topology is a conventional client or a joining/active P2P session. Joining peers need
+/// prediction for catch-up; stopped sessions and cohorts still forming their start barrier do not.
 /// Prediction-history writers also require a synchronized timeline and therefore never record
 /// values under pre-sync tick labels. Insert a [`PredictionManager`] resource to opt the
 /// application into one global prediction and rollback pipeline. Host-client and server
@@ -133,8 +135,12 @@ pub(crate) fn should_run(
 ) -> bool {
     manager.is_some()
         && matches!(
-            metadata.mode,
-            NetworkTopology::Client(_) | NetworkTopology::P2P(_)
+            &metadata.mode,
+            NetworkTopology::Client(_)
+                | NetworkTopology::P2P(P2PRoster {
+                    phase: P2PSessionPhase::Joining | P2PSessionPhase::Active,
+                    ..
+                })
         )
 }
 
@@ -155,6 +161,13 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // server tick space. Shifting them can move authoritative state into the
     // future and make rollback prefer it over later server updates.
     app.add_observer(handle_local_timeline_shift_prediction_history::<C>);
+    app.add_systems(
+        FixedPreUpdate,
+        seed_prediction_history::<C>
+            .in_set(PredictionSystems::All)
+            .before(PredictionSystems::SnapToConfirmed)
+            .run_if(not(is_in_rollback)),
+    );
     app.add_systems(
         FixedPostUpdate,
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
@@ -210,6 +223,13 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.world_mut()
         .resource_mut::<PredictionRegistry>()
         .set_snap_to_confirmed::<C>();
+    app.add_systems(
+        FixedPreUpdate,
+        seed_prediction_history::<C>
+            .in_set(PredictionSystems::All)
+            .before(PredictionSystems::SnapToConfirmed)
+            .run_if(not(is_in_rollback)),
+    );
     app.add_systems(
         FixedPostUpdate,
         // we need to run this during fixed update to know accurately the history for each tick
@@ -405,6 +425,34 @@ mod tests {
     }
 
     #[test]
+    fn stopped_session_does_not_run_prediction_but_catch_up_does() {
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+        app.insert_resource(PredictionManager::default());
+        app.init_resource::<SnapRuns>();
+        app.add_systems(Update, count_snap_runs.run_if(should_run));
+        for (phase, expected_runs) in [
+            (P2PSessionPhase::Stopped, 0),
+            (P2PSessionPhase::Starting, 0),
+            (P2PSessionPhase::Joining, 1),
+            (P2PSessionPhase::Active, 2),
+            (P2PSessionPhase::Stopped, 2),
+        ] {
+            app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+                NetworkTopology::P2P(P2PRoster {
+                    phase,
+                    ..Default::default()
+                });
+            app.update();
+            assert_eq!(
+                app.world().resource::<SnapRuns>().0,
+                expected_runs,
+                "{phase:?}"
+            );
+        }
+    }
+
+    #[test]
     fn prediction_pipeline_excludes_authoritative_topologies() {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
@@ -421,7 +469,7 @@ mod tests {
 
         app.world_mut().entity_mut(client).insert(P2P::Joined);
         app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P([client].into_iter().collect());
+            NetworkTopology::P2P(P2PRoster::from_started_links([client]));
         assert!(app.world_mut().run_system_once(should_run).unwrap());
 
         app.world_mut().resource_mut::<NetworkingMetadata>().mode =

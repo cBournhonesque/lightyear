@@ -99,6 +99,27 @@ impl<C> PredictionHistory<C> {
 // Systems
 // ============================================================================
 
+/// Record the real pre-step state before a component's first simulated tick.
+///
+/// `FixedFirst` has already advanced the local timeline, so the live value at the start of
+/// `FixedPreUpdate` belongs to `tick - 1`. Existing histories, including explicit removals,
+/// must not be overwritten. This runs only outside rollback: an empty history after rollback
+/// preparation is not evidence that the current live component existed at the target.
+/// Only newly added components or histories can need this baseline. The add observer itself
+/// cannot label it: additions can happen before timeline sync, before `FixedFirst` increments
+/// the tick, or during simulation (where backdating would invent a pre-spawn state).
+pub(crate) fn seed_prediction_history<T: Component + Clone>(
+    mut query: Query<(&T, &mut PredictionHistory<T>), Or<(Added<T>, Added<PredictionHistory<T>>)>>,
+    timeline: SyncedLocalTimeline,
+) {
+    let tick = timeline.tick() - 1;
+    for (component, mut history) in query.iter_mut() {
+        if history.is_empty() {
+            history.add_predicted(tick, Some(component.clone()));
+        }
+    }
+}
+
 /// Store every update on the predicted entity in the [`PredictionHistory`].
 ///
 /// [`SyncedLocalTimeline`] skips this system until timeline synchronization has completed, so
@@ -714,7 +735,14 @@ mod tests {
         app.init_resource::<LocalTimelineSync>();
         app.insert_resource(PredictionManager::default());
         app.insert_resource(InputTimelineConfig::default());
-        app.add_systems(Update, update_prediction_history::<TestValue>);
+        app.add_systems(
+            Update,
+            (
+                seed_prediction_history::<TestValue>,
+                update_prediction_history::<TestValue>,
+            )
+                .chain(),
+        );
         app.add_observer(apply_component_removal_predicted::<TestValue>);
 
         let entity = app

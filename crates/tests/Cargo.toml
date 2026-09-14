@@ -10,6 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std", "test_utils", "steam"]
+p2p = ["lightyear/p2p"]
 std = [
   "bevy/std",
   "bytes/std",

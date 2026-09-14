@@ -1,7 +1,7 @@
 use crate::ConnectionSystems;
 use crate::client::{Client, Connected, Disconnected};
 use crate::host::HostClient;
-use crate::p2p::P2P;
+use crate::p2p::{P2P, P2PRoster, P2PSessionPhase};
 use crate::server::{Started, Stopped};
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
@@ -31,11 +31,21 @@ pub enum NetworkTopology {
         /// The connected host-client link entity.
         client: Entity,
     },
-    /// Direct peer Links that crossed the barrier and participate in deterministic gameplay.
+    /// A deterministic P2P session in progress on this application.
     ///
-    /// This roster is always non-empty. Its currently [`Connected`] joined Links are sorted by
-    /// local [`Entity`] ID, and disconnected Links are omitted.
-    P2P(SmallVec<[Entity; 4]>),
+    /// Present for the whole session lifecycle: while the start barrier forms the cohort, while
+    /// this application is a join candidate of a running session, and while it plays. Read
+    /// [`P2PRoster::phase`] to tell those apart, or the predicates on it
+    /// ([`is_started_peer`](P2PRoster::is_started_peer) and friends).
+    ///
+    /// The roster caches the session membership: only the [`P2P::Joined`] and connected Links are
+    /// [`started`](P2PRoster::started), and peers that have been admitted but are not playing yet
+    /// appear in the candidate sets. Consumers read this instead of re-querying the Links.
+    ///
+    /// [`is_p2p`](NetworkTopology::is_p2p) is deliberately narrower than the variant: it answers
+    /// "is this application a started peer", which is the question gameplay machinery asks, and it
+    /// is false while a cohort is still forming.
+    P2P(P2PRoster),
     /// The ready entities do not form one supported networking topology.
     Invalid(NetworkTopologyError),
 }
@@ -61,9 +71,31 @@ impl NetworkTopology {
         matches!(self, Self::HostClient { .. })
     }
 
-    /// Returns true when a direct P2P session has crossed its start barrier.
+    /// Whether this application is a **started peer** of a deterministic P2P session.
+    ///
+    /// This is false while a cohort is still forming and while this application is a join
+    /// candidate, even though [`P2P`](Self::P2P) is already present in both cases. Gameplay
+    /// machinery must key on this: the deterministic world does not exist before the session has
+    /// started.
     pub fn is_p2p(&self) -> bool {
-        matches!(self, Self::P2P(_))
+        matches!(self, Self::P2P(roster) if roster.is_started_peer())
+    }
+
+    /// The P2P session on this application, whatever its phase.
+    ///
+    /// Unlike [`is_p2p`](Self::is_p2p), this is `Some` as soon as a cohort is being formed or this
+    /// application is being admitted to a running session — which is exactly when the
+    /// synchronization and input layers need the membership.
+    pub fn p2p_roster(&self) -> Option<&P2PRoster> {
+        match self {
+            Self::P2P(roster) => Some(roster),
+            _ => None,
+        }
+    }
+
+    /// The P2P roster of this application once it is a started peer.
+    pub fn started_p2p_roster(&self) -> Option<&P2PRoster> {
+        self.p2p_roster().filter(|roster| roster.is_started_peer())
     }
 }
 
@@ -222,12 +254,16 @@ fn mark_dirty_on_discard(
     metadata.bypass_change_detection().dirty = true;
 }
 
-fn network_topology_is_dirty(metadata: Res<NetworkingMetadata>) -> bool {
-    metadata.dirty
+fn network_topology_is_dirty(
+    metadata: Res<NetworkingMetadata>,
+    phase: Res<P2PSessionPhase>,
+) -> bool {
+    metadata.dirty || phase.is_changed()
 }
 
 fn refresh_network_topology(
     mut metadata: ResMut<NetworkingMetadata>,
+    phase: Res<P2PSessionPhase>,
     p2p_links: Query<(Entity, &P2P, Has<Connected>)>,
     ready_clients: Query<
         (Entity, Has<P2P>, Has<HostClient>, Option<&LinkOf>),
@@ -239,44 +275,51 @@ fn refresh_network_topology(
     let malformed_host = malformed_hosts
         .iter()
         .min_by_key(|entity| entity.index_u32());
+    let roster = P2PRoster::from_links(
+        *phase,
+        p2p_links
+            .iter()
+            .map(|(entity, state, connected)| (entity, *state, connected)),
+    );
     let first_active_p2p = p2p_links
         .iter()
         .filter_map(|(entity, state, _)| (*state != P2P::Inactive).then_some(entity))
         .min_by_key(|entity| entity.index_u32());
+
+    // A connected non-P2P Client is conventional. HostClient is conventional even if it was
+    // accidentally combined with P2P on the same Link.
+    let conventional_client = ready_clients
+        .iter()
+        .filter(|(_, is_p2p, is_host, _)| !*is_p2p || *is_host)
+        .map(|(entity, _, _, _)| entity)
+        .min_by_key(|entity| entity.index_u32());
+    let server = ready_servers.iter().min_by_key(|entity| entity.index_u32());
+    let mixed_roles = if let Some(p2p) = first_active_p2p
+        && (conventional_client.is_some() || server.is_some())
+    {
+        Some(NetworkTopologyError::MixedP2PAndConventional {
+            p2p,
+            conventional_client,
+            server,
+        })
+    } else {
+        None
+    };
+
     let next = if let Some(client) = malformed_host {
         NetworkTopology::Invalid(NetworkTopologyError::HostClientWithoutClient { client })
-    } else if let Some(p2p) = first_active_p2p {
-        // A connected non-P2P Client is conventional. HostClient is conventional even if it was
-        // accidentally combined with P2P on the same Link.
-        let conventional_client = ready_clients
-            .iter()
-            .filter(|(_, is_p2p, is_host, _)| !*is_p2p || *is_host)
-            .map(|(entity, _, _, _)| entity)
-            .min_by_key(|entity| entity.index_u32());
-        let server = ready_servers.iter().min_by_key(|entity| entity.index_u32());
-        if conventional_client.is_some() || server.is_some() {
-            NetworkTopology::Invalid(NetworkTopologyError::MixedP2PAndConventional {
-                p2p,
-                conventional_client,
-                server,
-            })
-        } else {
-            let has_candidates = p2p_links
-                .iter()
-                .any(|(_, state, _)| *state == P2P::Candidate);
-            let mut joined = SmallVec::<[Entity; 4]>::new();
-            for (entity, state, connected) in &p2p_links {
-                if *state == P2P::Joined && connected {
-                    joined.push(entity);
-                }
-            }
-            joined.sort_unstable_by_key(|entity| entity.index_u32());
-            if has_candidates || joined.is_empty() {
-                NetworkTopology::Undefined
-            } else {
-                NetworkTopology::P2P(joined)
-            }
-        }
+    } else if let Some(error) = mixed_roles {
+        NetworkTopology::Invalid(error)
+    } else if !matches!(*phase, P2PSessionPhase::Stopped) {
+        // The session owns its roster for as long as it exists, whatever its phase: a forming
+        // cohort, a peer being admitted, and a started session all need the membership exposed. It
+        // is only the started-peer predicates that are narrower. A session with no declared
+        // non-Inactive P2P Link is a solo one: the local peer plays alone and may admit a joiner
+        // later.
+        NetworkTopology::P2P(roster)
+    } else if first_active_p2p.is_some() {
+        // Link membership cannot activate a stopped session.
+        NetworkTopology::Undefined
     } else {
         let client = unique_ready_client(ready_clients.iter().filter_map(
             |(entity, is_p2p, is_host, link_of)| {
@@ -477,6 +520,8 @@ mod tests {
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
+        // Declared but no session yet: there is no ready topology, which is what keeps gameplay
+        // dormant until the barrier completes.
         app.world_mut().entity_mut(first).insert(P2P::Candidate);
         app.world_mut().entity_mut(second).insert(P2P::Candidate);
         app.update();
@@ -489,6 +534,8 @@ mod tests {
         assert_eq!(mode(&app), &NetworkTopology::Undefined);
         assert!(!mode(&app).is_p2p());
 
+        // The barrier crosses its agreed tick.
+        app.insert_resource(P2PSessionPhase::Active);
         app.world_mut().entity_mut(second).insert(P2P::Joined);
         app.world_mut()
             .entity_mut(first)
@@ -497,34 +544,113 @@ mod tests {
             .entity_mut(second)
             .insert((RemoteId(PeerId::Local(2)), Connected));
         app.update();
-        assert_eq!(
-            mode(&app),
-            &NetworkTopology::P2P(SmallVec::from_slice(&[first, second]))
-        );
+        assert_started_roster(&app, &[first, second]);
         assert!(mode(&app).is_p2p());
 
         app.world_mut().entity_mut(second).insert(Disconnected {
             reason: DisconnectedReason::UserRequested(Some("test".into())),
         });
         app.update();
-        assert_eq!(
-            mode(&app),
-            &NetworkTopology::P2P(SmallVec::from_slice(&[first]))
-        );
+        assert_started_roster(&app, &[first]);
 
         app.world_mut().despawn(second);
         app.update();
-        assert_eq!(
-            mode(&app),
-            &NetworkTopology::P2P(SmallVec::from_slice(&[first]))
-        );
+        assert_started_roster(&app, &[first]);
 
         app.world_mut().entity_mut(first).insert(Disconnected {
             reason: DisconnectedReason::UserRequested(Some("test".into())),
         });
         app.update();
-        assert_eq!(mode(&app), &NetworkTopology::Undefined);
+        // The session itself is still started, so the local peer keeps playing with an empty
+        // roster rather than losing its topology. Removing a peer from the *session* is separate
+        // work; disconnecting a Link only removes it from the roster.
+        assert_started_roster(&app, &[]);
+        assert!(mode(&app).is_p2p());
         assert_eq!(app.world().entity(first).get::<P2P>(), Some(&P2P::Joined));
+    }
+
+    #[test]
+    fn a_started_peer_keeps_its_started_roster_while_a_peer_is_joining() {
+        let mut app = test_app();
+        let joined = app
+            .world_mut()
+            .spawn((P2P::Joined, RemoteId(PeerId::Local(1)), Connected))
+            .id();
+        let joining = app
+            .world_mut()
+            .spawn((P2P::Candidate, RemoteId(PeerId::Local(2)), Connected))
+            .id();
+        app.insert_resource(P2PSessionPhase::Active);
+
+        app.update();
+
+        // The peer that is not playing yet is not part of the deterministic world, so the ready
+        // roster is the started set. Reporting `Undefined` here would switch off input routing for
+        // the started peer.
+        assert_started_roster(&app, &[joined]);
+        assert!(mode(&app).is_p2p());
+        assert!(app.world().entity(joining).contains::<P2P>());
+
+        // Leaving the session returns the application to the barrier rule.
+        app.insert_resource(P2PSessionPhase::Stopped);
+        app.update();
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
+
+        // Removing the candidate must not reactivate a stopped session through its Joined link.
+        app.world_mut().despawn(joining);
+        app.update();
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
+    }
+
+    #[test]
+    fn a_solo_session_reports_an_empty_p2p_roster() {
+        let mut app = test_app();
+        app.insert_resource(P2PSessionPhase::Active);
+
+        app.update();
+
+        // A solo peer must still have a ready P2P topology: `Undefined` would leave it with no
+        // input route, so it could not capture or apply its own input.
+        assert_started_roster(&app, &[]);
+        assert!(mode(&app).is_p2p());
+    }
+
+    #[test]
+    fn a_forming_cohort_exposes_its_roster_without_starting_gameplay() {
+        let mut app = test_app();
+        let candidate = app
+            .world_mut()
+            .spawn((P2P::Candidate, RemoteId(PeerId::Local(1)), Connected))
+            .id();
+        app.insert_resource(P2PSessionPhase::Starting);
+
+        app.update();
+
+        // The roster is exposed so that synchronization can follow the cohort, but this is not yet
+        // a started peer: gameplay machinery must stay dormant.
+        let roster = mode(&app)
+            .p2p_roster()
+            .expect("a forming cohort exposes its membership");
+        assert_eq!(roster.phase, P2PSessionPhase::Starting);
+        assert_eq!(roster.declared_candidates().as_slice(), &[candidate]);
+        assert!(roster.started.is_empty());
+        assert!(!mode(&app).is_p2p());
+        assert!(mode(&app).started_p2p_roster().is_none());
+
+        // The barrier becomes a started peer once it crosses its agreed tick.
+        app.insert_resource(P2PSessionPhase::Active);
+        app.world_mut().entity_mut(candidate).insert(P2P::Joined);
+        app.update();
+        assert_started_roster(&app, &[candidate]);
+        assert!(mode(&app).is_p2p());
+    }
+
+    /// Assert that this application is a started peer whose roster is exactly `links`.
+    fn assert_started_roster(app: &App, links: &[Entity]) {
+        let roster = mode(app)
+            .started_p2p_roster()
+            .expect("a started session exposes its roster");
+        assert_eq!(roster.started.as_slice(), links);
     }
 
     #[test]

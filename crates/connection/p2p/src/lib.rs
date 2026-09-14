@@ -22,6 +22,7 @@ pub use session::*;
 /// Commonly used P2P session types.
 pub mod prelude {
     pub use crate::{
-        P2PSession, P2PSessionPlugin, P2PSessionState, P2PStart, P2PStarted, P2PStop, P2PStopped,
+        P2PChannel, P2PSession, P2PSessionPlugin, P2PSessionState, P2PStart, P2PStarted, P2PStop,
+        P2PStopped,
     };
 }
