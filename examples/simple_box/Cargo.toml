@@ -45,6 +45,7 @@ lightyear_deterministic_replication.workspace = true
 lightyear_examples_common = { workspace = true, features = [
   "structured-debug",
 ] }
+seahash.workspace = true
 serde.workspace = true
 bevy.workspace = true
 

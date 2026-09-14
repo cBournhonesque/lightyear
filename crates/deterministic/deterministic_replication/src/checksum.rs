@@ -302,8 +302,13 @@ impl ChecksumSendPlugin {
     }
 }
 
+/// Hash the deterministic world as it stands at `tick`, reading each component from its prediction
+/// history.
+///
+/// The read is non-destructive, so this can be called for a tick in the past as often as needed —
+/// which is what lets a peer check its state against another peer's for a tick they both remember.
 #[cfg(feature = "client")]
-fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick) -> u64 {
+pub(crate) fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick) -> u64 {
     let mut checksum = 0u64;
     // SAFETY: world.update_archetypes() has been called
     unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
@@ -348,6 +353,117 @@ fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick)
         });
     });
     checksum
+}
+
+/// What a checksum was computed from, per component.
+///
+/// Two peers can only agree on a checksum if they hash the same set of values. A single checksum
+/// cannot say which of the two is missing an entry, or which component differs, so this reports the
+/// contributors: the number of values hashed for each component, and their combined hash.
+#[cfg(feature = "client")]
+#[derive(Debug, Default)]
+pub(crate) struct ChecksumCoverage {
+    /// Per component: how many values were hashed, and the XOR of their hashes.
+    pub(crate) per_component: alloc::vec::Vec<(bevy_ecs::component::ComponentId, usize, u64)>,
+    /// Total values hashed.
+    pub(crate) entries: usize,
+    /// Entities visited, whether or not they contributed.
+    pub(crate) entities: usize,
+    /// Each value hashed, with the entity and component it came from.
+    ///
+    /// Aggregates cannot say *which* entity or component disagrees, and "the checksum differs" is
+    /// not actionable on its own.
+    pub(crate) values: alloc::vec::Vec<(
+        bevy_ecs::entity::Entity,
+        bevy_ecs::component::ComponentId,
+        u64,
+    )>,
+}
+
+#[cfg(feature = "client")]
+impl ChecksumCoverage {
+    /// A stable summary for logging: each component with how many values it contributed, sorted so
+    /// two peers' reports can be compared line by line.
+    pub(crate) fn summary(
+        &self,
+    ) -> alloc::vec::Vec<(bevy_ecs::component::ComponentId, usize, u64)> {
+        let mut summary = self.per_component.clone();
+        summary.sort_unstable_by_key(|(component_id, _, _)| *component_id);
+        summary
+    }
+
+    /// The per-entity values, sorted so two peers' reports line up.
+    pub(crate) fn values(&self) -> alloc::vec::Vec<alloc::string::String> {
+        let mut values: alloc::vec::Vec<alloc::string::String> = self
+            .values
+            .iter()
+            .map(|(entity, component_id, value)| {
+                alloc::format!("{entity:?}/{component_id:?}={value:016x}")
+            })
+            .collect();
+        values.sort_unstable();
+        values
+    }
+}
+
+/// Hash the world as [`compute_history_checksum`] does, also reporting what it hashed.
+#[cfg(feature = "client")]
+pub(crate) fn compute_history_checksum_with_coverage(
+    world: &mut ChecksumWorld<'_, '_, true>,
+    tick: Tick,
+) -> (u64, ChecksumCoverage) {
+    let mut checksum = 0u64;
+    let mut coverage = ChecksumCoverage::default();
+    // SAFETY: world.update_archetypes() has been called
+    unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
+        archetype.entities().iter().for_each(|entity| {
+            coverage.entities += 1;
+            checksum_archetype
+                .components
+                .iter()
+                .for_each(|(component_id, storage_type)| {
+                    // SAFETY: the archetype records that this entity has this component.
+                    let history_ptr = unsafe {
+                        lightyear_utils::ecs::get_component_unchecked_mut(
+                            world.world,
+                            entity,
+                            archetype.table_id(),
+                            *storage_type,
+                            *component_id,
+                        )
+                    };
+                    let (hash_fn, pop_until_tick_and_hash_fn) = world
+                        .state
+                        .hash_fns
+                        .get(component_id)
+                        .expect("Component in checksum archetype must have a hash function");
+                    let mut hasher = seahash::SeaHasher::default();
+                    if pop_until_tick_and_hash_fn.unwrap()(
+                        history_ptr,
+                        tick,
+                        &mut hasher,
+                        hash_fn.inner,
+                    ) {
+                        let value = hasher.finish();
+                        checksum ^= value;
+                        coverage.entries += 1;
+                        coverage.values.push((entity.id(), *component_id, value));
+                        match coverage
+                            .per_component
+                            .iter_mut()
+                            .find(|(id, _, _)| id == component_id)
+                        {
+                            Some((_, count, xor)) => {
+                                *count += 1;
+                                *xor ^= value;
+                            }
+                            None => coverage.per_component.push((*component_id, 1, value)),
+                        }
+                    }
+                });
+        });
+    });
+    (checksum, coverage)
 }
 
 #[derive(Serialize, Deserialize)]

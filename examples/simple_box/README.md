@@ -33,6 +33,17 @@ are created at `Startup`. The peers wait until those Links and the input timelin
 acknowledge a shared future start tick. The normal client/server and host-client modes remain
 available in the same example.
 
+For sequential joins, build the P2P binary once and set `LIGHTYEAR_P2P_START_PEERS=2` on every
+process. Use `--player-count 4`, start peers 0 and 1, then start peer 2 with `LIGHTYEAR_P2P_JOIN=0`.
+After peer 2 activates, start peer 3 with `LIGHTYEAR_P2P_JOIN=2`; peer 2 supplies its retained input
+archive. Set `LIGHTYEAR_SIMPLE_BOX_AUTOMOVE=random:1` (a different seed per peer) and
+`LIGHTYEAR_SIMPLE_BOX_RANDOM_INTERVAL_TICKS=1` to exercise continuously changing inputs.
+
+Applications select a founding roster with `P2PStart { cohort: NetworkTarget::Only(peers) }`;
+`P2PStart::default()` selects all declared inactive Links. A running session admits a newcomer
+through `P2PJoinRequested` and an application-triggered `P2PJoinAdmission` reply. Once catch-up
+finishes, all peers agree one future activation tick; create the new player on `P2PJoined`.
+
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
 
