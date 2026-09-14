@@ -14,6 +14,9 @@ pub mod client;
 #[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
 /// WebTransport endpoint transport integration.
 pub mod endpoint;
+#[cfg(all(feature = "lobby", not(target_family = "wasm")))]
+/// Peer discovery over WebTransport.
+pub mod lobby;
 
 use alloc::string::String;
 

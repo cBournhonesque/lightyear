@@ -24,3 +24,6 @@ mod host_server;
 
 #[cfg(test)]
 mod multi_server;
+
+#[cfg(all(test, feature = "p2p"))]
+mod p2p;

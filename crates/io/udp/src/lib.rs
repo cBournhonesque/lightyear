@@ -29,6 +29,14 @@ use lightyear_link::{
 use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
+/// Peer-discovery glue for [`lightyear_p2p::Lobby`].
+///
+/// This module is available with the `lobby` feature. It turns a
+/// [`DialPeer`](lightyear_p2p::DialPeer) into a UDP Link through a peer endpoint, so that a peer's
+/// address is its identity.
+#[cfg(feature = "lobby")]
+pub mod lobby;
+
 /// UDP endpoint: one socket per peer, fanning out to one link per remote address.
 ///
 /// This module is available with the `p2p` or `server` feature.

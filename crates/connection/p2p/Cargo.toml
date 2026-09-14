@@ -26,6 +26,8 @@ lightyear_serde.workspace = true
 lightyear_sync = { workspace = true, features = ["client"] }
 lightyear_transport = { workspace = true, features = ["client"] }
 
+bytes.workspace = true
+
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_time.workspace = true

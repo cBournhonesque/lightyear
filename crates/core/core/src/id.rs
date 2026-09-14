@@ -35,7 +35,15 @@ impl Display for RemoteId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+/// A stable identity for a peer on a Link.
+///
+/// The derived order is what P2P code uses to turn a set of peers into a deterministic roster:
+/// every peer sorts the same way, so slot assignment needs no coordination between peers. Variants
+/// are ordered before payloads, which is fine for any single-transport roster; mixing transports in
+/// one roster would sort by transport first.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Reflect,
+)]
 pub enum PeerId {
     Entity(u64),
     /// A raw connection where the IO Link is used to associate a long-term id.

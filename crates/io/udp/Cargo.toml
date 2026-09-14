@@ -15,11 +15,19 @@ p2p = ["bevy_platform"]
 server = ["bevy_platform"]
 metrics = ["dep:metrics"]
 test_utils = []
+## Peer discovery over UDP: a peer endpoint that a `lightyear_p2p::Lobby` dials through. Optional so
+## that an application using the transport without peer discovery pays nothing for it.
+## Uses the peer endpoint without enabling the authoritative server role.
+lobby = ["p2p", "dep:lightyear_p2p", "dep:lightyear_connection"]
 
 [dependencies]
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_utils.workspace = true
+lightyear_p2p = { workspace = true, optional = true, features = ["std"] }
+lightyear_connection = { workspace = true, optional = true, features = [
+  "client",
+] }
 
 aeronet_io.workspace = true
 

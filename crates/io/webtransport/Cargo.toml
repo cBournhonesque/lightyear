@@ -37,11 +37,21 @@ self-signed = ["aeronet_webtransport/self-signed"]
 ## You should not use dangerous configurations in production builds of your app.
 dangerous-configuration = ["aeronet_webtransport/dangerous-configuration"]
 
+## Peer discovery over WebTransport: dials peers a `lightyear_p2p::Lobby` discovers, publishing this
+## endpoint's certificate hash so they can authenticate it, and annotates the sessions they open
+## towards us. Needs both halves of the transport, since one peer dials and the other accepts.
+lobby = ["client", "p2p", "dep:lightyear_p2p", "dep:lightyear_connection"]
+
 [dependencies]
 aeronet_webtransport.workspace = true
 aeronet_io.workspace = true
 lightyear_link.workspace = true
+lightyear_core.workspace = true
 lightyear_aeronet.workspace = true
+lightyear_p2p = { workspace = true, optional = true, features = ["std"] }
+lightyear_connection = { workspace = true, optional = true, features = [
+  "client",
+] }
 
 tracing.workspace = true
 
