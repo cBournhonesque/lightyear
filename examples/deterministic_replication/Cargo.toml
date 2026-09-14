@@ -21,7 +21,18 @@ p2p = [
   "udp",
   "lightyear/deterministic",
   "lightyear/p2p",
+  "lightyear_deterministic_replication/p2p",
   "lightyear_examples_common/p2p",
+]
+# Replication-based catch-up: an existing peer serves a state snapshot to a newcomer instead of
+# the newcomer replaying the session's inputs. Sending replicated state from a peer needs the
+# Replicon server backend, which is why this is not part of `p2p`.
+p2p-replication-catchup = [
+  "p2p",
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_deterministic_replication/replication",
+  "lightyear_deterministic_replication/server",
 ]
 webtransport = ["lightyear_examples_common/webtransport"]
 udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
