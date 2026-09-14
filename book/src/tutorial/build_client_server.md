@@ -90,15 +90,16 @@ Finally we trigger the [`Connect`] trigger to start the connection process.
 ## Server
 
 Similarly, a server is an entity to which the [`Server`] marker component is added.
-The [`Server`] component is a `RelationshipTarget`. Everytime a new io link is established with a remote peer,
-a new entity will be spawned with the [`LinkOf`] component that will mark that [`Link`] as being a child of the [`Server`].
+Everytime a new io link is established with a remote peer,
+a new entity will be spawned with the [`LinkOf`] component that will mark that [`Link`] as being a child of the endpoint owned by the [`Server`].
 
 ```rust,ignore
 let server = commands
     .spawn((
         NetcodeServer::new(NetcodeConfig::default()),
         LocalAddr(SERVER_ADDR),
-        ServerUdpIo,
+        UdpEndpoint::default(),
+        Server,
     ))
     .id();
 commands.trigger_targets(Start, server);
@@ -109,7 +110,8 @@ By default, it uses the server entity's [`LocalAddr`] to validate the private ad
 incoming connection tokens. The transport updates [`LocalAddr`] after binding, so this also picks
 up an OS-assigned port when binding to port `0`.
 We also need to specify the [`LocalAddr`] component to define the local address of the server.
-The IO layer we choose is UDP, so we add the [`ServerUdpIo`] component to the entity.
+The IO layer we choose is UDP, so we add the [`UdpEndpoint`] component to the entity, alongside the
+[`Server`] role marker that identifies it as an authoritative server rather than a P2P peer endpoint.
 
 For local development, wildcard and loopback addresses of the same family and port are considered
 equivalent, such as `0.0.0.0:5000` and `127.0.0.1:5000`. Address checking can be disabled for an
