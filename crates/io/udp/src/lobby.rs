@@ -118,14 +118,15 @@ fn on_peer_link_added(
         remote = %peer_addr.0,
         "lobby endpoint spawned a peer link"
     );
+    // One bundle, with `RemoteId` before `Connected`: `Connected`'s hook reads the remote id,
+    // and component hooks run in bundle order.
     commands.entity(entity).insert((
         P2P::default(),
         LocalId(PeerId::Raw(local_addr.0)),
         RemoteId(PeerId::Raw(peer_addr.0)),
+        Client,
+        Connected,
     ));
-    // Separate from the identity above: `Connected` requires a `RemoteId`, and commands run in the
-    // order they are queued.
-    commands.entity(entity).insert((Client, Connected));
 }
 
 /// Opens a Link to the peer the lobby asked for.
