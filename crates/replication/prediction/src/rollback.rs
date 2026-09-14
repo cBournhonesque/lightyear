@@ -61,7 +61,7 @@ use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 #[cfg(feature = "p2p")]
-use lightyear_p2p::prelude::{P2PStarted, P2PStopped};
+use lightyear_p2p::prelude::{P2PJoinCatchUpComplete, P2PStarted, P2PStopped};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::prelude::{ConfirmHistory, PreSpawned};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
@@ -134,6 +134,7 @@ impl Plugin for RollbackPlugin {
         #[cfg(feature = "p2p")]
         {
             app.add_observer(set_p2p_input_rollback_floor);
+            app.add_observer(set_p2p_join_input_rollback_floor);
             app.add_observer(clear_p2p_input_rollback_floor);
         }
 
@@ -201,6 +202,22 @@ fn set_p2p_input_rollback_floor(
         return;
     };
     prediction_manager.input_rollback_floor = Some(trigger.start_tick - 1);
+}
+
+#[cfg(feature = "p2p")]
+/// Bound input rollback on the peer that joined a session that was already running.
+///
+/// Use the history start reported by catch-up, not its completion or activation tick.
+/// Input corrections must remain able to rewind through the history produced during catch-up.
+/// This event is local to the newcomer; existing peers retain their continuous history.
+fn set_p2p_join_input_rollback_floor(
+    trigger: On<P2PJoinCatchUpComplete>,
+    prediction_manager: Option<ResMut<PredictionManager>>,
+) {
+    let Some(mut prediction_manager) = prediction_manager else {
+        return;
+    };
+    prediction_manager.input_rollback_floor = Some(trigger.history_start_tick);
 }
 
 #[cfg(feature = "p2p")]
@@ -1562,50 +1579,84 @@ mod tests {
     }
 
     #[cfg(feature = "p2p")]
+    fn input_rollback_test_app(tick: i32) -> App {
+        use crate::plugin::PredictionPlugin;
+        use lightyear_sync::prelude::LocalTimelineSync;
+
+        let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
+        app.insert_resource(PredictionManager::default());
+        app.init_resource::<LocalTimeline>();
+        app.init_resource::<InputTimelineConfig>();
+        let mut sync = LocalTimelineSync::default();
+        sync.set_synced(true);
+        app.insert_resource(sync);
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(tick);
+        app
+    }
+
+    #[cfg(feature = "p2p")]
+    fn check_input_mismatch(app: &mut App, input_tick: Tick) -> Option<Tick> {
+        app.world_mut().remove_resource::<Rollback>();
+        let manager = app.world().resource::<PredictionManager>();
+        manager.set_non_rollback();
+        manager
+            .earliest_mismatch_input
+            .tick
+            .0
+            .store(input_tick.0, bevy_platform::sync::atomic::Ordering::Relaxed);
+        manager
+            .earliest_mismatch_input
+            .has_mismatches
+            .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+        app.world_mut().run_system_once(check_rollback).unwrap();
+        app.world()
+            .resource::<PredictionManager>()
+            .get_rollback_start_tick()
+    }
+
+    #[cfg(feature = "p2p")]
+    #[test]
+    fn join_catch_up_bounds_input_rollback_at_the_oldest_restorable_tick() {
+        let mut app = input_rollback_test_app(230);
+
+        // Existing peers have continuous history and never receive local catch-up completion.
+        assert_eq!(check_input_mismatch(&mut app, Tick(220)), Some(Tick(219)));
+
+        app.world_mut().trigger(P2PJoinCatchUpComplete {
+            caught_up_tick: Tick(225),
+            history_start_tick: Tick(220),
+        });
+
+        // Input T restores T - 1: reject just before the snapshot, accept the exact boundary,
+        // and preserve corrections within catch-up rather than clamping to its completion.
+        assert_eq!(check_input_mismatch(&mut app, Tick(220)), None);
+        assert!(!app.world().contains_resource::<Rollback>());
+        assert_eq!(check_input_mismatch(&mut app, Tick(221)), Some(Tick(220)));
+        assert_eq!(check_input_mismatch(&mut app, Tick(225)), Some(Tick(224)));
+    }
+
+    #[cfg(feature = "p2p")]
     #[test]
     fn p2p_session_lifecycle_updates_input_rollback_floor() {
-        let mut app = App::new();
-        app.insert_resource(PredictionManager::default());
-        app.add_observer(set_p2p_input_rollback_floor);
-        app.add_observer(clear_p2p_input_rollback_floor);
-
+        let mut app = input_rollback_test_app(12);
         app.world_mut().trigger(P2PStarted {
             start_tick: Tick(10),
         });
-        assert_eq!(
-            app.world()
-                .resource::<PredictionManager>()
-                .input_rollback_floor,
-            Some(Tick(9))
-        );
-        assert!(
-            !app.world()
-                .resource::<PredictionManager>()
-                .input_rollback_is_allowed(Tick(8))
-        );
-        assert!(
-            app.world()
-                .resource::<PredictionManager>()
-                .input_rollback_is_allowed(Tick(9))
-        );
-        assert!(
-            app.world()
-                .resource::<PredictionManager>()
-                .input_rollback_is_allowed(Tick(11))
-        );
+
+        assert_eq!(check_input_mismatch(&mut app, Tick(9)), None);
+        assert_eq!(check_input_mismatch(&mut app, Tick(10)), Some(Tick(9)));
 
         app.world_mut().trigger(P2PStopped);
-        assert_eq!(
-            app.world()
-                .resource::<PredictionManager>()
-                .input_rollback_floor,
-            None
-        );
-        assert!(
-            app.world()
-                .resource::<PredictionManager>()
-                .input_rollback_is_allowed(Tick(9))
-        );
+        assert_eq!(check_input_mismatch(&mut app, Tick(9)), Some(Tick(8)));
+
+        app.world_mut().trigger(P2PStarted {
+            start_tick: Tick(12),
+        });
+        assert_eq!(check_input_mismatch(&mut app, Tick(10)), None);
+        assert_eq!(check_input_mismatch(&mut app, Tick(12)), Some(Tick(11)));
     }
 
     /// Test that rollback does not remove a predicted component

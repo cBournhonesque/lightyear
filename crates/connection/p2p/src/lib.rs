@@ -15,14 +15,18 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod join;
 mod session;
 
+pub use join::*;
 pub use session::*;
 
 /// Commonly used P2P session types.
 pub mod prelude {
     pub use crate::{
-        P2PChannel, P2PSession, P2PSessionPlugin, P2PSessionState, P2PStart, P2PStarted, P2PStop,
-        P2PStopped,
+        JoinRejectReason, P2PChannel, P2PJoin, P2PJoinAccepted, P2PJoinAdmission, P2PJoinCancel,
+        P2PJoinCatchUp, P2PJoinCatchUpComplete, P2PJoinPlugin, P2PJoinRejected, P2PJoinRequested,
+        P2PJoinState, P2PJoined, P2PSession, P2PSessionPlugin, P2PSessionState, P2PStart,
+        P2PStarted, P2PStop, P2PStopped,
     };
 }
