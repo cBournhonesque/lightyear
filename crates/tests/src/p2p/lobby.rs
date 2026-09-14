@@ -9,230 +9,20 @@
 //! tests that matter most here are the ones where a peer is reached without the application ever
 //! being told where it is.
 
-use crate::protocol::ProtocolPlugin;
-
-use core::net::{Ipv4Addr, SocketAddr};
-use core::sync::atomic::{AtomicU16, Ordering};
-use core::time::Duration;
-
-use bevy::MinimalPlugins;
-use bevy::log::LogPlugin;
-use bevy::platform::time::Instant;
-use bevy::prelude::*;
-use bevy::state::app::StatesPlugin;
-use bevy::time::TimeUpdateStrategy;
-use lightyear::p2p::{Lobby, LobbyId, LobbyIdPolicy, LobbyPlugin};
+use super::stepper::{Stepper, TestTransport, lobby_id, next_base_port, peer_id};
+use lightyear::p2p::{LobbyId, LobbyIdPolicy};
 use lightyear::prelude::*;
-use lightyear_udp::endpoint::UdpEndpoint;
-use lightyear_udp::lobby::UdpLobbyPlugin;
-use std::thread;
 use test_log::test;
-
-const TICK_DURATION: Duration = Duration::from_millis(10);
-/// Steps allowed for endpoints to bind, peers to discover each other and a session to start.
-///
-/// Each step sleeps [`TICK_DURATION`], so this is a wall-clock budget of about 18 seconds. Real UDP
-/// sockets need real time, and the budget is generous because a starved machine should slow these
-/// tests down rather than fail them.
-const IO_ATTEMPTS: usize = 1800;
-
-/// Hands each test its own port range so parallel tests cannot collide.
-fn next_base_port() -> u16 {
-    static NEXT: AtomicU16 = AtomicU16::new(0);
-    // Stay away from the ephemeral range and from the examples' default (6000).
-    20_000 + NEXT.fetch_add(100, Ordering::Relaxed)
-}
-
-/// The single address a peer is reachable at, which is also its identity.
-fn peer_addr(base_port: u16, slot: u8) -> SocketAddr {
-    SocketAddr::new(
-        Ipv4Addr::LOCALHOST.into(),
-        base_port
-            .checked_add(u16::from(slot))
-            .expect("base port plus slot must fit in u16"),
-    )
-}
-
-fn peer_id(base_port: u16, slot: u8) -> PeerId {
-    PeerId::Raw(peer_addr(base_port, slot))
-}
-
-fn lobby_id() -> LobbyId {
-    LobbyId::from_bytes([7; 32])
-}
 
 fn other_lobby_id() -> LobbyId {
     LobbyId::from_bytes([9; 32])
-}
-
-struct LobbyPeer {
-    app: App,
-    slot: u8,
-    base_port: u16,
-}
-
-impl LobbyPeer {
-    fn new(slot: u8, base_port: u16, policy: LobbyIdPolicy) -> Self {
-        let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins,
-            TransformPlugin,
-            StatesPlugin,
-            LogPlugin::default(),
-        ));
-        app.add_plugins(client::ClientPlugins {
-            tick_duration: TICK_DURATION,
-        });
-        // The shared test protocol registers inputs, which is what creates the resources the
-        // prediction plugin expects. Without it the app panics on a missing `LastConfirmedInput`,
-        // which has nothing to do with the lobby.
-        app.add_plugins(ProtocolPlugin {
-            avian_mode: Default::default(),
-        });
-        app.add_plugins(LobbyPlugin::new(policy));
-        app.add_plugins(UdpLobbyPlugin);
-
-        // The whole application-supplied configuration for reaching other peers: this peer's own
-        // socket. Binding port 0 would also do; the endpoint reports the address it got.
-        app.world_mut().spawn((
-            UdpEndpoint::default(),
-            LocalAddr(peer_addr(base_port, slot)),
-        ));
-
-        app.finish();
-        app.cleanup();
-        // Bind the socket now so a peer that dials this one in an earlier frame cannot lose the
-        // datagram to an unbound address.
-        app.world_mut().flush();
-
-        Self {
-            app,
-            slot,
-            base_port,
-        }
-    }
-
-    fn lobby(&self) -> &Lobby {
-        self.app.world().resource::<Lobby>()
-    }
-
-    /// Whether this peer has started a deterministic P2P session.
-    fn in_session(&self) -> bool {
-        self.app
-            .world()
-            .resource::<NetworkingMetadata>()
-            .mode
-            .is_p2p()
-    }
-
-    /// How many Links this peer currently has up.
-    fn connected_links(&mut self) -> usize {
-        self.app
-            .world_mut()
-            .query_filtered::<Entity, (With<P2P>, With<Connected>)>()
-            .iter(self.app.world())
-            .count()
-    }
-
-    /// Re-arms every peer this peer wanted but could not reach.
-    fn retry_failed(&mut self) -> usize {
-        self.app.world_mut().resource_mut::<Lobby>().retry_failed()
-    }
-}
-
-struct Stepper {
-    peers: Vec<LobbyPeer>,
-    now: Instant,
-}
-
-impl Stepper {
-    fn new(base_port: u16, policies: impl IntoIterator<Item = LobbyIdPolicy>) -> Self {
-        Self {
-            peers: policies
-                .into_iter()
-                .enumerate()
-                .map(|(slot, policy)| LobbyPeer::new(slot as u8, base_port, policy))
-                .collect(),
-            now: Instant::now(),
-        }
-    }
-
-    /// Starts a peer while the others are already running, as a late arrival would.
-    fn add_peer(&mut self, slot: u8, base_port: u16, policy: LobbyIdPolicy) {
-        self.peers.push(LobbyPeer::new(slot, base_port, policy));
-    }
-
-    /// Tells `slot` to dial the given peers first. Every other peer must be reached by announcement.
-    fn bootstrap(&mut self, base_port: u16, slot: u8, remotes: &[u8]) {
-        let peers: Vec<PeerId> = remotes
-            .iter()
-            .map(|remote| peer_id(base_port, *remote))
-            .collect();
-        self.peers[slot as usize]
-            .app
-            .world_mut()
-            .resource_mut::<Lobby>()
-            .add_bootstrap(peers);
-    }
-
-    fn retry_failed(&mut self, slot: u8) -> usize {
-        self.peers[slot as usize].retry_failed()
-    }
-
-    fn step(&mut self, n: usize) {
-        for _ in 0..n {
-            self.now += TICK_DURATION;
-            for peer in &mut self.peers {
-                peer.app
-                    .insert_resource(TimeUpdateStrategy::ManualInstant(self.now));
-                peer.app.update();
-            }
-            // The UDP sockets are real, so the wall clock has to move with the simulated one.
-            thread::sleep(TICK_DURATION);
-        }
-    }
-
-    fn wait_until(&mut self, mut condition: impl FnMut(&mut Self) -> bool) {
-        for _ in 0..IO_ATTEMPTS {
-            if condition(self) {
-                return;
-            }
-            self.step(1);
-        }
-        panic!("the lobby condition was not met within the attempt budget");
-    }
-
-    /// Acts as the application: once every peer sees the same complete roster, start the session.
-    ///
-    /// This is deliberately *not* the lobby's job — the lobby only discovers peers and reports
-    /// membership. The test writes the application's own readiness rule, which is the point of the
-    /// split.
-    fn start_session_when_ready(&mut self, slots: &[u8]) {
-        self.wait_until(|stepper| {
-            slots.iter().all(|slot| {
-                let lobby = stepper.peers[*slot as usize].lobby();
-                let members = lobby.members().count();
-                members + 1 == slots.len() && lobby.connected_members().count() == members
-            })
-        });
-        for slot in slots {
-            self.peers[*slot as usize].app.world_mut().trigger(P2PStart);
-        }
-    }
-
-    fn wait_for_session(&mut self, slots: &[u8]) {
-        self.wait_until(|stepper| {
-            slots
-                .iter()
-                .all(|slot| stepper.peers[*slot as usize].in_session())
-        });
-    }
 }
 
 #[test]
 fn two_peers_discover_each_other_over_udp_and_start_a_session() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
+        TestTransport::Udp,
         base_port,
         [
             LobbyIdPolicy::Pinned(Some(lobby_id())),
@@ -282,6 +72,7 @@ fn two_peers_discover_each_other_over_udp_and_start_a_session() {
 fn the_two_peers_agree_on_slots() {
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
+        TestTransport::Udp,
         base_port,
         [
             LobbyIdPolicy::Pinned(Some(lobby_id())),
@@ -317,6 +108,7 @@ fn a_third_peer_is_discovered_and_dialed_without_being_configured() {
     // and the address to dial comes from the announced `PeerId` itself.
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
+        TestTransport::Udp,
         base_port,
         [
             LobbyIdPolicy::Pinned(Some(lobby_id())),
@@ -375,6 +167,7 @@ fn a_peer_pinned_to_another_lobby_is_excluded_from_discovery() {
     // for: without it the two gatherings would merge into one peer set.
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
+        TestTransport::Udp,
         base_port,
         [
             LobbyIdPolicy::Pinned(Some(lobby_id())),
@@ -422,7 +215,11 @@ fn an_unreachable_peer_stays_unconfirmed_and_is_retried() {
     // Slot 9 is never started, so nothing is listening at its address: the dial goes out and no
     // announce ever comes back.
     let base_port = next_base_port();
-    let mut stepper = Stepper::new(base_port, [LobbyIdPolicy::Pinned(Some(lobby_id()))]);
+    let mut stepper = Stepper::new(
+        TestTransport::Udp,
+        base_port,
+        [LobbyIdPolicy::Pinned(Some(lobby_id()))],
+    );
     stepper.bootstrap(base_port, 0, &[9]);
 
     stepper.step(200);

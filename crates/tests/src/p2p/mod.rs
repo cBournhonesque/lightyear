@@ -5,6 +5,7 @@
 //! peer discovery, over the UDP IO layer.
 
 mod lobby;
+mod stepper;
 #[cfg(feature = "p2p_websocket")]
 mod websocket;
 #[cfg(feature = "p2p_webtransport")]
