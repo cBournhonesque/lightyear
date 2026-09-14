@@ -25,7 +25,7 @@ use lightyear_replication::LightyearRepliconServerBackend;
 ///
 /// By default, the following plugins will be added:
 ///   IO
-/// - [`ServerLinkPlugin`](lightyear_link::server::ServerLinkPlugin): Handles how the server reacts to links getting established/disconnected
+/// - [`EndpointLinkPlugin`](lightyear_link::endpoint::EndpointLinkPlugin): Handles how the server reacts to links getting established/disconnected
 ///   CONNECTION
 /// -
 ///   MESSAGE
@@ -51,7 +51,7 @@ impl PluginGroup for ServerPlugins {
         let builder = PluginGroupBuilder::start::<Self>();
         let builder = builder
             .add(lightyear_sync::server::ServerPlugin)
-            .add(lightyear_link::server::ServerLinkPlugin);
+            .add(lightyear_link::endpoint::EndpointLinkPlugin);
 
         let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
@@ -64,13 +64,13 @@ impl PluginGroup for ServerPlugins {
 
         // IO
         #[cfg(all(feature = "udp", not(target_family = "wasm")))]
-        let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);
+        let builder = builder.add(lightyear_udp::endpoint::UdpEndpointPlugin);
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-        let builder = builder.add(lightyear_webtransport::server::WebTransportServerPlugin);
+        let builder = builder.add(lightyear_webtransport::endpoint::WebTransportEndpointPlugin);
         #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-        let builder = builder.add(lightyear_websocket::server::WebSocketServerPlugin);
+        let builder = builder.add(lightyear_websocket::endpoint::WebSocketEndpointPlugin);
         #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-        let builder = builder.add(lightyear_steam::server::SteamServerPlugin);
+        let builder = builder.add(lightyear_steam::endpoint::SteamEndpointPlugin);
 
         // CONNECTION
         #[cfg(feature = "netcode")]

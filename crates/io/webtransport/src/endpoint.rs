@@ -1,10 +1,8 @@
-//! Server-side WebTransport transport integration.
+//! WebTransport endpoint transport integration.
 //!
-//! [`WebTransportServerIo`](crate::server::WebTransportServerIo) is inserted on a Lightyear server
-//! entity. When [`LinkStart`](lightyear_link::LinkStart) is triggered, the plugin spawns an Aeronet
-//! WebTransport server entity and relates it back to the Lightyear server. Each accepted Aeronet
-//! session receives its own child Lightyear [`Link`](lightyear_link::Link) through
-//! [`LinkOf`](lightyear_link::prelude::LinkOf).
+//! [`WebTransportEndpoint`] owns the listening socket independently of the server role.
+//! Each accepted Aeronet session receives its own Lightyear [`Link`](lightyear_link::Link)
+//! through [`LinkOf`].
 
 use crate::WebTransportError;
 use aeronet_io::Session;
@@ -16,28 +14,22 @@ use aeronet_webtransport::wtransport::Identity;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use core::time::Duration;
-use lightyear_aeronet::server::ServerAeronetPlugin;
+use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
-use lightyear_link::prelude::LinkOf;
-use lightyear_link::server::Server;
+use lightyear_link::endpoint::{Endpoint, LinkOf};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::info;
 
-/// Plugin that starts WebTransport servers and creates per-client Lightyear links.
-///
-/// The plugin installs [`AeronetPlugin`], [`ServerAeronetPlugin`], and Aeronet's WebTransport
-/// server plugin. It observes [`LinkStart`] for [`WebTransportServerIo`] entities, accepts
-/// [`SessionRequest`] by default, and observes new Aeronet sessions to create the corresponding
-/// child [`Link`] entities.
-pub struct WebTransportServerPlugin;
+/// Starts WebTransport endpoints, accepts session requests and creates per-peer Lightyear links.
+pub struct WebTransportEndpointPlugin;
 
-impl Plugin for WebTransportServerPlugin {
+impl Plugin for WebTransportEndpointPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<AeronetPlugin>() {
             app.add_plugins(AeronetPlugin);
         }
-        if !app.is_plugin_added::<ServerAeronetPlugin>() {
-            app.add_plugins(ServerAeronetPlugin);
+        if !app.is_plugin_added::<EndpointAeronetPlugin>() {
+            app.add_plugins(EndpointAeronetPlugin);
         }
         app.add_plugins(aeronet_webtransport::server::WebTransportServerPlugin);
 
@@ -47,26 +39,26 @@ impl Plugin for WebTransportServerPlugin {
     }
 }
 
-/// Lightyear component for a WebTransport server endpoint.
+/// Lightyear component for a WebTransport endpoint: one bound address that many peers connect to.
 ///
-/// Insert this on a Lightyear server entity. A [`LocalAddr`] must be present when [`LinkStart`] is
-/// triggered; the plugin opens an Aeronet [`WebTransportServer`] with
-/// [`certificate`](Self::certificate) as its TLS identity.
+/// A [`LocalAddr`] must be present when [`LinkStart`] is triggered; the plugin opens an Aeronet
+/// [`WebTransportServer`] with [`certificate`](Self::certificate) as its TLS identity.
 ///
-/// This wrapper currently accepts [`SessionRequest`] events automatically. Accepted clients are
-/// represented as child Lightyear link entities related to the server through [`LinkOf`].
+/// This wrapper accepts [`SessionRequest`] events automatically. Accepted peers are represented
+/// as Lightyear link entities related through [`LinkOf`].
+/// Add [`Server`](lightyear_link::server::Server) alongside for the authority role.
 #[derive(Debug, Component)]
-#[require(Server)]
-pub struct WebTransportServerIo {
+#[require(Endpoint)]
+pub struct WebTransportEndpoint {
     /// TLS identity used by the underlying WebTransport server.
     pub certificate: Identity,
 }
 
-impl WebTransportServerPlugin {
+impl WebTransportEndpointPlugin {
     fn link(
         trigger: On<LinkStart>,
         query: Query<
-            (Entity, &WebTransportServerIo, Option<&LocalAddr>),
+            (Entity, &WebTransportEndpoint, Option<&LocalAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
@@ -108,7 +100,7 @@ impl WebTransportServerPlugin {
             let link_entity = commands
                 .spawn((
                     LinkOf {
-                        server: server_link.0,
+                        endpoint: server_link.0,
                     },
                     Link::default(),
                     PeerAddr(peer_addr.0),
@@ -126,7 +118,8 @@ impl WebTransportServerPlugin {
 mod tests {
     use super::*;
     use core::net::{Ipv4Addr, SocketAddr};
-    use std::{thread, time::Duration};
+    use core::time::Duration;
+    use std::thread;
 
     use lightyear_aeronet::AeronetLink;
     use lightyear_link::{LinkStart, Unlink, UnlinkReason, Unlinked};
@@ -136,7 +129,7 @@ mod tests {
             .world_mut()
             .spawn((
                 LocalAddr(addr),
-                WebTransportServerIo {
+                WebTransportEndpoint {
                     certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap(),
                 },
             ))
@@ -160,7 +153,7 @@ mod tests {
     #[test]
     fn unlink_releases_server_socket_for_reuse() {
         let mut app = App::new();
-        app.add_plugins(WebTransportServerPlugin);
+        app.add_plugins(WebTransportEndpointPlugin);
 
         let server = spawn_server(&mut app, SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0));
         run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());
@@ -180,7 +173,7 @@ mod tests {
             .world_mut()
             .spawn((
                 LocalAddr(local_addr),
-                WebTransportServerIo {
+                WebTransportEndpoint {
                     certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap(),
                 },
             ))

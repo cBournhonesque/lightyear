@@ -119,7 +119,7 @@ fn test_send_message_server_to_host_client() {
     let send_message_clone = send_message.clone();
     stepper.server_app.add_systems(
         Update,
-        move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
+        move |mut sender: ServerMultiMessageSender, server: Single<&Endpoint>| {
             sender
                 .send::<_, Channel1>(
                     &send_message_clone,
@@ -173,7 +173,7 @@ fn test_send_message_server_to_single_host_client() {
     let send_message = StringMessage("Host".to_string());
     let send_message_clone = send_message.clone();
     let system_id = stepper.server_app.register_system(
-        move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
+        move |mut sender: ServerMultiMessageSender, server: Single<&Endpoint>| {
             sender
                 .send::<_, Channel1>(
                     &send_message_clone,

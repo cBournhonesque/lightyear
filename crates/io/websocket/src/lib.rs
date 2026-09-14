@@ -2,8 +2,8 @@
 //!
 //! This crate adapts `aeronet_websocket` into Lightyear's transport-neutral
 //! [`Link`](lightyear_link::Link) model through `lightyear_aeronet`. Client support is available
-//! with the `client` feature. Server support is available with the `server` feature on non-WASM
-//! targets.
+//! with the `client` feature. Accepting endpoints are available with either `p2p` or `server` on
+//! non-WASM targets; `p2p` does not enable the Lightyear server role.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate alloc;
@@ -11,9 +11,9 @@ extern crate alloc;
 #[cfg(feature = "client")]
 /// Client-side WebSocket transport integration.
 pub mod client;
-#[cfg(all(feature = "server", not(target_family = "wasm")))]
-/// Server-side WebSocket transport integration.
-pub mod server;
+#[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
+/// WebSocket endpoint transport integration.
+pub mod endpoint;
 
 use alloc::string::String;
 
@@ -27,7 +27,7 @@ pub enum WebSocketError {
     #[error("PeerAddr is required to start the WebSocketClientIo link")]
     PeerAddrMissing,
     /// A [`LocalAddr`](aeronet_io::connection::LocalAddr) component was required but missing.
-    #[error("LocalAddr is required to start the WebSocketServerIo")]
+    #[error("LocalAddr is required to start the WebSocketEndpoint")]
     LocalAddrMissing,
 }
 
@@ -45,12 +45,12 @@ pub mod prelude {
         pub use aeronet_websocket::client::ClientConfig;
     }
 
-    /// Server-side WebSocket prelude.
+    /// WebSocket endpoint prelude.
     ///
-    /// Available with the `server` feature on non-WASM targets.
-    #[cfg(all(feature = "server", not(target_family = "wasm")))]
-    pub mod server {
-        pub use crate::server::WebSocketServerIo;
+    /// Available with the `p2p` or `server` feature on non-WASM targets.
+    #[cfg(all(any(feature = "p2p", feature = "server"), not(target_family = "wasm")))]
+    pub mod endpoint {
+        pub use crate::endpoint::WebSocketEndpoint;
         pub use aeronet_websocket::server::ServerConfig;
     }
 }

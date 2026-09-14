@@ -14,7 +14,8 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::server::Stopped;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
-use lightyear_link::server::{LinkOf, Server};
+use lightyear_link::endpoint::LinkOf;
+use lightyear_link::server::Server;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::EventSender;
 use lightyear_messages::receive::MessageReceiver;
@@ -151,18 +152,18 @@ fn mark_client_caught_up_if_no_gated_on_connect(
     let Ok((client, link_of)) = clients.get(trigger.entity) else {
         return;
     };
-    let has_revealed_catchup_state = match server_states.get(link_of.server) {
+    let has_revealed_catchup_state = match server_states.get(link_of.endpoint) {
         Ok(server_state) => server_state.has_revealed_catchup_state,
         Err(_) => {
             commands
-                .entity(link_of.server)
+                .entity(link_of.endpoint)
                 .insert(CatchUpServerState::default());
             false
         }
     };
     let no_caught_up_clients = !caught_up_clients
         .iter()
-        .any(|caught_up_link| caught_up_link.server == link_of.server);
+        .any(|caught_up_link| caught_up_link.endpoint == link_of.endpoint);
     let has_any_gated = !catchup_gated.is_empty();
     let has_non_prespawn_gated = !gated_requiring_catchup.is_empty();
     if has_revealed_catchup_state && no_caught_up_clients && has_any_gated {
@@ -205,12 +206,14 @@ fn mark_server_has_revealed_catchup_state(
     let Ok(link_of) = clients.get(trigger.entity) else {
         return;
     };
-    if let Ok(mut server_state) = server_state.get_mut(link_of.server) {
+    if let Ok(mut server_state) = server_state.get_mut(link_of.endpoint) {
         server_state.has_revealed_catchup_state = true;
     } else {
-        commands.entity(link_of.server).insert(CatchUpServerState {
-            has_revealed_catchup_state: true,
-        });
+        commands
+            .entity(link_of.endpoint)
+            .insert(CatchUpServerState {
+                has_revealed_catchup_state: true,
+            });
     }
 }
 
@@ -243,14 +246,14 @@ fn reset_server_catchup_state_without_connected_clients(
     let Ok(link_of) = clients.get(trigger.entity) else {
         return;
     };
-    let Ok(mut state) = server_states.get_mut(link_of.server) else {
+    let Ok(mut state) = server_states.get_mut(link_of.endpoint) else {
         return;
     };
     if !state.has_revealed_catchup_state {
         return;
     }
     let has_connected_client = connected_clients.iter().any(|(client, connected_link)| {
-        client != trigger.entity && connected_link.server == link_of.server
+        client != trigger.entity && connected_link.endpoint == link_of.endpoint
     });
     if !has_connected_client {
         state.has_revealed_catchup_state = false;

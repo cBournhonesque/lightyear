@@ -23,7 +23,7 @@ use bytes::Bytes;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_core::tick::Tick;
 #[cfg(feature = "server")]
-use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::prelude::{Endpoint, LinkOf, Server};
 #[cfg(feature = "server")]
 use tracing::info;
 
@@ -61,7 +61,7 @@ impl HostPlugin {
         let Ok(link_of) = query.get(trigger.entity) else {
             return;
         };
-        let Ok(server_started) = server_query.get(link_of.server) else {
+        let Ok(server_started) = server_query.get(link_of.endpoint) else {
             return;
         };
         if !server_started {
@@ -82,7 +82,7 @@ impl HostPlugin {
             // that depend on HostClient
             HostClient { buffer: Vec::new() },
         ));
-        commands.entity(link_of.server).insert(HostServer {
+        commands.entity(link_of.endpoint).insert(HostServer {
             client: trigger.entity,
         });
     }
@@ -101,7 +101,7 @@ impl HostPlugin {
                 .insert(Disconnected {
                     reason: DisconnectedReason::UserRequested(None),
                 });
-            commands.entity(link_of.server).remove::<HostServer>();
+            commands.entity(link_of.endpoint).remove::<HostServer>();
         }
     }
 
@@ -115,12 +115,12 @@ impl HostPlugin {
         mut commands: Commands,
     ) {
         if let Ok(link_of) = client_query.get(trigger.entity)
-            && server_query.get(link_of.server).is_ok()
+            && server_query.get(link_of.endpoint).is_ok()
         {
             commands
                 .entity(trigger.entity)
                 .insert(HostClient { buffer: Vec::new() });
-            commands.entity(link_of.server).insert(HostServer {
+            commands.entity(link_of.endpoint).insert(HostServer {
                 client: trigger.entity,
             });
         }
@@ -129,12 +129,12 @@ impl HostPlugin {
     #[cfg(feature = "server")]
     fn check_if_host_on_server_change(
         trigger: On<Add, (Server, Started)>,
-        server_query: Query<&Server, With<Started>>,
+        endpoint_query: Query<&Endpoint, With<Started>>,
         client_query: Query<(Has<Connected>, Has<Connecting>), (With<Client>, Without<HostClient>)>,
         mut commands: Commands,
     ) {
-        if let Ok(server) = server_query.get(trigger.entity) {
-            for client in server.collection() {
+        if let Ok(endpoint) = endpoint_query.get(trigger.entity) {
+            for client in endpoint.collection() {
                 if let Ok((connected, connecting)) = client_query.get(*client) {
                     if connecting {
                         // The client may have requested a connection before the server link was
@@ -182,7 +182,10 @@ mod tests {
 
     fn spawn_host(app: &mut App) -> (Entity, Entity) {
         let server = app.world_mut().spawn(Server::default()).id();
-        let client = app.world_mut().spawn((Client, LinkOf { server })).id();
+        let client = app
+            .world_mut()
+            .spawn((Client, LinkOf { endpoint: server }))
+            .id();
         (server, client)
     }
 

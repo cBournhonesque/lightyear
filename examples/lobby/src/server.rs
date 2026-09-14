@@ -225,7 +225,7 @@ mod lobby {
     /// The game starts; if the host of the game is the dedicated server, we will spawn a cube
     /// for each player in the lobby
     pub(super) fn handle_start_game(
-        server: Single<&Server>,
+        server: Single<&Endpoint>,
         mut events: Query<(Entity, &RemoteId, &mut MessageReceiver<StartGame>), With<Connected>>,
         clients: Query<(Entity, &RemoteId), (With<Connected>, With<ClientOf>)>,
         mut multi_sender: ServerMultiMessageSender,

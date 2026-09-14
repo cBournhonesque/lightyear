@@ -264,7 +264,7 @@ fn test_send_multi_messages_with_target() {
     let client_0_id = stepper.client_of(0).get::<RemoteId>().unwrap().0;
     let system_id = stepper.server_app.register_system(
         move |mut sender: ServerMultiMessageSender,
-              server: Single<&Server>,
+              server: Single<&Endpoint>,
               mut sent_all: Local<bool>| {
             let target = if *sent_all {
                 NetworkTarget::Single(client_0_id)

@@ -516,11 +516,11 @@ pub mod prelude {
         #[cfg(feature = "raw_connection")]
         pub use lightyear_raw_connection::prelude::server::*;
         #[cfg(feature = "steam")]
-        pub use lightyear_steam::prelude::server::*;
+        pub use lightyear_steam::prelude::endpoint::*;
         #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
-        pub use lightyear_websocket::prelude::server::*;
+        pub use lightyear_websocket::prelude::endpoint::*;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-        pub use lightyear_webtransport::prelude::server::*;
+        pub use lightyear_webtransport::prelude::endpoint::*;
 
         #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]
         pub mod input {

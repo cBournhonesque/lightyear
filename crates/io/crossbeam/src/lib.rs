@@ -27,7 +27,7 @@
 //! ```ignore
 //! // Server-side mirror entity (one per connecting crossbeam client):
 //! let mirror = commands
-//!     .spawn((LinkOf { server }, Link::default(), io))
+//!     .spawn((LinkOf { endpoint: server }, Link::default(), io))
 //!     .id();
 //! commands.trigger(LinkStart { entity: mirror });
 //!
@@ -481,7 +481,7 @@ mod tests {
             .world_mut()
             .spawn((
                 LinkOf {
-                    server: server_entity,
+                    endpoint: server_entity,
                 },
                 Link::default(),
                 server_io,

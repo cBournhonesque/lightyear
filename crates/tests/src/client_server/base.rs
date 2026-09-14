@@ -2,7 +2,7 @@ use crate::protocol::StringMessage;
 use crate::stepper::*;
 use lightyear::prelude::client::*;
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-use lightyear::prelude::server::WebTransportServerIo;
+use lightyear::prelude::server::WebTransportEndpoint;
 use lightyear::prelude::*;
 use lightyear_connection::server::{Started, Stop, Stopped};
 use lightyear_crossbeam::CrossbeamIo;
@@ -87,7 +87,7 @@ fn test_setup_netcode_webtransport_client_server() {
         stepper.client(0).get::<PeerAddr>().unwrap().0,
         stepper.server_addr
     );
-    assert!(stepper.server().contains::<WebTransportServerIo>());
+    assert!(stepper.server().contains::<WebTransportEndpoint>());
     assert!(stepper.client(0).contains::<WebTransportClientIo>());
     assert!(stepper.client(0).contains::<Connected>());
     assert!(stepper.client_of(0).contains::<Connected>());

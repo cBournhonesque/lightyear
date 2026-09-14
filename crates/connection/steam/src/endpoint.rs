@@ -8,27 +8,26 @@ use alloc::{format, string::ToString};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
-use lightyear_aeronet::server::ServerAeronetPlugin;
+use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason};
 use lightyear_connection::client_of::{ClientOf, SkipNetcode};
 use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
-use lightyear_link::prelude::LinkOf;
-use lightyear_link::server::Server;
+use lightyear_link::endpoint::{Endpoint, LinkOf};
 use lightyear_link::{Link, LinkStart, Linked, Linking, UnlinkReason};
 use tracing::{info, trace};
 
-/// Enables starting a Steam server
-pub struct SteamServerPlugin;
+/// Enables starting a Steam endpoint.
+pub struct SteamEndpointPlugin;
 
-impl Plugin for SteamServerPlugin {
+impl Plugin for SteamEndpointPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<AeronetPlugin>() {
             app.add_plugins(AeronetPlugin);
         }
-        if !app.is_plugin_added::<ServerAeronetPlugin>() {
-            app.add_plugins(ServerAeronetPlugin);
+        if !app.is_plugin_added::<EndpointAeronetPlugin>() {
+            app.add_plugins(EndpointAeronetPlugin);
         }
         app.add_plugins(aeronet_steam::server::SteamNetServerPlugin);
 
@@ -43,16 +42,17 @@ impl Plugin for SteamServerPlugin {
     }
 }
 
-/// WebTransport server implementation which listens for client connections,
-/// and coordinates messaging between multiple clients.
+/// Steam endpoint: one listen target that many peers connect to.
 ///
-/// When a client attempts to connect, the server will trigger a
-/// [`SessionRequest`]. Your app **must** observe this, and use
-/// [`SessionRequest::respond`] to set how the server should respond to this
-/// connection attempt.
+/// When a peer attempts to connect, the endpoint triggers a [`SessionRequest`]. Your app **must**
+/// observe this, and use [`SessionRequest::respond`] to set how it should respond to this connection
+/// attempt.
+///
+/// This is not a server role: add [`Server`](lightyear_link::server::Server) alongside
+/// for the authority role.
 #[derive(Debug, Component)]
-#[require(Server)]
-pub struct SteamServerIo {
+#[require(Endpoint)]
+pub struct SteamEndpoint {
     pub target: ListenTarget,
     pub config: SessionConfig,
 }
@@ -63,10 +63,10 @@ pub struct SteamServerIo {
 #[require(SkipNetcode)]
 pub struct SteamClientOf;
 
-impl SteamServerPlugin {
+impl SteamEndpointPlugin {
     fn link(
         trigger: On<LinkStart>,
-        query: Query<(Entity, &SteamServerIo), (Without<Linking>, Without<Linked>)>,
+        query: Query<(Entity, &SteamEndpoint), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, io)) = query.get(trigger.entity) {
@@ -84,7 +84,7 @@ impl SteamServerPlugin {
     /// Steam is both a Link and a Connection, so we add Started when Linked is added
     fn on_linked(
         trigger: On<Add, Linked>,
-        query: Query<(), With<SteamServerIo>>,
+        query: Query<(), With<SteamEndpoint>>,
         mut commands: Commands,
     ) {
         if query.get(trigger.entity).is_ok() {
@@ -96,7 +96,7 @@ impl SteamServerPlugin {
     /// Steam is both a Link and a Connection, so on a Start trigger we will just try to LinkStart.
     fn start(
         trigger: On<Start>,
-        query: Query<(), (Without<Linking>, Without<Linked>, With<SteamServerIo>)>,
+        query: Query<(), (Without<Linking>, Without<Linked>, With<SteamEndpoint>)>,
         mut commands: Commands,
     ) {
         if query.get(trigger.entity).is_ok() {
@@ -125,7 +125,7 @@ impl SteamServerPlugin {
     //             let link_entity = commands
     //                 .spawn((
     //                     LinkOf {
-    //                         server: server_link.0,
+    //                         endpoint: server_link.0,
     //                     },
     //                     Link::default(),
     //                     ClientOf,
@@ -180,7 +180,7 @@ impl SteamServerPlugin {
             let link_entity = commands
                 .spawn((
                     LinkOf {
-                        server: server_link.0,
+                        endpoint: server_link.0,
                     },
                     Link::default(),
                     ClientOf,
@@ -237,7 +237,7 @@ impl SteamServerPlugin {
     /// This will despawn the underlying steam entity.
     fn stop(
         trigger: On<Stop>,
-        query: Query<&AeronetLink, With<SteamServerIo>>,
+        query: Query<&AeronetLink, With<SteamEndpoint>>,
         mut commands: Commands,
     ) {
         if let Ok(aeronet_link) = query.get(trigger.entity) {

@@ -44,7 +44,7 @@ fn startup(mut commands: Commands) -> Result {
             // you need to specify the address to bind the server to
             LocalAddr(SERVER_ADDR),
             // the transport that we will use is Udp
-            ServerUdpIo::default(),
+            ServerUdpIo,
         ))
         .id();
     // you can use triggers to start/stop the server

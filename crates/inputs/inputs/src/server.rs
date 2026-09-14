@@ -33,7 +33,7 @@ use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
-use lightyear_link::prelude::{LinkOf, Server};
+use lightyear_link::prelude::{Endpoint, LinkOf};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
@@ -297,7 +297,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<InputConfig<S::Action>>,
-    server: Query<&Server>,
+    server: Query<&Endpoint>,
     // make sure to only rebroadcast inputs to connected clients
     #[cfg_attr(not(feature = "prediction"), allow(unused_mut))]
     mut sender: ServerMultiMessageSender<With<Connected>>,
@@ -329,7 +329,7 @@ fn receive_input_message<S: ActionStateSequence>(
     // TODO: use par_iter_mut
     receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
 
-        let server_entity = link_of.server;
+        let server_entity = link_of.endpoint;
         let tick = timeline.tick();
         // NOTE: receive drains the messages. Users who need the messages can observe them earlier via
         // input validators, which run before this system.

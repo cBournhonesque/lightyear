@@ -14,7 +14,7 @@ use lightyear_tests::stepper::{
     ClientServerStepper, ClientType, IoType, ServerType, StepperConfig,
 };
 use lightyear_udp::UdpIo;
-use lightyear_udp::server::ServerUdpIo;
+use lightyear_udp::endpoint::UdpEndpoint;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
 #[global_allocator]
@@ -238,8 +238,8 @@ fn udp_receive_pool_misses(stepper: &ClientServerStepper) -> usize {
         .recv_buffer_pool_misses()
         + stepper
             .server()
-            .get::<ServerUdpIo>()
-            .expect("UDP server should have ServerUdpIo")
+            .get::<UdpEndpoint>()
+            .expect("UDP endpoint should exist")
             .recv_buffer_pool_misses()
 }
 

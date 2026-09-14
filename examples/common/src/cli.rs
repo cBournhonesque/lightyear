@@ -279,7 +279,7 @@ impl Cli {
 
                 let client = app
                     .world_mut()
-                    .spawn((Client, Name::new("HostClient"), LinkOf { server }))
+                    .spawn((Client, Name::new("HostClient"), LinkOf { endpoint: server }))
                     .id();
                 // Start the server before connecting the host client so connection setup sees
                 // the server entity.

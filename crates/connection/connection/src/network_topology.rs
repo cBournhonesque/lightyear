@@ -283,7 +283,7 @@ fn refresh_network_topology(
                 (!is_p2p).then_some(ReadyClient {
                     entity,
                     is_host,
-                    server: link_of.map(|link| link.server),
+                    server: link_of.map(|link| link.endpoint),
                 })
             },
         ));
@@ -449,7 +449,7 @@ mod tests {
                 Client,
                 RemoteId(PeerId::Local(0)),
                 Connected,
-                LinkOf { server },
+                LinkOf { endpoint: server },
                 HostClient { buffer: Vec::new() },
             ))
             .id();

@@ -8,15 +8,15 @@
 //! [`aeronet_io::Session`] queues and [`Link`] buffers.
 //!
 //! Concrete Aeronet-backed transports such as `lightyear_websocket` and `lightyear_webtransport`
-//! build on this crate. Server-specific lifecycle bridging lives in [`server`].
+//! build on this crate. Endpoint lifecycle bridging lives in [`endpoint`].
 #![no_std]
 
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Server-side Aeronet lifecycle bridge for Lightyear server link entities.
-pub mod server;
+/// Aeronet endpoint lifecycle bridge for Lightyear endpoint link entities.
+pub mod endpoint;
 
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
@@ -44,8 +44,8 @@ pub struct AeronetLink(#[relationship] Entity);
 /// Relationship source stored on an Aeronet session or server entity.
 ///
 /// The inner entity is the Lightyear entity that owns the corresponding [`Link`] or
-/// [`lightyear_link::server::Server`]. Concrete Aeronet transports insert this component on their
-/// Aeronet child entity after spawning it.
+/// [`lightyear_link::endpoint::Endpoint`]. Concrete Aeronet transports insert this component on
+/// their Aeronet child entity after spawning it.
 #[derive(Component, Reflect)]
 #[relationship(relationship_target = AeronetLink)]
 pub struct AeronetLinkOf(pub Entity);

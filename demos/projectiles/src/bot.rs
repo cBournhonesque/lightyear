@@ -132,7 +132,7 @@ mod embedded {
         // This is the server end of the same in-memory connection. It behaves
         // like every other ClientOf link after the netcode handshake completes.
         commands.spawn((
-            LinkOf { server: *server },
+            LinkOf { endpoint: *server },
             Link::default().with_conditioner(RecvLinkConditioner::new(conditioner)),
             Linked,
             ClientOf,

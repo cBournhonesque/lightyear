@@ -10,6 +10,8 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = []
+## Enables multi-peer endpoints without selecting a server role.
+p2p = ["bevy_platform"]
 server = ["bevy_platform"]
 metrics = ["dep:metrics"]
 test_utils = []

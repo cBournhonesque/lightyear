@@ -1,10 +1,8 @@
-//! Server-side WebSocket transport integration.
+//! WebSocket endpoint transport integration.
 //!
-//! [`WebSocketServerIo`](crate::server::WebSocketServerIo) is inserted on a Lightyear server entity.
-//! When [`LinkStart`](lightyear_link::LinkStart) is triggered, the plugin spawns an Aeronet
-//! WebSocket server entity and relates it back to the Lightyear server. Each accepted Aeronet
-//! session receives its own child Lightyear [`Link`](lightyear_link::Link) through
-//! [`LinkOf`](lightyear_link::prelude::LinkOf).
+//! [`WebSocketEndpoint`] owns the listening socket independently of the server role.
+//! Each accepted Aeronet session receives its own Lightyear [`Link`](lightyear_link::Link)
+//! through [`LinkOf`].
 
 use crate::WebSocketError;
 use aeronet_io::Session;
@@ -14,27 +12,22 @@ pub use aeronet_websocket::server::{
 };
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-use lightyear_aeronet::server::ServerAeronetPlugin;
+use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
-use lightyear_link::prelude::LinkOf;
-use lightyear_link::server::Server;
+use lightyear_link::endpoint::{Endpoint, LinkOf};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::info;
 
-/// Plugin that starts WebSocket servers and creates per-client Lightyear links.
-///
-/// The plugin installs [`AeronetPlugin`], [`ServerAeronetPlugin`], and Aeronet's WebSocket server
-/// plugin. It observes [`LinkStart`] for [`WebSocketServerIo`] entities and observes new Aeronet
-/// sessions to create the corresponding child [`Link`] entities.
-pub struct WebSocketServerPlugin;
+/// Starts WebSocket endpoints and creates per-peer Lightyear links.
+pub struct WebSocketEndpointPlugin;
 
-impl Plugin for WebSocketServerPlugin {
+impl Plugin for WebSocketEndpointPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<AeronetPlugin>() {
             app.add_plugins(AeronetPlugin);
         }
-        if !app.is_plugin_added::<ServerAeronetPlugin>() {
-            app.add_plugins(ServerAeronetPlugin);
+        if !app.is_plugin_added::<EndpointAeronetPlugin>() {
+            app.add_plugins(EndpointAeronetPlugin);
         }
         app.add_plugins(aeronet_websocket::server::WebSocketServerPlugin);
 
@@ -43,25 +36,25 @@ impl Plugin for WebSocketServerPlugin {
     }
 }
 
-/// Lightyear component for a WebSocket server endpoint.
+/// Lightyear component for a WebSocket endpoint: one bound address that many peers connect to.
 ///
-/// Insert this on a Lightyear server entity. A [`LocalAddr`] must be present when [`LinkStart`] is
-/// triggered; the plugin opens an Aeronet [`WebSocketServer`] using [`config`](Self::config).
+/// A [`LocalAddr`] must be present when [`LinkStart`] is triggered; the plugin opens an Aeronet
+/// [`WebSocketServer`] using [`config`](Self::config).
 ///
-/// Accepted clients are represented as child Lightyear link entities related to the server through
-/// [`LinkOf`].
+/// Accepted peers are represented as Lightyear link entities related through [`LinkOf`].
+/// Add [`Server`](lightyear_link::server::Server) alongside for the authority role.
 #[derive(Component)]
-#[require(Server)]
-pub struct WebSocketServerIo {
-    /// Aeronet WebSocket server configuration used when opening the server.
+#[require(Endpoint)]
+pub struct WebSocketEndpoint {
+    /// Aeronet WebSocket server configuration used when opening the socket.
     pub config: ServerConfig,
 }
 
-impl WebSocketServerPlugin {
+impl WebSocketEndpointPlugin {
     fn link(
         trigger: On<LinkStart>,
         query: Query<
-            (Entity, &WebSocketServerIo, Option<&LocalAddr>),
+            (Entity, &WebSocketEndpoint, Option<&LocalAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
@@ -92,7 +85,7 @@ impl WebSocketServerPlugin {
             let link_entity = commands
                 .spawn((
                     LinkOf {
-                        server: server_link.0,
+                        endpoint: server_link.0,
                     },
                     Link::default(),
                     PeerAddr(peer_addr.0),
@@ -109,7 +102,8 @@ impl WebSocketServerPlugin {
 mod tests {
     use super::*;
     use core::net::{Ipv4Addr, SocketAddr};
-    use std::{thread, time::Duration};
+    use core::time::Duration;
+    use std::thread;
 
     use lightyear_aeronet::AeronetLink;
     use lightyear_link::{LinkStart, Unlink, UnlinkReason, Unlinked};
@@ -125,7 +119,7 @@ mod tests {
             .world_mut()
             .spawn((
                 LocalAddr(addr),
-                WebSocketServerIo {
+                WebSocketEndpoint {
                     config: server_config(addr),
                 },
             ))
@@ -149,7 +143,7 @@ mod tests {
     #[test]
     fn unlink_releases_server_socket_for_reuse() {
         let mut app = App::new();
-        app.add_plugins(WebSocketServerPlugin);
+        app.add_plugins(WebSocketEndpointPlugin);
 
         let server = spawn_server(&mut app, SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0));
         run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());

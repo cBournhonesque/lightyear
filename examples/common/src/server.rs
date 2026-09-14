@@ -57,7 +57,7 @@ impl ExampleServer {
             let settings = entity_mut.take::<ExampleServer>().unwrap();
             entity_mut.insert((
                 Name::from("Server"),
-                Server::new(settings.conditioner.clone()),
+                Endpoint::new(settings.conditioner.clone()),
             ));
 
             let add_netcode = |entity_mut: &mut EntityWorldMut| {
@@ -79,7 +79,7 @@ impl ExampleServer {
                 ServerTransports::Udp { local_port } => {
                     add_netcode(&mut entity_mut);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
-                    entity_mut.insert((LocalAddr(server_addr), ServerUdpIo::default()));
+                    entity_mut.insert((LocalAddr(server_addr), ServerUdpIo));
                 }
                 ServerTransports::WebTransport {
                     local_port,
@@ -89,9 +89,10 @@ impl ExampleServer {
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     entity_mut.insert((
                         LocalAddr(server_addr),
-                        WebTransportServerIo {
+                        WebTransportEndpoint {
                             certificate: (&certificate).into(),
                         },
+                        Server,
                     ));
                 }
                 ServerTransports::WebSocket { local_port } => {
@@ -105,17 +106,24 @@ impl ExampleServer {
                     let config = ServerConfig::builder()
                         .with_bind_address(server_addr)
                         .with_identity(
-                            lightyear::websocket::server::Identity::self_signed(sans).unwrap(),
+                            lightyear::websocket::endpoint::Identity::self_signed(sans).unwrap(),
                         );
-                    entity_mut.insert((LocalAddr(server_addr), WebSocketServerIo { config }));
+                    entity_mut.insert((
+                        LocalAddr(server_addr),
+                        WebSocketEndpoint { config },
+                        Server,
+                    ));
                 }
                 #[cfg(feature = "steam")]
                 ServerTransports::Steam { local_port } => {
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
-                    entity_mut.insert(SteamServerIo {
-                        target: ListenTarget::Addr(server_addr),
-                        config: SessionConfig::default(),
-                    });
+                    entity_mut.insert((
+                        SteamEndpoint {
+                            target: ListenTarget::Addr(server_addr),
+                            config: SessionConfig::default(),
+                        },
+                        Server,
+                    ));
                 }
             };
             Ok(())
