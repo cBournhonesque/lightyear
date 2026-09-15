@@ -8,7 +8,7 @@ use super::{
 };
 use alloc::borrow::ToOwned;
 use alloc::format;
-use chacha20poly1305::{AeadCore, XChaCha20Poly1305, XNonce, aead::OsRng};
+use chacha20poly1305::{XNonce, aead::Generate};
 use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use lightyear_serde::reader::ReadInteger;
@@ -397,7 +397,7 @@ impl<A: utils::ToSocketAddrs> ConnectTokenBuilder<A> {
         };
         let client_to_server_key = crypto::generate_key();
         let server_to_client_key = crypto::generate_key();
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let nonce = XNonce::generate();
 
         let private_data = ConnectTokenPrivate {
             client_id: self.client_id,
@@ -531,7 +531,7 @@ mod tests {
         let private_key = crypto::generate_key();
         let protocol_id = 1;
         let expire_timestamp = 2;
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let nonce = XNonce::generate();
         let client_id = 4;
         let timeout_seconds = 5;
         let server_addresses = AddressList::new(
@@ -613,7 +613,7 @@ mod tests {
         let private_key = crypto::generate_key();
         let protocol_id = 1;
         let expire_timestamp = 2;
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let nonce = XNonce::generate();
         let client_id = 4;
         let timeout_seconds = 5;
         let server_addresses = AddressList::new(

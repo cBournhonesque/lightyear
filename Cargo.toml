@@ -154,7 +154,7 @@ serde = { version = "1", default-features = false, features = [
 serde_json = "1"
 
 # netcode
-chacha20poly1305 = { version = "0.10" }
+chacha20poly1305 = { version = "0.11" }
 
 # tracing
 test-log = { version = "0.2.17", default-features = false, features = [
@@ -178,10 +178,11 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = { version = "0.21" }
+# TODO: switch back to crates.io after https://github.com/aecsocket/aeronet/pull/107 is released.
+aeronet_webtransport = { version = "0.21", git = "https://github.com/aecsocket/aeronet", rev = "a125aa5c7730711101c495d3f56f7e478f41aadf" }
 aeronet_websocket = { version = "0.21" }
 aeronet_steam = { version = "0.21" }
-wtransport = "0.7.1"
+wtransport = "0.7.2"
 aeronet_io = { version = "0.21" }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
@@ -253,18 +254,19 @@ arrayvec = { version = "0.7", features = ["serde"] }
 bevy_transform_interpolation = { version = "0.5", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.37", default-features = false, features = [
+# TODO: switch back to crates.io after https://github.com/jakobhellermann/bevy-inspector-egui/pull/323 is released.
+bevy-inspector-egui = { version = "0.37", git = "https://github.com/jakobhellermann/bevy-inspector-egui", rev = "7087caed7b08f86392313299e00c32f0597b44c9", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.40", default-features = false, features = [
+bevy_egui = { version = "0.42", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
-egui_extras = "0.34"
+egui_extras = "0.36"
 
 # WASM things
 console_error_panic_hook = "0.1.7"
@@ -277,6 +279,9 @@ getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
 getrandom_04 = { version = "0.4", features = [
   "wasm_js",
 ], package = "getrandom" }
+
+[patch.crates-io]
+aeronet_io = { version = "0.21", git = "https://github.com/aecsocket/aeronet", rev = "a125aa5c7730711101c495d3f56f7e478f41aadf" }
 
 [workspace.lints.rust]
 dead_code = "allow"
