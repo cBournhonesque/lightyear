@@ -440,13 +440,14 @@ impl PredictionRegistry {
         &self,
         confirmed: Option<&C>,
         predicted: Option<&C>,
+        entity: Entity,
     ) -> bool {
         match (confirmed, predicted) {
             (Some(c), Some(p)) => {
                 let should = self.should_rollback(c, p);
                 if should {
                     debug!(
-                        "Should Rollback! Confirmed value {c:?} is different from predicted value {p:?}",
+                        "Should Rollback! Confirmed value {c:?} is different from predicted value {p:?} on entity {entity}",
                     );
                     trace!(
                         target: "lightyear_debug::prediction",
@@ -466,7 +467,7 @@ impl PredictionRegistry {
             }
             (Some(c), None) => {
                 debug!(
-                    "Should Rollback! Confirmed component exists ({c:?}), but predicted value does not exists",
+                    "Should Rollback! Confirmed component exists ({c:?}), but predicted value does not exist on entity {entity}",
                 );
                 trace!(
                     target: "lightyear_debug::prediction",
@@ -484,7 +485,7 @@ impl PredictionRegistry {
             }
             (None, Some(p)) => {
                 debug!(
-                    "Should Rollback! Confirmed component does not exist, but predicted value exists ({p:?})",
+                    "Should Rollback! Confirmed component does not exist, but predicted value exists ({p:?}) on entity {entity}",
                 );
                 trace!(
                     target: "lightyear_debug::prediction",
@@ -608,7 +609,7 @@ impl PredictionRegistry {
             );
             return false;
         };
-        self.should_rollback_check(confirmed_value.as_ref(), predicted_state.value())
+        self.should_rollback_check(confirmed_value.as_ref(), predicted_state.value(), entity_id)
     }
 
     /// Add an authoritative value to confirmed history.
