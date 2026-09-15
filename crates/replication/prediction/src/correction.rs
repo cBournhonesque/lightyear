@@ -368,7 +368,7 @@ fn remove_correction_state_on_live_removed<C: Component, D: Send + Sync + 'stati
 ) {
     commands
         .entity(trigger.entity)
-        .remove::<VisualCorrection<D>>();
+        .try_remove::<VisualCorrection<D>>();
 }
 
 /// before the rollback. Its frame-interpolation history still holds onto those
