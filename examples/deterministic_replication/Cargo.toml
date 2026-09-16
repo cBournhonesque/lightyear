@@ -1,6 +1,6 @@
 [package]
 name = "deterministic_replication"
-version = "0.30.0"
+version = "0.30.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition.workspace = true
 publish = false

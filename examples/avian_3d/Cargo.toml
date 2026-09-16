@@ -1,6 +1,6 @@
 [package]
 name = "avian_3d"
-version = "0.30.0"
+version = "0.30.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 publish = false
