@@ -235,6 +235,75 @@ fn test_spawn_new_connection_respects_replication_target() {
     );
 }
 
+/// When client 2 connects:
+/// - existing entities in rooms the new client is not in are not replicated to it
+///
+/// The new client's `Rooms` are already on its link when replicon inserts
+/// `ClientVisibility`, so replicon's own new-client backfill (which skips links
+/// that already have the filter's client component) never evaluates them.
+#[test]
+fn test_spawn_new_connection_respects_rooms() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let room_a = stepper
+        .server_app
+        .world_mut()
+        .resource_mut::<RoomAllocator>()
+        .allocate();
+    let room_b = stepper
+        .server_app
+        .world_mut()
+        .resource_mut::<RoomAllocator>()
+        .allocate();
+
+    // client 0 shares room A with the entity
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(stepper.client_of_entities[0])
+        .insert(Rooms::single(room_a));
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            Rooms::single(room_a),
+        ))
+        .id();
+    stepper.frame_step(2);
+    stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
+        .expect("entity is not present in room-sharing client entity map");
+
+    // second client connects; it joins room B before its link is admitted
+    // into replication (same as inserting client Rooms in `On<Add, Connected>`)
+    stepper.new_client(ClientType::Netcode, None);
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(stepper.client_of_entities[1])
+        .insert(Rooms::single(room_b));
+    stepper.init();
+    stepper.frame_step(2);
+
+    // make sure the entity is not replicated to the newly connected client
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .resource::<ServerEntityMap>()
+            .to_client()
+            .get(&server_entity)
+            .copied()
+            .is_none(),
+        "entity is present in new client entity map despite rooms mismatch"
+    );
+}
+
 #[test]
 fn test_no_replication_without_replication_sender() {
     let mut stepper: ClientServerStepper =
