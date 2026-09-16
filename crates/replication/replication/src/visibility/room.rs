@@ -36,6 +36,7 @@ let client = commands.spawn((ReplicationSender::default(), Rooms::single(room)))
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_replicon::prelude::{AppVisibilityExt, VisibilityFilter};
+use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use fixedbitset::FixedBitSet;
@@ -373,6 +374,36 @@ fn reinherit_rooms_on_override_removed(
     mirror_member_rooms(trigger.entity, root_rooms.as_ref(), &rooms, &mut commands);
 }
 
+/// Evaluate pre-existing room-filtered entities for a newly admitted link.
+///
+/// [`ClientVisibility::default`] treats entities as visible, and replicon's own
+/// new-client backfill skips links that already have the filter's client
+/// component — but client [`Rooms`] are usually inserted together with the
+/// replication sender (e.g. in `On<Add, Connected>`), i.e. before replicon
+/// inserts [`ClientVisibility`] for the link. Without this backfill the link
+/// would receive pre-existing entities in rooms it never joined.
+/// (Links that gain [`Rooms`] after admission are covered by replicon's
+/// client-insert observer instead.)
+fn backfill_rooms_for_new_client(
+    trigger: On<Add, ClientVisibility>,
+    client_rooms: Query<&Rooms>,
+    entities: Query<(Entity, &Rooms), Without<ClientVisibility>>,
+    registry: Res<FilterRegistry>,
+    mut visibilities: Query<&mut ClientVisibility>,
+) {
+    let sender = trigger.entity;
+    let Some(bit) = registry.get_bit::<Rooms>() else {
+        return;
+    };
+    let Ok(mut visibility) = visibilities.get_mut(sender) else {
+        return;
+    };
+    let client = client_rooms.get(sender).ok();
+    for (entity, rooms) in entities.iter() {
+        visibility.set(entity, bit, rooms.is_visible(sender, client));
+    }
+}
+
 /// Plugin used to handle interest management via [`Rooms`].
 ///
 /// Members of a replication hierarchy ([`ReplicateLike`]) inherit their
@@ -396,6 +427,7 @@ impl Plugin for RoomPlugin {
         app.add_observer(propagate_rooms_when_removed);
         app.add_observer(inherit_rooms_on_replicate_like_added);
         app.add_observer(reinherit_rooms_on_override_removed);
+        app.add_observer(backfill_rooms_for_new_client);
     }
 }
 
@@ -439,6 +471,14 @@ mod tests {
 
     fn is_overridden(app: &App, entity: Entity) -> bool {
         app.world().get::<RoomsOverridden>(entity).is_some()
+    }
+
+    /// Reads the rooms filter bit straight from the sender's [`ClientVisibility`].
+    fn hidden(app: &App, sender: Entity, entity: Entity) -> bool {
+        let registry = app.world().resource::<FilterRegistry>();
+        let bit = registry.get_bit::<Rooms>().unwrap();
+        let visibility = app.world().get::<ClientVisibility>(sender).unwrap();
+        visibility.get(entity).contains(bit)
     }
 
     #[test]
@@ -747,5 +787,37 @@ mod tests {
         app.add_plugins(RoomPlugin);
 
         assert!(app.world().contains_resource::<RoomAllocator>());
+    }
+
+    #[test]
+    fn new_client_backfill_evaluates_preexisting_room_entities() {
+        let mut app = rooms_hierarchy_app();
+        let room_a = RoomId(0);
+        let room_b = RoomId(1);
+        // entity exists before the link is admitted into replication
+        let entity = app.world_mut().spawn(Rooms::single(room_a)).id();
+
+        // link already carries its rooms when ClientVisibility arrives (as when
+        // client Rooms are inserted in `On<Add, Connected>`): replicon's own
+        // new-client backfill skips it, so the rooms backfill must evaluate it
+        let stranger = app.world_mut().spawn(Rooms::single(room_b)).id();
+        app.world_mut()
+            .entity_mut(stranger)
+            .insert(ClientVisibility::default());
+        assert!(hidden(&app, stranger, entity));
+
+        // ...while a link in the same room sees the entity
+        let member = app.world_mut().spawn(Rooms::single(room_a)).id();
+        app.world_mut()
+            .entity_mut(member)
+            .insert(ClientVisibility::default());
+        assert!(!hidden(&app, member, entity));
+
+        // ...and a link without rooms yet sees nothing room-filtered
+        let bare = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .entity_mut(bare)
+            .insert(ClientVisibility::default());
+        assert!(hidden(&app, bare, entity));
     }
 }

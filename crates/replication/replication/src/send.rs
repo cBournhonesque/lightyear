@@ -831,6 +831,9 @@ fn emulate_replicate_on_host_client_added(
 /// `RemoteId` is always inserted before `ClientVisibility` on lightyear links — so without
 /// this backfill a late-joining client would receive pre-existing entities and
 /// prediction/interpolation markers even when their [`NetworkTarget`] excludes that client.
+///
+/// Rooms need the same treatment (client `Rooms` are usually inserted before
+/// `ClientVisibility` too); that backfill lives in [`RoomPlugin`](crate::visibility::room::RoomPlugin).
 #[cfg(feature = "server")]
 pub(crate) fn handle_new_client_visibility(
     trigger: On<Add, ClientVisibility>,
