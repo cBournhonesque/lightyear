@@ -206,6 +206,12 @@ impl Default for LightyearAvianPlugin {
 
 const DEFAULT_ROLLBACK_TOLERANCE: f32 = 0.01;
 
+// These come from Avian's default sleep thresholds. Avian is not fully stable, so relying on the
+// velocities to be so exact is risky. It seems reasonable that if Avian doesn't bother simulating
+// such low velocities, neither should we.
+const DEFAULT_LINEAR_VELOCITY_ROLLBACK_TOLERANCE: f32 = 0.15;
+const DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE: f32 = 0.15;
+
 fn position_should_rollback(confirmed: &Position, predicted: &Position) -> bool {
     (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
 }
@@ -215,7 +221,7 @@ fn rotation_should_rollback(confirmed: &Rotation, predicted: &Rotation) -> bool 
 }
 
 fn linear_velocity_should_rollback(confirmed: &LinearVelocity, predicted: &LinearVelocity) -> bool {
-    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_LINEAR_VELOCITY_ROLLBACK_TOLERANCE)
 }
 
 #[cfg(all(feature = "2d", not(feature = "3d")))]
@@ -223,7 +229,7 @@ fn angular_velocity_should_rollback(
     confirmed: &AngularVelocity,
     predicted: &AngularVelocity,
 ) -> bool {
-    (confirmed.0 - predicted.0).abs() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).abs() >= Scalar::from(DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE)
 }
 
 #[cfg(all(feature = "3d", not(feature = "2d")))]
@@ -231,7 +237,8 @@ fn angular_velocity_should_rollback(
     confirmed: &AngularVelocity,
     predicted: &AngularVelocity,
 ) -> bool {
-    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).length()
+        >= Scalar::from(DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE)
 }
 
 /// Linear interpolation for `LinearVelocity`.
