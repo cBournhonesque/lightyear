@@ -87,6 +87,7 @@ impl NetcodeClient {
     }
 
     /// Socket addresses authorized by the token, in issuer-provided order.
+    /// Identity tokens return an empty slice, never a fabricated socket destination.
     ///
     /// These do not configure the transport. To try another address, the application
     /// must create a new link with the appropriate native transport configuration.

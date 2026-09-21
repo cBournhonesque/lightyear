@@ -18,6 +18,9 @@ use super::{
     token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
 };
 use crate::token::TOKEN_EXPIRE_SEC;
+use crate::{
+    IDENTITY_TOKEN_HEADER_BYTES, IDENTITY_TOKEN_VERSION, IdentityBinding, ServerTokenBinding,
+};
 use lightyear_connection::prelude::Connecting;
 use lightyear_connection::shared::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason,
@@ -263,7 +266,7 @@ fn server_addr_matches(local_addr: SocketAddr, token_addr: SocketAddr) -> bool {
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
 /// * `keep_alive_send_rate` - The rate at which keep-alive packets will be sent to clients.
-/// * `expected_addresses` - Server authorization addresses accepted during connect-token validation.
+/// * `token_binding` - Explicit socket or identity authorization accepted during connect-token validation.
 /// * `on_connect` - A callback that will be called when a client is connected to the server.
 /// * `on_disconnect` - A callback that will be called when a client is disconnected from the server.
 ///
@@ -289,7 +292,7 @@ pub struct ServerConfig<Ctx> {
     token_expire_secs: i32,
     client_timeout_secs: i32,
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
-    pub(crate) expected_addresses: Vec<SocketAddr>,
+    pub(crate) token_binding: ServerTokenBinding,
     pub(crate) context: Ctx,
     on_connect: Option<ConnectCallback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
@@ -304,11 +307,23 @@ impl Default for ServerConfig<()> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            expected_addresses: Vec::new(),
+            token_binding: ServerTokenBinding::default(),
             context: (),
             on_connect: None,
             on_disconnect: None,
         }
+    }
+}
+
+impl ServerConfig<()> {
+    /// Accept socket tokens authorizing one of these addresses.
+    pub fn socket(addresses: impl IntoIterator<Item = SocketAddr>) -> Self {
+        Self::default().expected_addresses(addresses)
+    }
+
+    /// Accept identity tokens bound to this exact server identity.
+    pub fn identity(binding: IdentityBinding) -> Self {
+        Self::default().identity_binding(binding)
     }
 }
 
@@ -326,7 +341,7 @@ impl<Ctx> ServerConfig<Ctx> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            expected_addresses: Vec::new(),
+            token_binding: ServerTokenBinding::default(),
             context: ctx,
             on_connect: None,
             on_disconnect: None,
@@ -373,17 +388,25 @@ impl<Ctx> ServerConfig<Ctx> {
         self
     }
 
-    /// Set the server authorization addresses accepted during connect-token validation.
+    /// Select socket mode and set the authorization addresses accepted for future handshakes.
     ///
     /// An empty list rejects connection requests with [`Error::MissingExpectedAddresses`].
     pub fn expected_addresses(mut self, addresses: impl IntoIterator<Item = SocketAddr>) -> Self {
-        self.expected_addresses = addresses.into_iter().collect();
+        self.token_binding = ServerTokenBinding::Socket(addresses.into_iter().collect());
+        self
+    }
+
+    /// Select identity mode for future handshakes.
+    pub fn identity_binding(mut self, binding: IdentityBinding) -> Self {
+        self.token_binding = ServerTokenBinding::Identity(binding);
         self
     }
 
     /// Provide a callback that will be called when a client is connected to the server. <br>
     /// The callback will be called with the client index, entity, user data from the connection token,
     /// and the context that was provided (provide a `None` context if you don't need one).
+    /// Identity-mode user data includes the reserved version and binding header in its first
+    /// [`IDENTITY_TOKEN_HEADER_BYTES`] bytes; socket-mode data is entirely application-owned.
     ///
     /// See [`ServerConfig`] for an example.
     pub fn on_connect<F>(mut self, cb: F) -> Self
@@ -436,8 +459,8 @@ pub struct Server<Ctx = ()> {
 impl Server {
     /// Create a new server with a default configuration.
     ///
-    /// Connection requests are rejected until [`Server::set_expected_addresses`] configures
-    /// the socket addresses accepted during connect-token validation.
+    /// Connection requests are rejected until [`Server::set_expected_addresses`] or
+    /// [`Server::set_identity_binding`] explicitly configures token authorization.
     pub fn new(protocol_id: u64, private_key: Key) -> Result<Self> {
         let server: Server<()> = Server {
             time: 0.0,
@@ -498,12 +521,17 @@ impl<Ctx> Server<Ctx> {
         self.cfg.connection_request_handler = handler;
     }
 
-    /// Replace the server authorization addresses accepted during connect-token validation.
+    /// Select socket mode and replace the authorization addresses accepted for future handshakes.
     ///
     /// This does not change transport configuration or existing authenticated connections.
     /// An empty list rejects new connection requests.
     pub fn set_expected_addresses(&mut self, addresses: impl IntoIterator<Item = SocketAddr>) {
-        self.cfg.expected_addresses = addresses.into_iter().collect();
+        self.cfg.token_binding = ServerTokenBinding::Socket(addresses.into_iter().collect());
+    }
+
+    /// Select identity mode for future handshakes without changing existing connections or routing.
+    pub fn set_identity_binding(&mut self, binding: IdentityBinding) {
+        self.cfg.token_binding = ServerTokenBinding::Identity(binding);
     }
 
     /// Clears all connection and pending packet state so this server can be started again.
@@ -707,26 +735,44 @@ impl<Ctx> Server<Ctx> {
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
         let entity = entity_mut.id();
+        // The authenticated private address count selects the wire mode. User data cannot
+        // turn a legacy socket token into an identity token, even with an identical prefix.
+        match &self.cfg.token_binding {
+            ServerTokenBinding::Socket(addresses) => {
+                if token.server_addresses.as_slice().is_empty() {
+                    return Err(Error::TokenModeMismatch);
+                }
+                if addresses.is_empty() {
+                    return Err(Error::MissingExpectedAddresses);
+                }
+                if !token.server_addresses.iter().any(|(_, token_addr)| {
+                    addresses
+                        .iter()
+                        .any(|expected_addr| server_addr_matches(*expected_addr, token_addr))
+                }) {
+                    info!(
+                        token_addresses = ?token.server_addresses,
+                        expected_addresses = ?addresses,
+                        "server ignored connection request. server address not in connect token whitelist"
+                    );
+                    return Ok(());
+                }
+            }
+            ServerTokenBinding::Identity(binding) => {
+                if !token.server_addresses.as_slice().is_empty() {
+                    return Err(Error::TokenModeMismatch);
+                }
+                if token.user_data[0] != IDENTITY_TOKEN_VERSION {
+                    return Err(Error::UnsupportedIdentityTokenVersion(token.user_data[0]));
+                }
+                if token.user_data[1..IDENTITY_TOKEN_HEADER_BYTES] != binding.as_bytes()[..] {
+                    return Err(Error::IdentityTokenBindingMismatch);
+                }
+            }
+        }
         if token.client_id == 0 {
             return Err(Error::ReservedClientId);
         }
-
-        if self.cfg.expected_addresses.is_empty() {
-            return Err(Error::MissingExpectedAddresses);
-        }
-        if !token.server_addresses.iter().any(|(_, token_addr)| {
-            self.cfg
-                .expected_addresses
-                .iter()
-                .any(|expected_addr| server_addr_matches(*expected_addr, token_addr))
-        }) {
-            info!(
-                token_addresses = ?token.server_addresses,
-                expected_addresses = ?self.cfg.expected_addresses,
-                "server ignored connection request. server address not in connect token whitelist"
-            );
-            return Ok(());
-        };
         if let Some(conn) = self.conn_cache.find_by_entity(&entity) {
             if conn.is_connected() || conn.client_id != token.client_id {
                 return Err(Error::ClientEntityInUse(entity));
@@ -1001,9 +1047,9 @@ impl<Ctx> Server<Ctx> {
 
     /// Receive and process packets from a link.
     ///
-    /// Connection requests require a private connect token matching a configured expected
-    /// address. An empty configuration reports [`Error::MissingExpectedAddresses`].
-    /// Wildcard and loopback addresses of the same address family and port match each other.
+    /// Connection requests must match the explicitly configured socket or identity mode.
+    /// Empty socket configuration reports [`Error::MissingExpectedAddresses`]. In socket mode,
+    /// wildcard and loopback addresses of the same address family and port match each other.
     pub fn receive(
         &mut self,
         link: &mut Link,
@@ -1087,7 +1133,9 @@ impl<Ctx> Server<Ctx> {
     ///     .unwrap();
     /// ```
     ///
-    /// See [`ConnectTokenBuilder`] for more options.
+    /// This helper mints socket tokens regardless of this server's configured authorization mode.
+    /// See [`ConnectTokenBuilder`] for socket options; identity minters use
+    /// [`ConnectToken::build_identity`] with the explicitly configured binding.
     pub fn token(
         &mut self,
         client_id: ClientId,
@@ -1338,6 +1386,129 @@ mod tests {
         (server, world, client)
     }
 
+    fn identity_token(binding: IdentityBinding) -> ConnectToken {
+        ConnectToken::build_identity(binding, TEST_PROTOCOL_ID, 1, TEST_PRIVATE_KEY)
+            .expire_seconds(-1)
+            .generate()
+            .unwrap()
+    }
+
+    fn reject_request(config: ServerConfig<()>, request: RequestPacket) -> Error {
+        let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let mut queue = CommandQueue::default();
+        let error = {
+            let mut commands = Commands::new(&mut queue, &world);
+            server
+                .process_connection_request(request, &mut commands.entity(client))
+                .unwrap_err()
+        };
+        queue.apply(&mut world);
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.client_ids().next().is_none());
+        assert!(!server.send_queue.contains_key(&client));
+        error
+    }
+
+    #[test]
+    fn identity_token_cannot_enter_socket_handshake_even_without_configuration() {
+        let binding = IdentityBinding::from_bytes([7; 32]);
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        for config in [ServerConfig::socket([addr]), ServerConfig::default()] {
+            assert!(matches!(
+                reject_request(config, request_from_token(identity_token(binding))),
+                Error::TokenModeMismatch
+            ));
+        }
+    }
+
+    #[test]
+    fn socket_identity_looking_userdata_does_not_select_identity_mode() {
+        let binding = IdentityBinding::from_bytes([7; 32]);
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let mut user_data = [0xA5; USER_DATA_BYTES];
+        user_data[0] = IDENTITY_TOKEN_VERSION;
+        user_data[1..IDENTITY_TOKEN_HEADER_BYTES].copy_from_slice(binding.as_bytes());
+        let token = || {
+            ConnectToken::build([addr].as_slice(), TEST_PROTOCOL_ID, 1, TEST_PRIVATE_KEY)
+                .user_data(user_data)
+                .generate()
+                .unwrap()
+        };
+        assert!(matches!(
+            reject_request(ServerConfig::identity(binding), request_from_token(token())),
+            Error::TokenModeMismatch
+        ));
+
+        // Socket mode retains all 256 bytes through the public connection callback.
+        let config = ServerConfig::with_context(None)
+            .identity_binding(binding)
+            .expected_addresses([addr])
+            .on_connect(|_, _, data, context| *context = Some(data));
+        let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let mut queue = CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut queue, &world);
+            server
+                .process_connection_request(
+                    request_from_token(token()),
+                    &mut commands.entity(client),
+                )
+                .unwrap();
+        }
+        queue.apply(&mut world);
+        let challenge = ChallengeToken {
+            client_id: 1,
+            user_data,
+        }
+        .encrypt(0, &server.challenge_key)
+        .unwrap();
+        server
+            .process_connection_response(
+                ResponsePacket {
+                    sequence: 0,
+                    token: challenge,
+                },
+                client,
+            )
+            .unwrap();
+        assert_eq!(server.cfg.context, Some(user_data));
+        assert_eq!(server.connected_client_ids().collect::<Vec<_>>(), [1]);
+    }
+
+    #[test]
+    fn identity_mode_checks_version_before_exact_full_binding() {
+        let binding = IdentityBinding::from_bytes([7; 32]);
+        let mut request = request_from_token(identity_token(binding));
+        let mut private =
+            ConnectTokenPrivate::read_from(&mut io::Cursor::new(&request.token_data[..])).unwrap();
+        private.user_data[0] = IDENTITY_TOKEN_VERSION + 1;
+        private.user_data[1] ^= 1;
+        private
+            .write_to(&mut io::Cursor::new(&mut request.token_data[..]))
+            .unwrap();
+        assert!(matches!(
+            reject_request(ServerConfig::identity(binding), request),
+            Error::UnsupportedIdentityTokenVersion(2)
+        ));
+
+        // Every binding byte is authorization-bearing, not a truncated projected peer ID.
+        for byte in 0..32 {
+            let mut wrong = *binding.as_bytes();
+            wrong[byte] ^= 1;
+            assert!(matches!(
+                reject_request(
+                    ServerConfig::identity(binding),
+                    request_from_token(identity_token(IdentityBinding::from_bytes(wrong))),
+                ),
+                Error::IdentityTokenBindingMismatch
+            ));
+        }
+    }
+
     #[test]
     fn authenticated_request_rejects_reserved_client_id() {
         let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
@@ -1420,36 +1591,6 @@ mod tests {
         assert_eq!(server.client_entity(u64::MAX), Some(client));
     }
 
-    #[test]
-    fn duplicate_pending_token_id_does_not_replace_crypto_owner() {
-        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let (mut server, mut world, first) = process_request(&[addr], &[addr], None);
-        let second = world.spawn_empty().id();
-        let mut command_queue = CommandQueue::default();
-        {
-            let mut commands = Commands::new(&mut command_queue, &world);
-            let error = server
-                .process_connection_request(
-                    connection_request(&[addr], None),
-                    &mut commands.entity(second),
-                )
-                .unwrap_err();
-            assert!(matches!(error, Error::ClientIdInUse(id::PeerId(1))));
-        }
-        command_queue.apply(&mut world);
-        assert_eq!(server.client_entity(1), Some(first));
-        assert!(world.get::<Connecting>(second).is_none());
-
-        // Teardown of the rejected link must not invalidate the pending winner.
-        server.remove_by_entity(second);
-        assert_eq!(server.client_entity(1), Some(first));
-        server.remove_by_entity(first);
-        assert!(server.client_ids().next().is_none());
-        assert!(server.conn_cache.replay_protection.is_empty());
-        assert!(server.conn_cache.client_id_map.is_empty());
-        assert!(!server.send_queue.contains_key(&first));
-    }
-
     #[cfg(feature = "client")]
     fn exchange_packets(
         server: &mut Server,
@@ -1487,13 +1628,13 @@ mod tests {
     #[cfg(feature = "client")]
     #[test]
     fn abandoned_handshake_expires_without_extending_on_retransmission() {
-        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let binding = IdentityBinding::from_bytes([7; 32]);
         // Nonpositive connected timeouts must not leave pending IDs reserved forever.
         for timeout in [5, -1, 0] {
             let mut server = Server::with_config(
                 TEST_PROTOCOL_ID,
                 TEST_PRIVATE_KEY,
-                ServerConfig::default().expected_addresses([addr]),
+                ServerConfig::identity(binding),
             )
             .unwrap();
             let mut world = World::new();
@@ -1501,7 +1642,7 @@ mod tests {
             let replacement = world.spawn_empty().id();
             let duplicate = world.spawn_empty().id();
             let token = || {
-                ConnectToken::build(addr, TEST_PROTOCOL_ID, 1, TEST_PRIVATE_KEY)
+                ConnectToken::build_identity(binding, TEST_PROTOCOL_ID, 1, TEST_PRIVATE_KEY)
                     .timeout_seconds(timeout)
                     .expire_seconds(-1)
                     .generate()
@@ -1602,6 +1743,134 @@ mod tests {
                 assert_eq!(&server_link.recv.pop().unwrap()[..], b"still live");
             }
         }
+    }
+
+    #[cfg(feature = "client")]
+    #[test]
+    fn duplicate_live_identity_id_is_denied_and_incumbent_remains_usable() {
+        let binding = IdentityBinding::from_bytes([7; 32]);
+        let mut server = Server::new(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY).unwrap();
+        server.set_identity_binding(binding);
+        let mut world = World::new();
+        let incumbent = world.spawn_empty().id();
+        let incoming = world.spawn_empty().id();
+        let new_client = || {
+            crate::client::Client::new(&identity_token(binding).try_into_bytes().unwrap()).unwrap()
+        };
+        let mut client = new_client();
+        let mut client_link = Link::default();
+        let mut server_link = Link::default();
+        client.connect();
+        for _ in 0..4 {
+            assert!(
+                exchange_packets(
+                    &mut server,
+                    &mut client,
+                    &mut world,
+                    incumbent,
+                    &mut client_link,
+                    &mut server_link,
+                )
+                .is_empty()
+            );
+        }
+        assert!(client.is_connected());
+        assert_eq!(client.id(), 1);
+
+        let mut duplicate = new_client();
+        let mut duplicate_link = Link::default();
+        let mut incoming_link = Link::default();
+        duplicate.connect();
+        let errors = exchange_packets(
+            &mut server,
+            &mut duplicate,
+            &mut world,
+            incoming,
+            &mut duplicate_link,
+            &mut incoming_link,
+        );
+        assert!(matches!(
+            errors.as_slice(),
+            [Error::ClientIdInUse(id::PeerId(1))]
+        ));
+        assert_eq!(
+            duplicate.state(),
+            crate::client::ClientState::ConnectionDenied
+        );
+        assert!(world.get::<Connecting>(incoming).is_none());
+        server.remove_by_entity(incoming);
+        assert_eq!(server.client_entity(1), Some(incumbent));
+
+        // A rejected link's teardown must preserve the incumbent's keys and replay state.
+        client
+            .send(
+                SendPayload::from_static(b"still connected"),
+                &mut client_link.send,
+            )
+            .unwrap();
+        assert!(
+            exchange_packets(
+                &mut server,
+                &mut client,
+                &mut world,
+                incumbent,
+                &mut client_link,
+                &mut server_link,
+            )
+            .is_empty()
+        );
+        assert_eq!(&server_link.recv.pop().unwrap()[..], b"still connected");
+        server
+            .send(
+                SendPayload::from_static(b"acknowledged"),
+                1,
+                &mut server_link.send,
+            )
+            .unwrap();
+        assert!(
+            exchange_packets(
+                &mut server,
+                &mut client,
+                &mut world,
+                incumbent,
+                &mut client_link,
+                &mut server_link,
+            )
+            .is_empty()
+        );
+        assert_eq!(&client_link.recv.pop().unwrap()[..], b"acknowledged");
+        assert!(client.is_connected());
+        assert_eq!(server.connected_client_ids().collect::<Vec<_>>(), [1]);
+    }
+
+    #[test]
+    fn duplicate_pending_token_id_does_not_replace_crypto_owner() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let (mut server, mut world, first) = process_request(&[addr], &[addr], None);
+        let second = world.spawn_empty().id();
+        let mut command_queue = CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut command_queue, &world);
+            let error = server
+                .process_connection_request(
+                    connection_request(&[addr], None),
+                    &mut commands.entity(second),
+                )
+                .unwrap_err();
+            assert!(matches!(error, Error::ClientIdInUse(id::PeerId(1))));
+        }
+        command_queue.apply(&mut world);
+        assert_eq!(server.client_entity(1), Some(first));
+        assert!(world.get::<Connecting>(second).is_none());
+
+        // Teardown of the rejected link must not invalidate the pending winner.
+        server.remove_by_entity(second);
+        assert_eq!(server.client_entity(1), Some(first));
+        server.remove_by_entity(first);
+        assert!(server.client_ids().next().is_none());
+        assert!(server.conn_cache.replay_protection.is_empty());
+        assert!(server.conn_cache.client_id_map.is_empty());
+        assert!(!server.send_queue.contains_key(&first));
     }
 
     #[test]

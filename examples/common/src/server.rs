@@ -71,7 +71,9 @@ impl ExampleServer {
                 entity_mut.insert(NetcodeServer::new(NetcodeConfig {
                     protocol_id: settings.shared.protocol_id,
                     private_key,
-                    expected_addresses: vec![SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port)],
+                    token_binding: lightyear::netcode::ServerTokenBinding::Socket(vec![
+                        SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port),
+                    ]),
                     ..Default::default()
                 }));
             };

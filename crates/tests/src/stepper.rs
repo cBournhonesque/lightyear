@@ -335,7 +335,9 @@ impl ClientServerStepper {
             ServerType::Netcode => {
                 server.insert(NetcodeServer::new(
                     lightyear_netcode::server_plugin::NetcodeConfig {
-                        expected_addresses: vec![server_addr],
+                        token_binding: lightyear_netcode::ServerTokenBinding::Socket(vec![
+                            server_addr,
+                        ]),
                         ..Default::default()
                     },
                 ));
@@ -497,9 +499,22 @@ impl ClientServerStepper {
             }
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             IoType::WebTransport => {
+                use core::fmt::Write;
+                let hash = self
+                    .server()
+                    .get::<WebTransportEndpoint>()
+                    .unwrap()
+                    .certificate
+                    .certificate_chain()
+                    .as_slice()[0]
+                    .hash();
+                let mut certificate_digest = String::with_capacity(64);
+                for byte in hash.as_ref() {
+                    write!(&mut certificate_digest, "{byte:02x}").unwrap();
+                }
                 client.insert(WebTransportClientIo::from_addr(
                     self.server_addr,
-                    String::new(),
+                    certificate_digest,
                 ));
                 // The listening WebTransport server creates the corresponding LinkOf after the
                 // session is accepted.

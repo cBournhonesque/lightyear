@@ -102,7 +102,7 @@ impl<Ctx> ClientConfig<Ctx> {
 ///
 /// The initial state is `Disconnected`.
 /// When a client wants to connect to a server, it requests a connect token from the web backend.
-/// To begin this process, it transitions to `SendingConnectionRequest` with the first server address in the connect token.
+/// To begin this process, it transitions to `SendingConnectionRequest` on the caller-configured link.
 /// After that the client can either transition to `SendingChallengeResponse` or one of the error states.
 /// While in `SendingChallengeResponse`, when the client receives a connection keep-alive packet from the server,
 /// it stores the client index and max clients in the packet, and transitions to `Connected`.
@@ -387,6 +387,7 @@ impl<Ctx> Client<Ctx> {
     }
 
     /// Socket addresses authorized by the token, in issuer-provided order.
+    /// Identity tokens return an empty slice; the caller owns native transport routing.
     ///
     /// Netcode does not select or reroute the underlying link. Failover requires the
     /// application to establish a new link using its chosen transport destination.
@@ -633,6 +634,32 @@ impl<Ctx> Client<Ctx> {
 mod tests {
     use super::*;
     use lightyear_link::Link;
+
+    #[test]
+    fn identity_token_handshake_needs_no_socket_addresses() {
+        let token = ConnectToken::build_identity(
+            crate::IdentityBinding::from_bytes([42; 32]),
+            1,
+            7,
+            [42; 32],
+        )
+        .generate()
+        .unwrap()
+        .try_into_bytes()
+        .unwrap();
+        let mut client = Client::new(&token).unwrap();
+        assert!(client.token_server_addresses().is_empty());
+        let mut link = Link::default();
+        client.connect();
+        assert_eq!(
+            client.try_update(0.2, &mut link.recv).unwrap(),
+            ClientState::SendingConnectionRequest
+        );
+        client.drain_send_netcode_packets(&mut link.send);
+        let request = link.send.pop().unwrap();
+        assert_eq!(request[0], Packet::REQUEST);
+        assert!(client.token_server_addresses().is_empty());
+    }
 
     #[test]
     fn authenticated_client_id_preserves_max_and_rejects_zero() {

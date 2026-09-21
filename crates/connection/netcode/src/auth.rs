@@ -25,8 +25,10 @@ pub enum Authentication {
     /// The client must have already received the [`ConnectToken`] from the backend.
     /// (The backend will generate a new `client_id` for the user, and use that to generate the
     /// [`ConnectToken`])
+    /// Identity-bound tokens are supported without socket addresses. Configure the native
+    /// destination and authenticate its server identity independently on the transport.
     Token(ConnectToken),
-    /// The client can build a [`ConnectToken`] manually.
+    /// The client can build a socket-mode [`ConnectToken`] manually.
     ///
     /// This is only useful for testing purposes. In production, the client should not have access
     /// to the `private_key`.

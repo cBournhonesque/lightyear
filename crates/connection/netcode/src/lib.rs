@@ -38,11 +38,11 @@
  The server should run as a part of the game loop, process incoming packets and send updates to the clients.
 
  To create a server:
-  * Explicitly configure the socket addresses accepted for private connect-token authorization.
-    The high-level server uses [`server_plugin::NetcodeConfig::expected_addresses`];
-    the low-level server uses [`ServerConfig::expected_addresses`]. Empty lists fail closed.
-    For port-zero binds, call [`NetcodeServer::set_expected_addresses`] with the transport's
-    observed socket address before connecting clients.
+  * Select explicit authorization with [`server_plugin::NetcodeConfig::socket`] or
+    [`server_plugin::NetcodeConfig::identity`]; low-level equivalents are
+    [`ServerConfig::socket`] and [`ServerConfig::identity`]. An unconfigured server fails closed.
+    For socket-mode port-zero binds, call [`NetcodeServer::set_expected_addresses`] with the
+    intended authorization address before connecting clients.
   * Provide the protocol id - a `u64` that uniquely identifies your app.
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
@@ -60,10 +60,27 @@ To create a client:
 
 The transport destination is configured separately using its native configuration (socket
 address, hostname, or URL). Netcode never resolves or compares dial URLs/hostnames to token
-addresses. [`NetcodeClient::token_server_addresses`] exposes all public token socket addresses;
-it does not configure routing. To fail over, the application creates a new link with a new
-transport destination and starts a new handshake. Netcode does not silently retry on a link
+addresses. [`NetcodeClient::token_server_addresses`] exposes public token socket addresses
+(an empty slice for identity tokens); it does not configure routing. To fail over, create a new link with a new
+transport destination and start a new handshake. Netcode does not silently retry on a link
 that still targets the previous server.
+
+## Identity-bound tokens
+
+[`ConnectToken::build_identity`] is an opt-in extension, not a socket-token encoding change.
+Both public and authenticated private address lists are empty. The server first enforces its
+configured [`ServerTokenBinding`] mode, then checks identity version 1 and the entire
+[`IdentityBinding`]. Legacy socket application bytes never select identity mode.
+
+The private user-data region contains a one-byte version, 32-byte binding, and
+[`IDENTITY_USER_DATA_BYTES`] (223) application bytes. Socket tokens retain all 256 application
+bytes. Existing readers reject identity tokens despite the unchanged 2048-byte envelope.
+The existing Lightyear token integer encoding is big-endian.
+
+For pinned WebTransport, derive the binding with domain `b"webtransport-cert-sha256"` and the
+raw 32-byte certificate SHA-256 digest. Configure the native client to pin that same trusted
+certificate. A routing alias or an unauthenticated announcement is not a trusted server identity.
+Token authorization, native endpoint authentication, and transport dialing remain separate.
 */
 #![no_std]
 
@@ -72,6 +89,10 @@ extern crate core;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub use binding::{
+    IDENTITY_TOKEN_HEADER_BYTES, IDENTITY_TOKEN_VERSION, IDENTITY_USER_DATA_BYTES, IdentityBinding,
+    ServerTokenBinding,
+};
 #[cfg(feature = "client")]
 pub use client_plugin::NetcodeClient;
 pub use crypto::{Key, generate_key, try_generate_key};
@@ -80,11 +101,14 @@ pub use error::{Error, Result};
 pub use server::{Callback, ConnectCallback, Server, ServerConfig};
 #[cfg(feature = "server")]
 pub use server_plugin::{NetcodeServer, NetcodeServerError, TokenUserData};
-pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
+pub use token::{
+    ConnectToken, ConnectTokenBuilder, IdentityConnectTokenBuilder, InvalidTokenError,
+};
 
 /// The full-width client ID from a connect token; nonzero and unique for each client.
 pub(crate) type ClientId = u64;
 
+mod binding;
 mod bytes;
 #[cfg(feature = "client")]
 pub mod client;

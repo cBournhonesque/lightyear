@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Require explicit server `expected_addresses` for connect-token authorization. Empty
-  configurations reject requests; use `set_expected_addresses` after port-zero binds.
+- Require explicit `ServerTokenBinding::Socket` or `ServerTokenBinding::Identity` authorization,
+  selected by `NetcodeConfig::socket` / `identity`. Unconfigured servers fail closed; use
+  `set_expected_addresses` after socket-mode port-zero binds.
 - Decouple netcode from transport addresses and remove its Aeronet dependency. Clients
   expose `token_server_addresses()` without configuring transport routing or implicit
   failover; applications establish a new link when trying another destination.
@@ -18,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minting and admission reject client ID zero, reserved for the server role.
 - Retire disconnected accepted links in `Last`, after deferred native link-state cleanup,
   rather than despawning them while lifecycle commands still reference the entity.
+
+### Added
+
+- Opt-in identity-bound connect tokens with empty public/private address lists, a versioned
+  32-byte SHA-256 server binding, and 223 application-data bytes. Socket tokens retain their
+  existing encoding and all 256 application-data bytes, including arbitrary prefixes.
+- Explicit mode-first validation, exact identity matching, and independently generated socket
+  and identity interoperability vectors in `src/token_vectors.json`. The 2048-byte envelope
+  remains unchanged, but old readers reject identity tokens.
+- Native pinned-WebTransport coverage for identity-token minting, decoding, authentication,
+  application messages and disconnect, plus rejection of a wrong token binding or certificate
+  pin. This does not claim end-to-end Steam or Iroh pairing support.
 
 ## v0.21.0 (2025-07-03)
 

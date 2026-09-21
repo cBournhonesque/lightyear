@@ -166,7 +166,7 @@ a new entity will be spawned with the [`LinkOf`] component that will mark that [
 ```rust,ignore
 let server = commands
     .spawn((
-        NetcodeServer::new(NetcodeConfig::default().with_expected_addresses([SERVER_ADDR])),
+        NetcodeServer::new(NetcodeConfig::socket([SERVER_ADDR])),
         UdpEndpoint::new(SERVER_ADDR),
         Server,
     ))
@@ -175,7 +175,7 @@ commands.trigger(Start { entity: server });
 ```
 
 `NetcodeServer` selects the authenticated connection backend and adds the `Server` role.
-Its `expected_addresses` are the server addresses authorized by incoming tokens, not a transport
+Its `ServerTokenBinding::Socket` addresses authorize incoming tokens; they are not a transport
 bind configuration. An empty list rejects connection requests. This also applies to Crossbeam:
 configure the same authorization address used when minting the token, without inventing socket
 components on the channel link.
@@ -213,5 +213,116 @@ For failover, disconnect the old link and wait for `Disconnected` to release its
 Create a new entity with the next native target and a token authorizing that server, then trigger
 `Connect`. Netcode does not advance an internal address index that leaves the transport pointed
 at the original server.
+
+## Identity-bound netcode tokens
+
+Identity tokens are an opt-in extension for servers whose authorization identity is not a socket
+address. They do not change existing socket-token bytes or reduce socket-mode application data.
+Choose `NetcodeConfig::identity(binding)` instead of `NetcodeConfig::socket(addresses)`.
+Low-level users have equivalent `ServerConfig::identity` and `ServerConfig::socket` constructors.
+The default remains an unconfigured socket server that rejects requests, not an unbound server.
+
+For pinned WebTransport, the trusted identity is the **raw 32-byte SHA-256 certificate digest**.
+The minter, server, and client must obtain the association between the intended server and that
+digest through a trusted channel. An arbitrary discovery announcement does not establish trust.
+
+```rust,ignore
+use lightyear::netcode::{ConnectToken, IdentityBinding, NetcodeClient, IDENTITY_USER_DATA_BYTES};
+use lightyear::netcode::{auth::Authentication, client_plugin, server_plugin::NetcodeConfig};
+
+let binding = IdentityBinding::from_native(
+    b"webtransport-cert-sha256",
+    &trusted_certificate_sha256,
+);
+let server_config = NetcodeConfig::identity(binding)
+    .with_protocol_id(protocol_id)
+    .with_key(private_key);
+let token = ConnectToken::build_identity(binding, protocol_id, client_id, private_key)
+    .user_data([0; IDENTITY_USER_DATA_BYTES])
+    .generate()?;
+let token_bytes = token.try_into_bytes()?;
+
+let client = NetcodeClient::new(
+    Authentication::Token(ConnectToken::try_from_bytes(&token_bytes)?),
+    client_plugin::NetcodeConfig::default(),
+)?;
+// Separately authenticate the same trusted certificate while dialing.
+// The hexadecimal pin encodes the raw digest above.
+let io = WebTransportClientIo::from_url(server_url, trusted_certificate_digest_hex);
+```
+
+The token authorizes the server; the certificate pin authenticates the native endpoint; the URL
+routes the connection. None substitutes for another. `PeerId` is never a server-authentication
+input. `token_server_addresses()` returns an empty slice for identity tokens; do not index it or
+invent a socket address. The application still owns dialing and next-link failover.
+
+### Canonical binding and application data
+
+`IdentityBinding::from_native(domain, identity)` computes all 32 bytes of:
+
+```text
+SHA-256(
+    b"lightyear-netcode-server-binding-v1\0"
+    || u64_big_endian(domain.len())
+    || domain
+    || canonical_native_identity_bytes
+)
+```
+
+There is no truncation, zero remapping, text normalization, or variable-prefix comparison.
+For WebTransport, the domain is exactly `webtransport-cert-sha256`, and identity bytes are the
+raw digest, not its hexadecimal text. For digest bytes `00 01 ... 1f`, the binding is
+`01881b728d652077d53b4d2d58d2af129124d179d394bc55fe829c92457951b0`.
+`IdentityBinding::from_bytes` imports an already-derived binding from an external minter.
+
+An identity token reserves exactly 33 of the private token's 256 user-data bytes:
+
+| Offset | Size | Meaning |
+|---|---:|---|
+| 0 | 1 | Identity token version, currently `1` |
+| 1 | 32 | Complete server binding |
+| 33 | 223 | Application data (`IDENTITY_USER_DATA_BYTES`) |
+
+`IdentityConnectTokenBuilder::user_data` accepts exactly 223 bytes. Socket builders retain
+the full 256-byte API. Server callbacks and `TokenUserData` expose the original 256-byte region;
+an explicitly identity-configured application reads its data after `IDENTITY_TOKEN_HEADER_BYTES`.
+Never choose the mode by inspecting an application's user-data prefix.
+
+### Minter format and compatibility
+
+The authenticated private address count is **zero for identity mode** and **1–32 for socket
+mode**. Public token address counts must have the corresponding shape. The identity builder
+emits both lists empty; the socket builder rejects empty public or explicitly supplied private
+lists. Client decoding validates the public list; only the server has the key to validate the
+encrypted private structure. Server validation checks configured mode first, then identity
+version and all 32 binding bytes. A socket token with an identity-looking application prefix
+is still a socket token and cannot enter an identity-configured server.
+
+The envelope remains 2048 bytes and its version string remains `NETCODE 1.02\0`. **Old readers
+reject identity tokens** because they reject empty address lists. Unchanged envelope size does
+not imply compatibility. Existing socket bytes remain unchanged, apart from the separate policy
+that ordinary client ID zero is now rejected. The application packet codec also has its own
+incompatible `4c 59 01` gate; socket-token compatibility does not make old application peers compatible.
+
+External minters must preserve Lightyear's existing **big-endian** integer encoding:
+
+- Public envelope: version (13 bytes), protocol ID/u64, creation time/u64, expiry time/u64,
+  nonce (24 bytes), encrypted private block (1024 bytes), timeout/i32, public address list,
+  client-to-server key (32 bytes), server-to-client key (32 bytes), then zero padding to 2048.
+- Private plaintext: client ID/u64, timeout/i32, private address list, the same two directional
+  keys, user data (256 bytes), then zero padding to 1008.
+- Address list: count/u32 followed by each address's family tag (`1` for IPv4, `2` for IPv6),
+  IP octets (4 or 16 bytes), and port/u16. Identity lists contain only a zero count.
+- Encrypt the private plaintext with XChaCha20-Poly1305 using the server's 32-byte secret key
+  and the public 24-byte nonce. Associated data is the version string, protocol ID/u64 and
+  expiry time/u64. Ciphertext plus its 16-byte tag forms the 1024-byte private block.
+
+Canonical socket and identity vectors are published in
+`crates/connection/netcode/src/token_vectors.json`. They were independently encrypted with PyNaCl;
+Rust tests decode, decrypt, and reproduce them. The socket vector deliberately contains the same
+identity-looking 256-byte user data as the identity vector. These vectors specify Lightyear's
+existing codec, not byte compatibility with implementations using a different integer byte order.
+Their fixed keys, nonces, and expired timestamps are **test inputs only**. Production minters must
+generate fresh directional keys and nonces and enforce their application's expiry policy.
 
 Next we will start adding systems to the client and server.

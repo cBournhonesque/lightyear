@@ -1,4 +1,7 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES, server::MAX_CLIENTS};
+use crate::{
+    ClientId, IdentityBinding, Key, PRIVATE_KEY_BYTES, ServerConfig, ServerTokenBinding,
+    USER_DATA_BYTES, server::MAX_CLIENTS,
+};
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
@@ -38,7 +41,9 @@ pub struct NetcodeServerError {
 }
 
 /// User data extracted from the client's connection token.
-/// Contains up to 256 bytes of custom data embedded by the token issuer.
+/// Socket tokens retain all 256 application bytes. Identity tokens reserve the first
+/// [`crate::IDENTITY_TOKEN_HEADER_BYTES`] bytes for their version and exact server binding;
+/// the remaining [`crate::IDENTITY_USER_DATA_BYTES`] bytes are application data.
 #[derive(Component, Debug, Clone)]
 pub struct TokenUserData(pub [u8; USER_DATA_BYTES]);
 
@@ -67,13 +72,13 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
-    /// Socket addresses accepted during private connect-token validation.
+    /// Explicit socket or identity authorization for private connect-token validation.
     ///
-    /// These authorization addresses are independent of the transport's bind address or
-    /// dial target. An empty list rejects connection requests with an explicit error.
-    /// For port-zero binds, install the observed address with
+    /// This is independent of the transport's bind address or dial target. The default
+    /// socket mode has no authorized addresses and rejects connection requests.
+    /// For port-zero socket binds, install the observed address with
     /// [`NetcodeServer::set_expected_addresses`] before clients connect.
-    pub expected_addresses: Vec<SocketAddr>,
+    pub token_binding: ServerTokenBinding,
     pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
@@ -86,13 +91,23 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
-            expected_addresses: Vec::new(),
+            token_binding: ServerTokenBinding::default(),
             connection_request_handler: None,
         }
     }
 }
 
 impl NetcodeConfig {
+    /// Accept socket tokens authorizing one of these addresses.
+    pub fn socket(addresses: impl IntoIterator<Item = SocketAddr>) -> Self {
+        Self::default().with_expected_addresses(addresses)
+    }
+
+    /// Accept identity tokens bound to this exact server identity.
+    pub fn identity(binding: IdentityBinding) -> Self {
+        Self::default().with_identity_binding(binding)
+    }
+
     pub fn with_max_clients(mut self, max_clients: usize) -> Self {
         self.max_clients = max_clients;
         self
@@ -112,14 +127,20 @@ impl NetcodeConfig {
         self
     }
 
-    /// Set the socket addresses accepted during private connect-token validation.
+    /// Select socket mode and set the addresses accepted during private connect-token validation.
     ///
     /// An empty list rejects connection requests.
     pub fn with_expected_addresses(
         mut self,
         addresses: impl IntoIterator<Item = SocketAddr>,
     ) -> Self {
-        self.expected_addresses = addresses.into_iter().collect();
+        self.token_binding = ServerTokenBinding::Socket(addresses.into_iter().collect());
+        self
+    }
+
+    /// Select identity mode for future handshakes.
+    pub fn with_identity_binding(mut self, binding: IdentityBinding) -> Self {
+        self.token_binding = ServerTokenBinding::Identity(binding);
         self
     }
 
@@ -146,7 +167,7 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        cfg = cfg.expected_addresses(config.expected_addresses);
+        cfg.token_binding = config.token_binding;
         if let Some(handler) = config.connection_request_handler {
             cfg = cfg.connection_request_handler(handler);
         }
@@ -160,12 +181,17 @@ impl NetcodeServer {
         self.inner.set_connection_request_handler(handler);
     }
 
-    /// Replace the socket addresses accepted during private connect-token validation.
+    /// Select socket mode and replace the addresses accepted during private connect-token validation.
     ///
     /// Use this after a port-zero bind to explicitly authorize the observed address,
     /// before clients connect. An empty list rejects new connection requests.
     pub fn set_expected_addresses(&mut self, addresses: impl IntoIterator<Item = SocketAddr>) {
         self.inner.set_expected_addresses(addresses);
+    }
+
+    /// Select identity mode for future handshakes, preserving existing connections and routing.
+    pub fn set_identity_binding(&mut self, binding: IdentityBinding) {
+        self.inner.set_identity_binding(binding);
     }
 
     /// Clears the Netcode runtime state while preserving this server's configuration.
@@ -527,6 +553,128 @@ mod tests {
     use lightyear_link::recv_payload_from_bytes;
 
     #[test]
+    fn pending_timeout_retires_link_only_after_deferred_transport_cleanup() {
+        let mut app = App::new();
+        app.set_error_handler(|error, _| panic!("lifecycle command failed: {error}"));
+        app.init_resource::<Time<Real>>();
+        app.add_plugins(NetcodeServerPlugin);
+        // Model a transport consumer queuing its final link-state update on disconnect.
+        app.add_observer(|event: On<Insert, Disconnected>, mut commands: Commands| {
+            commands
+                .entity(event.entity)
+                .insert(lightyear_link::Unlinked {
+                    reason: UnlinkReason::UserRequested(None),
+                });
+        });
+        let server = app
+            .world_mut()
+            .spawn(NetcodeServer::new(NetcodeConfig {
+                token_binding: ServerTokenBinding::Socket(alloc::vec![
+                    "127.0.0.1:5000".parse().unwrap()
+                ]),
+                ..Default::default()
+            }))
+            .id();
+        app.world_mut().trigger(Start { entity: server });
+        app.world_mut().flush();
+        let incoming = app
+            .world_mut()
+            .spawn((Link::default(), LinkOf { endpoint: server }))
+            .id();
+        let token = crate::ConnectToken::build("127.0.0.1:5000", 0, 7, [0; PRIVATE_KEY_BYTES])
+            .timeout_seconds(5)
+            .generate()
+            .unwrap()
+            .try_into_bytes()
+            .unwrap();
+        let mut client = crate::client::Client::new(&token).unwrap();
+        let mut client_link = Link::default();
+        client.connect();
+        client.try_update(0.2, &mut client_link.recv).unwrap();
+        client.drain_send_netcode_packets(&mut client_link.send);
+        {
+            let mut link = app.world_mut().get_mut::<Link>(incoming).unwrap();
+            while let Some(packet) = client_link.send.pop() {
+                link.recv.push_raw(recv_payload_from_bytes(packet));
+            }
+        }
+        app.world_mut().run_schedule(PreUpdate);
+        assert!(app.world().get::<Connecting>(incoming).is_some());
+
+        // A retry may already be buffered when the timeout is processed. It must not
+        // reclaim the ID ahead of a fresh request arriving on a replacement link.
+        client.try_update(0.2, &mut client_link.recv).unwrap();
+        client.drain_send_netcode_packets(&mut client_link.send);
+        {
+            let mut link = app.world_mut().get_mut::<Link>(incoming).unwrap();
+            while let Some(packet) = client_link.send.pop() {
+                link.recv.push_raw(recv_payload_from_bytes(packet));
+            }
+        }
+        let replacement = app
+            .world_mut()
+            .spawn((Link::default(), LinkOf { endpoint: server }))
+            .id();
+        let fresh_token =
+            crate::ConnectToken::build("127.0.0.1:5000", 0, 7, [0; PRIVATE_KEY_BYTES])
+                .timeout_seconds(5)
+                .generate()
+                .unwrap()
+                .try_into_bytes()
+                .unwrap();
+        let mut fresh_client = crate::client::Client::new(&fresh_token).unwrap();
+        let mut fresh_link = Link::default();
+        fresh_client.connect();
+        fresh_client.try_update(0.2, &mut fresh_link.recv).unwrap();
+        fresh_client.drain_send_netcode_packets(&mut fresh_link.send);
+        {
+            let mut link = app.world_mut().get_mut::<Link>(replacement).unwrap();
+            while let Some(packet) = fresh_link.send.pop() {
+                link.recv.push_raw(recv_payload_from_bytes(packet));
+            }
+        }
+
+        // Abandon the request without even sending the queued challenge.
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(core::time::Duration::from_secs(6));
+        app.world_mut().run_schedule(PreUpdate);
+        assert!(app.world().get::<Disconnected>(incoming).is_some());
+        assert!(
+            app.world()
+                .get::<lightyear_link::Unlinked>(incoming)
+                .is_some()
+        );
+        assert_eq!(
+            app.world()
+                .get::<NetcodeServer>(server)
+                .unwrap()
+                .inner
+                .client_entity(7),
+            Some(replacement),
+        );
+        app.world_mut().run_schedule(PostUpdate);
+        assert!(
+            app.world_mut()
+                .get_mut::<Link>(incoming)
+                .unwrap()
+                .send
+                .pop()
+                .is_none()
+        );
+        app.world_mut().run_schedule(Last);
+        assert_eq!(
+            app.world()
+                .get::<NetcodeServer>(server)
+                .unwrap()
+                .inner
+                .client_entity(7),
+            Some(replacement),
+        );
+        assert!(app.world().get_entity(incoming).is_err());
+    }
+
+    #[test]
     fn duplicate_global_admission_removes_netcode_session() {
         let mut app = App::new();
         app.set_error_handler(|error, _| panic!("lifecycle command failed: {error}"));
@@ -559,7 +707,9 @@ mod tests {
         let server = app
             .world_mut()
             .spawn(NetcodeServer::new(NetcodeConfig {
-                expected_addresses: alloc::vec!["127.0.0.1:5000".parse().unwrap()],
+                token_binding: ServerTokenBinding::Socket(alloc::vec![
+                    "127.0.0.1:5000".parse().unwrap()
+                ]),
                 ..Default::default()
             }))
             .id();

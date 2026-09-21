@@ -56,12 +56,14 @@ thiserror.workspace = true
 tracing.workspace = true
 rand = { workspace = true, optional = true }
 chacha20poly1305.workspace = true
+sha2.workspace = true
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 web-time.workspace = true
 
 [dev-dependencies]
 lightyear_serde = { workspace = true, features = ["std"] }
+serde_json.workspace = true
 
 [lints]
 workspace = true

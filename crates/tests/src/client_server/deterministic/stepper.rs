@@ -65,7 +65,9 @@ impl DetStepper {
             .world_mut()
             .spawn(NetcodeServer::new(
                 lightyear_netcode::server_plugin::NetcodeConfig {
-                    expected_addresses: vec![DET_SERVER_ADDR],
+                    token_binding: lightyear_netcode::ServerTokenBinding::Socket(vec![
+                        DET_SERVER_ADDR,
+                    ]),
                     ..Default::default()
                 },
             ))

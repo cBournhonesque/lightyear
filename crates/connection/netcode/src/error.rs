@@ -25,6 +25,12 @@ pub enum Error {
     ReservedClientId,
     #[error("server has no expected authorization addresses configured")]
     MissingExpectedAddresses,
+    #[error("token address-list structure does not match the configured server binding mode")]
+    TokenModeMismatch,
+    #[error("unsupported identity token version {0}")]
+    UnsupportedIdentityTokenVersion(u8),
+    #[error("identity token binding does not match the configured server identity")]
+    IdentityTokenBindingMismatch,
     #[error("client_id {0} connect token has already been used")]
     ConnectTokenInUse(PeerId),
     #[error("client_id {0} failed to encrypt challenge token")]
