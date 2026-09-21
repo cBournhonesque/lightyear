@@ -24,12 +24,22 @@ the [simple_box](https://github.com/cBournhonesque/lightyear/tree/main/examples/
 
 You can also find more information in this WIP [book](https://cbournhonesque.github.io/lightyear/book/).
 
+### Migrating connection setup
+
+Connection routing now uses opaque numeric `PeerId` aliases, separate from native dial targets
+and persistent player/account identity. Ordinary IDs, including host clients, must be nonzero.
+See the [connection setup and migration guide](book/src/tutorial/build_client_server.md#numeric-routing-aliases)
+for source/API and application-wire changes, [native dialing and failover](book/src/tutorial/build_client_server.md#native-dialing-and-failover)
+for transport recipes, and [token compatibility](book/src/tutorial/build_client_server.md#minter-format-and-compatibility)
+for the separate netcode boundary. The [routing scope](book/src/concepts/connection/multi_connection.md)
+also matters when replacing a connection or running multiple endpoints in one `World`.
+
 ## Repository layout
 
 Workspace crate sources live under `crates/`, grouped by role. Directory names drop the `lightyear_` prefix, but Cargo package names keep it.
 
 - `crates/io`: low-level IO links and backends such as `aeronet`, `link`, `udp`, `crossbeam`, `websocket`, and `webtransport`
-- `crates/connection`: connection abstractions and adapters such as `connection`, `raw_connection`, `netcode`, and `steam`
+- `crates/connection`: connection abstractions and adapters such as `connection`, `netcode`, `p2p`, and `steam`
 - `crates/core`: the top-level `lightyear` crate plus shared core, sync, utils, and frame interpolation crates
 - `crates/inputs`: input crates such as `inputs`, `inputs_native`, `input_bei`, and `inputs_leafwing`
 - `crates/replication`: replication, prediction, and interpolation crates

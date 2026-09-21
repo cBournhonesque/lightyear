@@ -219,12 +219,6 @@ fn clear_server_mapping_on_despawn(mut world: DeferredWorld, context: HookContex
     );
 }
 
-#[deprecated(note = "Use `crate::identity::is_server` instead")]
-pub use crate::identity::is_server;
-
-#[deprecated(note = "Use `crate::identity::is_headless_server` instead")]
-pub use crate::identity::is_headless_server;
-
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NetworkingMetadata>();

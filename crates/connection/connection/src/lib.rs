@@ -1,22 +1,77 @@
 /*! # Lightyear Connection
-Connection handling for the lightyear networking library.
-This crate provides core types for managing long-term connections on top of a Link and Transport.
 
-It also introduces helpers to setup a Client-Server architecture.
+Connection identity, admission, and lifecycle on top of native links, for client/server,
+in-process host-client, and explicit P2P topologies. A bare link or default/debug
+connection does not imply authentication or negotiated identity.
 
-This crates provide concepts that are only useful for a client-server architecture (client/server).
+## Identity and routing scope
+
+Keep application account/player identity, numeric routing aliases
+([`PeerId`](lightyear_core::id::PeerId)), and full transport-owned native identities
+separate. Native addresses and mutable dial context are not stable identity, and a
+routing alias is neither a dial target nor proof of authentication.
+
+[`LocalId`](lightyear_core::id::LocalId) and [`RemoteId`](lightyear_core::id::RemoteId)
+are final when [`Connected`](client::Connected) is exposed. Admission registers the
+remote alias in [`NetworkingMetadata::peer_map`](network_topology::NetworkingMetadata::peer_map)
+before notifying observers. This registry spans the entire World, not one endpoint
+or backend.
+
+`PeerId::SERVER` (zero) is reserved for the appropriate client/server role. A started
+local server endpoint reserves that global route, as does a conventional client's
+remote-server connection. A competing local server endpoint or remote server fails
+rather than replacing the owner. Independent client/server scopes need separate
+Worlds; explicit P2P uses nonzero peer aliases and its own discovery/roster contract.
+[`HostClient`](host::HostClient) is an in-process path, not Crossbeam, and also uses
+a nonzero alias.
+
+## Backend and transport obligations
+
+* Configure one backend before connecting. Explicit backend components require
+  [`NoDefaultConnection`](admission::NoDefaultConnection) to suppress default admission
+  on the link or an endpoint's children. Otherwise supported transports use the
+  default/debug path. Competing backends and live backend switching are unsupported;
+  there is no backend ownership or conflict arbitration.
+* Retain full native identity and dialing facts in transport-owned components.
+  Resolve both routing identities and complete any required authentication or P2P
+  preadmission discovery before publishing the connection.
+* For default/debug admission, install
+  [`DefaultConnectionPlugin`](admission::DefaultConnectionPlugin) and call
+  [`apply_default_ids`](admission::apply_default_ids) with native fallback candidates.
+  It respects requested IDs, roles, and
+  [`NoDefaultConnection`](admission::NoDefaultConnection) on the link or endpoint.
+  Opt-out leaves a byte link without implicit connection admission.
+* Explicit backends call [`admit`](admission::admit) with final local and remote IDs
+  and an additional component bundle (`()` when none is needed), and check the result.
+  The bundle is inserted atomically with `Connected`, after IDs and routing are registered.
+  Never insert `Connected` directly, mutate admitted IDs, or overwrite a registry route.
+  An identical repeated admission is allowed; rebinding a connected entity is rejected.
+* Server backends call [`start_server`](server::start_server) rather than inserting
+  [`Started`](server::Started) directly. Conflicting server routes are rejected before
+  readiness observers run.
+* Use [`reject`](admission::reject) for admission failure. It records
+  [`Disconnected`](client::Disconnected) and triggers native unlinking. Implement
+  native close handling and normal disconnect transitions on link loss. Preserve
+  `RemoteId` through teardown: the internal `Connected` removal hook and
+  `Disconnected` hook release only a binding still owned by that entity. Despawn
+  runs removal hooks too; stale teardown must never remove another owner's route.
+
+## Collisions and agreement
+
+Authenticated/netcode, P2P, and explicitly requested duplicate remote aliases fail
+across all endpoints and backends. Only an unrequested non-P2P default/debug remote
+alias other than `SERVER` may fall back to a free local label after collision; the
+incumbent is never renamed. Host clients allocate a free nonzero alias if none was
+requested; explicit host IDs must agree and pass ordinary collision checks.
+
+Default/debug admission does not authenticate or negotiate these labels. NAT and
+local-only links may produce different labels at either end. P2P lobby admission
+allows only its bounded, own-only discovery announcement before publishing IDs;
+admitted senders cannot rename themselves, and third-party discovery cannot replace
+a direct binding. Collision rejection does not establish globally consistent
+claimant selection: the existing shared-roster barrier remains required before gameplay.
 */
 #![no_std]
-// TODO: maybe lightyear_connection only stores primitives for a long-running Connection (ConnectionError, etc.)
-//  on top of a Link
-//  And client-server logic is only in lightyear_client, lightyear_server, lightyear_shared
-//  OR:
-//   for example the direction stuff should be lightyear_client + lightyear_server + lightyear_shared?
-//  --
-//   Fundamentally is it easier to find direction logic in lightyear_client/direction + lightyear_server/direction
-//   or in lightyear_direction/client + lightyear_direction/server?
-//   Maybe each crate can have #[client] and #[server] features for client-server specific stuff
-//   And then lightyear_client just calls the relevant functions from all the other crates (inputs, etc.)
 
 extern crate alloc;
 extern crate core;
@@ -40,9 +95,6 @@ pub mod shared;
 pub mod host;
 pub mod network_topology;
 pub mod p2p;
-
-#[deprecated(note = "Use ConnectionSystems instead")]
-pub type ConnectionSet = ConnectionSystems;
 
 /// System sets for connection-related logic.
 /// These are used to order systems that handle receiving and sending packets.

@@ -9,19 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Connection backends now claim fixed ownership of a connection entity. Changing backend requires a new entity.
+- Configure one connection backend before connecting. Explicit backend components require `NoDefaultConnection` to suppress default admission; competing backends and live backend switching are unsupported.
 - Admission registers resolved peer IDs before emitting `Connected`; authoritative and requested duplicate aliases are rejected instead of replacing the existing route.
 - Disconnect and despawn release only bindings owned by the departing entity.
 - Netcode validates requested IDs against token identity before admission and releases rejected sessions.
 - Transports can admit debug links through `apply_default_ids` without Raw markers or plugins; explicit backends and `NoDefaultConnection` retain control.
 - Default connections share client/server lifecycle handling and preserve configured debug/P2P IDs before admission.
-- Removed the obsolete `SkipNetcode` marker; backend ownership determines which protocol handles a link.
+- Removed the obsolete `SkipNetcode` marker; use an explicit backend or `NoDefaultConnection` instead.
 - Removed the `lightyear_raw_connection` crate and `raw_connection` feature. Existing `Client`/`Server` roles plus a transport now use default admission without extra markers.
 - Steam exposes transport and connection plugins separately, with `SteamPlugin` installing both.
 - `PeerId` is now an opaque u64. Zero is the server sentinel; ordinary, authenticated, and host IDs must be nonzero. Removed transport variants and legacy conversions.
 - Unrequested default/debug aliases may fall back locally after collision. Explicit, authenticated, and P2P aliases never do.
 - Host role checks use `HostClient`, and native transport identities remain separate from routing aliases.
-- Application packets carry a versioned wire prefix across every transport, independently of netcode token compatibility.
+- Application packets carry the `4c 59 01` wire prefix across every transport, independently of
+  netcode token compatibility. Legacy or unsupported headers are rejected before application decoding.
+- Remove the deprecated `ConnectionSet` alias; use `ConnectionSystems`.
+- Remove deprecated server-module role-helper re-exports; use `identity::is_server` and
+  `identity::is_headless_server` (also available through the server prelude).
+
+### Fixed
+
+- Server backends validate the server route through `server::start_server` before publishing `Started`; rejected starts never notify readiness observers.
+- Removing or despawning a host client releases its server's host reservation without clearing a replacement owner's state.
+- Steam address clients receive the required `Client` role, and accepted P2P links retain their endpoint's P2P role before admission.
+- Opted-out WebSocket and WebTransport lobby dials no longer leave orphaned client entities.
+
+### Migration boundaries
+
+| Boundary | Required migration |
+|---|---|
+| Source/API | Use opaque numeric aliases, transport-native dial/bind components, and explicit netcode server authorization. Configure the backend before connecting. Removed APIs are not retained as compatibility aliases. |
+| Application wire | Upgrade all communicating peers together. The `PeerId` `ToBytes` codec uses eight big-endian bytes; Serde encodes an underlying u64. The versioned packet gate also covers default/debug and P2P traffic. |
+| Socket connect tokens | Existing bytes and all 256 application-data bytes remain unchanged. Client ID zero is now rejected rather than remapped. Explicit socket authorization still applies to addressless IO such as Crossbeam. |
+| Identity connect tokens | Opt in on both minter and server. Empty address lists and a versioned full-width binding reserve 33 user-data bytes, leaving 223. Old readers reject this extension despite the unchanged 2048-byte envelope. |
+
+`SERVER` has one owner per World. Starting a second independent server endpoint or registering a
+different remote server cannot overwrite that route. Host clients use nonzero aliases, and only
+unrequested default/debug collisions may choose a different local label before admission.
+
+See the [setup and native dialing guide](../../../book/src/tutorial/build_client_server.md),
+[connection contracts](../../../book/src/concepts/connection/title.md), and
+[identity-token release notes](../netcode/CHANGELOG.md#unreleased). Native pinned WebTransport has
+end-to-end identity-token coverage; Steam and Iroh pairings are not advertised as verified.
 
 ## v0.21.0 (2025-07-03)
 

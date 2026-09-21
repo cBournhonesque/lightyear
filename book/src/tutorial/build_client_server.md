@@ -44,20 +44,26 @@ The [`Stopped`], [`Starting`], [`Started`] components represent the current stat
 
 While a client is disconnected, you can update its configuration (`ReplicationSender`, `MessageManager`, etc.), it will be applied on the next connection attempt.
 
-Choose the connection backend before connecting. A connection entity keeps that backend even after
-disconnecting; spawn a new entity to use another backend. Conflicting backend markers fail with a
-`Disconnected` reason rather than silently selecting one.
+Configure one connection backend before connecting. Explicit backend components require
+`NoDefaultConnection` to suppress raw/default admission; without a backend or opt-out,
+supported transports use the default path. Competing backends and live backend switching
+are unsupported, not resolved by ownership or conflict tracking.
 
 Remote peer IDs are unique across all endpoints in the same Bevy `World`. A backend registers the
-resolved identity before adding `Connected`, so connection observers can immediately route to it.
+final `LocalId` and `RemoteId` before adding `Connected`, so connection observers can immediately route to it.
 Authenticated, P2P, and explicitly requested duplicate IDs are rejected without notifying
 `Connected` observers. An unrequested default/debug ID may select a free local alias after a
 collision; it never renames the incumbent or establishes cross-peer agreement. Normal disconnect
-or despawn releases the binding.
+or despawn releases only the binding owned by that entity.
 
 For netcode, a preinserted `LocalId` is an expectation, not an override of the token. Manual
 authentication can validate it before the handshake. Opaque tokens keep that ID encrypted, so their
 expected ID is checked after authentication but before `Connected`.
+
+Starting a `Server` endpoint also reserves the World-wide `PeerId::SERVER` route for that
+endpoint. A second independent local server endpoint, or an outgoing remote-server route,
+cannot replace that owner: it fails explicitly. Separate Worlds or explicit P2P roles are
+needed where independent server roles would be ambiguous; see [routing scope](../concepts/connection/multi_connection.md).
 
 ### Numeric routing aliases
 
@@ -71,6 +77,12 @@ The former enum variants and `to_bits()`/`is_local()` methods are removed. Use `
 alias and transport-owned components for native identities, addresses, and display. Do not decode
 an alias into a dial target or use it as a persistent account/player ID. Replicon `NetworkId` uses
 the final admitted numeric alias directly.
+
+These source/API changes are separate from the application-wire change below and the
+[netcode token compatibility boundary](#minter-format-and-compatibility). Remove the former
+Raw crate/markers and shared `LocalAddr`/`PeerAddr` configuration; use the native transport
+components in [the dialing recipes](#native-dialing-and-failover). There are no compatibility
+aliases or automatic conversions for old identity variants.
 
 Socket projections use `peer_id_from_socket` with domain `b"udp"`, `b"websocket"`, or
 `b"webtransport"`. The canonical input is family byte 4 or 6, IP octets, big-endian port, and for
@@ -107,6 +119,27 @@ An admitted link cannot announce a different sender ID. Duplicate claims are rej
 third-party discovery cannot replace an established direct binding. Rejection does not guarantee
 that all peers choose the same claimant: `P2PStart` still requires admitted candidates and the
 existing shared-roster agreement barrier before gameplay.
+
+Native authentication does not authorize an advertised alias or account. For example, a valid
+WebTransport pin proves possession of the pinned certificate, but the application must trust
+the association between that pin, the intended peer, and its lobby/account permissions.
+An untrusted discovery announcement cannot supply that authorization merely by including a pin.
+
+### Gameplay identity and connection replacement
+
+Keep durable player/account identity in application-owned state, and associate it with the
+current admitted connection after the application's authentication and authorization checks.
+`PeerId` is a routing alias, not a saved-game key, account credential, or reconnect guarantee.
+The `lobby` example carries `LobbyClientId` onto a newly spawned game connection when leaving
+the lobby. Switching from netcode to the in-process host backend can change the routing alias
+without changing that application identity; the example ID itself is not an account credential.
+
+Do not remove one backend marker and insert another on the same entity. Disconnect/despawn the
+old entity to release its route, create the replacement with its backend and native target,
+then associate its final admitted alias with the same player. Host migration must use
+`HostClient` to identify the local role and nonzero ordinary IDs, not the old zero-ID convention.
+Neither replacement nor [P2P admission](#p2p-discovery-admission) negotiates a new shared identity
+or renames an existing peer.
 
 
 ## Client
@@ -193,26 +226,85 @@ Finally we trigger the [`Start`] trigger so that the server can start listening 
 
 ## Native dialing and failover
 
+### UDP and stream targets
+
+For a single UDP peer, use `UdpIo::new(bind_addr, peer_addr)`; for an accepting endpoint,
+use `UdpEndpoint::new(bind_addr)`. The requested `bind_addr` remains configuration, including
+port zero. After binding, read `UdpLocalAddr` for the actual socket and `UdpPeerAddr` for a
+link's native remote route. Do not infer either address from a `PeerId`.
+
 WebSocket clients use `WebSocketClientIo::from_url(config, "wss://game.example/session")` or
 `from_host(config, WebSocketScheme::Secure, "game.example", 443)`. WebTransport clients use
 `WebTransportClientIo::from_url("https://game.example/session", certificate_digest)` or
 `from_host("game.example", 443, certificate_digest)`. Hostnames stay intact for DNS, TLS and browser
 APIs; do not pre-resolve them into IP addresses. The host constructors also handle unbracketed IPv6.
 
-WebSocket's `ServerConfig` owns its bind configuration. `WebTransportEndpoint` owns `bind_addr`
-and `certificate`. Read `WebSocketLocalAddr` / `WebTransportLocalAddr` after binding for the actual
-listener address; their corresponding `PeerAddr` types describe observed native sessions, not
-dial inputs. Browsers do not expose socket addresses, so those observations may be absent.
+WebSocket's `WebSocketEndpoint { config }` uses Aeronet `ServerConfig` for the requested bind.
+`WebTransportEndpoint { bind_addr, certificate }` owns its requested bind and TLS identity.
+Read `WebSocketLocalAddr` / `WebTransportLocalAddr` after binding for the actual listener address,
+including the assigned port after requesting zero. `WebSocketPeerAddr` / `WebTransportPeerAddr`
+describe observed native sessions, not dial inputs or advertised public addresses.
+Browsers do not expose socket addresses, so those observations may be absent; never fill them
+with fake addresses.
+
+A WT certificate digest is a hexadecimal SHA-256 pin obtained through a trusted channel, not
+an arbitrary value copied from an untrusted announcement. Use the intended server's trusted
+digest with `WebTransportClientIo`; native TLS and [netcode authorization](#identity-bound-netcode-tokens)
+are independent. Empty pins are not a production pinning recipe: with dangerous configuration,
+an empty native pin disables certificate validation.
+
+### Steam native targets and facts
+
+Use `SteamClientIo { target, config: SessionConfig::default() }`, where `target` is
+`ConnectTarget::Addr(server_addr)` for socket dialing or
+`ConnectTarget::Peer { steam_id, virtual_port }` for a Steam relay peer. An accepting
+`SteamEndpoint { target, config: SessionConfig::default() }` takes `ListenTarget::Addr(bind_addr)`
+or `ListenTarget::Peer { virtual_port }`. Retain the full `SteamId` in the native target,
+not a reverse conversion from a generic alias. Initialize Steam resources before Lightyear
+plugins with `SteamAppExt::add_steam_resources(app_id)`; this requires a running Steam client.
+
+Once a session is established, `SteamSessionFacts` exposes the native `local` identity and
+optional authenticated `remote` identity. Outgoing socket sessions have `remote: None` because
+Aeronet does not expose it; their original address remains in `SteamClientIo::target`.
+The Steam backend uses the server role alias for those client/server links. Address-target
+P2P sessions cannot authenticate an alias and are rejected. Use `SteamPlugin` for native Steam
+admission, or its transport half with another explicit backend—not two admission backends
+on one entity. This does not establish an end-to-end Steam identity-token pairing.
+
+### Crossbeam without sockets
+
+Call `CrossbeamIo::new_pair()` and insert one result on each link entity, normally in separate
+client/server Worlds. The server mirror has `LinkOf { endpoint: server }`; start it with
+`LinkStart`, and trigger `Connect` on the `Client` entity at the other end. Do not insert
+`Linked` manually. Channel links have no bind or dial socket, and their default entity-derived
+IDs are local debug labels, not an agreement between the two Worlds. If a test requires agreed
+IDs, explicitly coordinate `LocalId` / `RemoteId` or use an explicit connection backend.
+For socket-mode netcode, the [configured authorization address](#server) belongs to the token,
+not the channel. `HostClient` is a distinct in-process backend, not Crossbeam.
+
+### Native debug display
+
+Display the numeric `LocalId` / `RemoteId` separately from native configuration and observations.
+For UDP show requested bind and peer alongside `UdpLocalAddr` / `UdpPeerAddr`; for WS/WT show
+the original URL, configured listener bind, and available native address components. For Steam
+show the native target and `SteamSessionFacts`, including an absent remote identity rather than
+inventing one. Label Crossbeam as a channel link without sockets. A debug alias must not be
+formatted as though it still encodes an address, transport variant, or persistent player.
+
+### Application-owned next-link failover
 
 Netcode never inserts or changes a transport dial target. For a socket token, choose an address
 from `NetcodeClient::token_server_addresses()` and explicitly construct `UdpIo::new(bind, address)`
 or the appropriate stream client. A URL may use a hostname or proxy representation different
 from the token's authorized address; there is no literal URL-versus-socket comparison.
 
-For failover, disconnect the old link and wait for `Disconnected` to release its routing identity.
-Create a new entity with the next native target and a token authorizing that server, then trigger
-`Connect`. Netcode does not advance an internal address index that leaves the transport pointed
-at the original server.
+For failover, the application chooses the next target and whether another attempt is appropriate.
+Disconnect the old link and wait for `Disconnected` to release its routing identity, or despawn
+it. Create a new entity with the next native target and a token authorizing that server, then
+trigger `Connect`. Do not mutate the backend on the old entity, rename the incumbent alias,
+or assume the replacement retains the same gameplay identity without an application mapping.
+Netcode does not advance an internal address index that leaves the transport pointed at the
+original server, and the native transport does not implement automatic next-link failover.
 
 ## Identity-bound netcode tokens
 
@@ -255,6 +347,10 @@ The token authorizes the server; the certificate pin authenticates the native en
 routes the connection. None substitutes for another. `PeerId` is never a server-authentication
 input. `token_server_addresses()` returns an empty slice for identity tokens; do not index it or
 invent a socket address. The application still owns dialing and next-link failover.
+
+The demonstrated identity-token pairing is pinned native WebTransport. Steam identity-token
+end-to-end support is not established here; Iroh is companion-branch work, not a shipped transport
+in this change. Do not infer either pairing from the transport-independent binding API.
 
 ### Canonical binding and application data
 

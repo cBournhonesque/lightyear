@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking identity and wire changes
+
+- Replace backend-specific `PeerId` variants with `PeerId(pub u64)`. Preserve nonzero numeric
+  identities, including `u64::MAX`; reserve `PeerId::SERVER` (`0`) for explicit server routing.
+  Use `HostClient` to detect the host role, not an identity value.
+- Remove variant-dependent conversions and `to_bits()`. The numeric value is `.0`; full native
+  addresses and authenticated identities live in transport-owned components.
+- Encode `PeerId` through `ToBytes` as eight big-endian bytes without a discriminant. Serde is
+  transparent over u64 and uses the chosen serializer's integer encoding. This is not compatible
+  with the former enum representation.
+- Provide deterministic SHA-256 native/socket projections with explicit domain separation,
+  byte order and zero handling. Projections are routing candidates, not authentication or a
+  collision agreement mechanism.
+
+Application packets now carry the `4c 59 01` compatibility prefix, including non-netcode and P2P
+paths. Upgrade application peers together. This wire change is separate from unchanged socket
+connect-token encoding and the opt-in identity-token extension; see the
+[connection migration notes](../../connection/connection/CHANGELOG.md#unreleased).
+
 ## v0.21.0 (2025-07-03)
 
 ### Chore

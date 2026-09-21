@@ -5,11 +5,11 @@ This folder contains various examples showcasing `lightyear` features.
 ## Easy
 
 Start here:
-- `simple_setup`: minimal example that hows how to create a client and server and replicate an entity
+- `simple_setup`: minimal example that shows how to create a client and server and replicate an entity
 
 Then:
 - `simple_box`: example that showcases client/server prediction and interpolation, plus an optional deterministic input-only P2P mode
-- `bevy_enhanced_input`: example that shows how to integrate lightyear with the `bevy_enhanced_input` crate to handle inputs.
+- `bevy_enhanced_inputs`: example that shows how to integrate lightyear with the `bevy_enhanced_input` crate to handle inputs.
 
 ## Medium
 
@@ -36,16 +36,22 @@ Then:
 
 ## Running an example
 
+Run these commands from an example using the shared CLI, such as `examples/simple_box`
+(from the repository root, add `-p simple_box` to `cargo run`).
+
 - Run the server headlessly (the default): `cargo run -- server`
 - Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
-[//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
-- Build and run the server without GUI support: `cargo run --no-default-features --features=server -- server`
-- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client`
+- Run the client and server in separate Bevy Apps connected by Crossbeam channels: `cargo run -- separate -c 1`
+- Build and run the server without GUI support: `cargo run --no-default-features --features=server,webtransport,netcode -- server`
+- Run the client and server in `HostClient` mode, in the same App: `cargo run -- host-client`
 
-You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
-For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
+Features vary by example; see its `Cargo.toml`. The `simple_box` defaults include client, server,
+GUI, P2P, netcode, and WebTransport. The shared client/server CLI selects WebTransport;
+`--transport` belongs to the `p2p` subcommand, not `client` or `server`. To select UDP,
+WebSocket, or Steam for client/server helpers, configure `ClientTransports` / `ServerTransports`
+in the application's setup instead.
 
 To build all compatible examples, use `just build_examples features=client,server`. Add
 `headless=true` to omit the GUI from client/P2P builds, or `headless=false` to include it explicitly.
@@ -57,22 +63,47 @@ live in [`demos/`](../demos/README.md).
 
 Client IDs must be nonzero. A host client gets its own nonzero local alias by default;
 use `host-client -c ID` only when you want to choose it explicitly.
+`HostClient` is an in-process connection backend, not a Crossbeam link. Zero is reserved
+for `PeerId::SERVER`, not a player number or a way to recognize the host.
+
+For API migrations, see [numeric routing aliases](../book/src/tutorial/build_client_server.md#numeric-routing-aliases)
+and [native dialing and failover](../book/src/tutorial/build_client_server.md#native-dialing-and-failover).
+The latter covers UDP, hostname-preserving WS/WT clients, Steam targets and session facts,
+and addressless Crossbeam setup. Native bind/dial facts belong to the transport, not `PeerId`.
+The `lobby` example preserves its application-owned `LobbyClientId` when replacing the lobby
+connection with a game-host connection; the new backend entity may have a different routing alias.
+See [gameplay identity and connection replacement](../book/src/tutorial/build_client_server.md#gameplay-identity-and-connection-replacement)
+and [routing scope](../book/src/concepts/connection/multi_connection.md) before composing endpoints.
+
+The shared client/server examples use development authentication settings: native WebTransport
+passes an empty pin with dangerous configuration enabled, and native WebSocket disables certificate
+validation. Do not copy those settings into production. Use a trusted certificate policy or a
+trusted WT digest; [identity-bound tokens](../book/src/tutorial/build_client_server.md#identity-bound-netcode-tokens)
+are a separate, opt-in authorization mechanism, not a replacement for native authentication.
 
 ### P2P transports
 
 P2P examples accept `--transport udp`, `--transport websocket`, or `--transport webtransport`.
 Each peer advertises its native endpoint separately from its opaque routing alias.
 WebSocket uses plain local connections. WebTransport generates a certificate per peer
-and prints its SHA-256 digest at startup. To join a WebTransport seed, copy that digest:
+and prints its SHA-256 digest at startup. In `simple_box`, join a WebTransport seed with:
 
 ```sh
 cargo run --no-default-features --features=p2p -- p2p --transport webtransport --port 6100
 cargo run --no-default-features --features=p2p -- p2p --transport webtransport --port 6101 --peer 127.0.0.1:6100 --peer-certificate-digest <64-hex-digit-seed-digest>
 ```
 
-The certificate pin is needed only for the seed; lobby discovery carries native
-addresses and certificate pins for other members. Restarting the seed generates
-a new certificate, so use its newly printed digest.
+Only the seed pin must be supplied on the CLI; lobby discovery carries native addresses and
+certificate pins for other members. Copy the seed digest through a trusted channel.
+A successful pin check authenticates possession of that certificate, not an advertised routing
+alias, lobby membership, or player/account. Discovery data from an untrusted peer does not
+authorize those claims; the application must establish that trust separately. Restarting the
+seed generates a new certificate, so use its newly printed digest.
+
+UDP has no native authentication, and plain local WebSocket is not a secure discovery channel.
+These recipes do not assign peer IDs, rename conflicting peers, or provide automatic
+failover. The existing [P2P admission path](../book/src/tutorial/build_client_server.md#p2p-discovery-admission)
+exchanges self-ID announcements, rejects conflicting claims, and requires the shared-roster barrier before gameplay.
 
 ### Testing in wasm with webtransport
 

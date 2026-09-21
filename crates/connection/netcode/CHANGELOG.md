@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minting and admission reject client ID zero, reserved for the server role.
 - Retire disconnected accepted links in `Last`, after deferred native link-state cleanup,
   rather than despawning them while lifecycle commands still reference the entity.
+- Pending handshakes expire without letting retransmitted requests renew their reservation.
+  Positive token timeouts bound pending lifetime; nonpositive timeouts use the default
+  ten-second handshake window while retaining unlimited connected-session lifetime.
+  Expiry clears queued packets and retires the old link without removing a replacement.
 
 ### Added
 

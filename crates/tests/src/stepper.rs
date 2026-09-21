@@ -227,12 +227,6 @@ impl StepperConfig {
         }
     }
 
-    /// Backwards-compatible alias for [`Self::from_connection_types`].
-    #[deprecated(note = "use `from_connection_types`; these select connection layers, not IO")]
-    pub fn from_link_types(clients: Vec<ClientType>, server: ServerType) -> Self {
-        Self::from_connection_types(clients, server)
-    }
-
     /// Selects the IO backend without changing the configured connection layer.
     pub fn with_io(mut self, io: IoType) -> Self {
         self.io = io;
