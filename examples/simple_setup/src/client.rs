@@ -21,16 +21,13 @@ fn startup(mut commands: Commands) {
     let mut client = commands.spawn((
         // mark the entity as a 'Client' role
         Client,
-        // you need to specify the local and remote addresses for the link
-        LocalAddr(CLIENT_ADDR),
-        PeerAddr(SERVER_ADDR),
         Link::default(),
         // allows this link to receive replication messages from the server
         ReplicationReceiver,
         // Without an explicit backend, the default debug connection uses transport-derived IDs.
         // Use NetcodeClient when authenticated identity is required.
         // the transport used to send and receive bytes over the network
-        UdpIo::default(),
+        UdpIo::new(CLIENT_ADDR, SERVER_ADDR),
     ));
     client.trigger(Connect::from);
 }

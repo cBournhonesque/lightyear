@@ -5,12 +5,13 @@
 //! triggered. `lightyear_aeronet` then mirrors Aeronet session state and moves payloads between the
 //! Aeronet session and the Lightyear [`Link`](lightyear_link::Link).
 
-use crate::WebSocketError;
+use crate::{WebSocketLocalAddr, WebSocketPeerAddr};
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use aeronet_websocket::client::{ClientConfig, WebSocketClient};
 use alloc::{format, string::String};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
+use core::net::SocketAddr;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_connection::p2p::P2P;
@@ -22,7 +23,7 @@ use lightyear_link::{Link, LinkStart, Linked, Linking};
 /// The plugin observes [`LinkStart`] to spawn and connect the underlying Aeronet client entity.
 pub struct WebSocketClientPlugin;
 
-/// URL scheme used when constructing a WebSocket URL from [`PeerAddr`].
+/// URL scheme used when constructing a WebSocket URL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum WebSocketScheme {
     /// Unencrypted WebSocket (ws://)
@@ -53,6 +54,7 @@ impl Plugin for WebSocketClientPlugin {
         app.add_plugins(aeronet_websocket::client::WebSocketClientPlugin);
         app.add_observer(Self::link);
         app.add_observer(Self::on_linked);
+        app.add_observer(Self::on_addresses);
     }
 }
 
@@ -67,49 +69,63 @@ impl Plugin for WebSocketClientPlugin {
 pub struct WebSocketClientIo {
     /// Aeronet WebSocket client configuration.
     pub config: ClientConfig,
-    /// URL or address-derived target to connect to.
-    pub target: WebSocketTarget,
-}
-
-/// Target endpoint for [`WebSocketClientIo`].
-#[derive(Debug, Clone)]
-pub enum WebSocketTarget {
-    /// Connect using a full URL (e.g., "wss://example.com:443").
-    Url(String),
-    /// Construct URL from scheme and [`PeerAddr`] component.
-    Addr(WebSocketScheme),
+    /// Full WebSocket URL, including the original hostname, path and query.
+    pub target: String,
 }
 
 impl WebSocketClientIo {
     /// Creates a client transport that connects to a full WebSocket URL.
     ///
-    /// Use this when the target cannot be represented by the entity's [`PeerAddr`], for example
-    /// when a path, DNS name, proxy endpoint, or explicit scheme must be included.
+    /// Hostnames, paths and queries are passed unchanged to the transport.
     pub fn from_url(config: ClientConfig, url: impl Into<String>) -> Self {
         Self {
             config,
-            target: WebSocketTarget::Url(url.into()),
+            target: url.into(),
         }
     }
 
-    /// Creates a client transport that constructs its URL from [`PeerAddr`].
-    ///
-    /// The link entity must have [`PeerAddr`] when [`LinkStart`] is processed. The final URL is
-    /// `<scheme>://<peer_addr>`, where `scheme` is provided by [`WebSocketScheme::as_str`].
-    pub fn from_addr(config: ClientConfig, scheme: WebSocketScheme) -> Self {
-        Self {
-            config,
-            target: WebSocketTarget::Addr(scheme),
-        }
+    /// Creates a client transport for a socket address.
+    pub fn from_addr(config: ClientConfig, scheme: WebSocketScheme, address: SocketAddr) -> Self {
+        Self::from_url(config, format!("{}://{address}", scheme.as_str()))
+    }
+
+    /// Creates a client transport for a hostname without resolving DNS in advance.
+    pub fn from_host(config: ClientConfig, scheme: WebSocketScheme, host: &str, port: u16) -> Self {
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        let target = if host.contains(':') {
+            format!("{}://[{host}]:{port}", scheme.as_str())
+        } else {
+            format!("{}://{host}:{port}", scheme.as_str())
+        };
+        Self::from_url(config, target)
     }
 }
 
 impl WebSocketClientPlugin {
-    fn on_linked(
-        trigger: On<Add, Linked>,
+    fn on_addresses(
+        trigger: On<Insert, (LocalAddr, PeerAddr, AeronetLinkOf, WebSocketClient)>,
         query: Query<
-            (Option<&LocalAddr>, Option<&PeerAddr>),
-            (With<WebSocketClientIo>, Without<P2P>),
+            (&AeronetLinkOf, Option<&LocalAddr>, Option<&PeerAddr>),
+            With<WebSocketClient>,
+        >,
+        mut commands: Commands,
+    ) {
+        if let Ok((owner, local, peer)) = query.get(trigger.entity) {
+            let mut link = commands.entity(owner.0);
+            if let Some(local) = local {
+                link.insert(WebSocketLocalAddr(local.0));
+            }
+            if let Some(peer) = peer {
+                link.insert(WebSocketPeerAddr(peer.0));
+            }
+        }
+    }
+
+    fn on_linked(
+        trigger: On<Add, (Linked, WebSocketLocalAddr, WebSocketPeerAddr)>,
+        query: Query<
+            (Option<&WebSocketLocalAddr>, Option<&WebSocketPeerAddr>),
+            (With<WebSocketClientIo>, With<Linked>, Without<P2P>),
         >,
         mut commands: Commands,
     ) {
@@ -137,20 +153,11 @@ impl WebSocketClientPlugin {
 
     fn link(
         trigger: On<LinkStart>,
-        query: Query<
-            (Entity, &WebSocketClientIo, Option<&PeerAddr>),
-            (Without<Linking>, Without<Linked>),
-        >,
+        query: Query<(Entity, &WebSocketClientIo), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, client, peer_addr)) = query.get(trigger.entity) {
-            let target = match &client.target {
-                WebSocketTarget::Url(url) => url.clone(),
-                WebSocketTarget::Addr(scheme) => {
-                    let server_addr = peer_addr.ok_or(WebSocketError::PeerAddrMissing)?.0;
-                    format!("{}://{server_addr}", scheme.as_str())
-                }
-            };
+        if let Ok((entity, client)) = query.get(trigger.entity) {
+            let target = client.target.clone();
 
             let config = client.config.clone();
             commands.queue(move |world: &mut World| -> Result {
@@ -161,5 +168,23 @@ impl WebSocketClientPlugin {
             });
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_constructor_brackets_ipv6_once() {
+        for host in ["::1", "[::1]"] {
+            let client = WebSocketClientIo::from_host(
+                ClientConfig::builder().with_no_encryption(),
+                WebSocketScheme::Plain,
+                host,
+                4100,
+            );
+            assert_eq!(client.target, "ws://[::1]:4100");
+        }
     }
 }

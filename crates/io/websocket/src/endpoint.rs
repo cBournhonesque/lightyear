@@ -4,7 +4,7 @@
 //! Each accepted Aeronet session receives its own Lightyear [`Link`](lightyear_link::Link)
 //! through [`LinkOf`].
 
-use crate::WebSocketError;
+use crate::{WebSocketLocalAddr, WebSocketPeerAddr};
 use aeronet_io::Session;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 pub use aeronet_websocket::server::{
@@ -40,13 +40,14 @@ impl Plugin for WebSocketEndpointPlugin {
         app.add_observer(Self::link);
         app.add_observer(Self::on_connection);
         app.add_observer(Self::on_linked);
+        app.add_observer(Self::on_addresses);
     }
 }
 
 /// Lightyear component for a WebSocket endpoint: one bound address that many peers connect to.
 ///
-/// A [`LocalAddr`] must be present when [`LinkStart`] is triggered; the plugin opens an Aeronet
-/// [`WebSocketServer`] using [`config`](Self::config).
+/// When [`LinkStart`] is triggered, the plugin opens an Aeronet [`WebSocketServer`] using
+/// [`config`](Self::config), including its bind address.
 ///
 /// Accepted peers are represented as Lightyear link entities related through [`LinkOf`].
 /// Add [`Server`](lightyear_link::server::Server) alongside for the authority role.
@@ -58,46 +59,77 @@ pub struct WebSocketEndpoint {
 }
 
 impl WebSocketEndpointPlugin {
-    fn on_linked(
-        trigger: On<Add, Linked>,
-        links: Query<(&LinkOf, &PeerAddr), Without<P2P>>,
-        endpoints: Query<&LocalAddr, With<WebSocketEndpoint>>,
+    fn on_addresses(
+        trigger: On<
+            Insert,
+            (
+                LocalAddr,
+                PeerAddr,
+                AeronetLinkOf,
+                WebSocketServer,
+                WebSocketServerClient,
+            ),
+        >,
+        query: Query<
+            (&AeronetLinkOf, Option<&LocalAddr>, Option<&PeerAddr>),
+            Or<(With<WebSocketServer>, With<WebSocketServerClient>)>,
+        >,
         mut commands: Commands,
     ) {
-        let Ok((link_of, peer_addr)) = links.get(trigger.entity) else {
-            return;
-        };
-        let Ok(local_addr) = endpoints.get(link_of.endpoint) else {
-            return;
-        };
-        let entity = trigger.entity;
-        let endpoint = link_of.endpoint;
-        let local = LocalId(PeerId::Raw(local_addr.0));
-        let remote = RemoteId(PeerId::Raw(peer_addr.0));
-        commands.queue(move |world: &mut World| {
-            // Lobby links are admitted only after their P2P IDs and roles have been installed.
-            #[cfg(feature = "lobby")]
-            if world.get::<crate::lobby::LobbyEndpoint>(endpoint).is_some() {
-                return;
+        if let Ok((owner, local, peer)) = query.get(trigger.entity) {
+            let mut link = commands.entity(owner.0);
+            if let Some(local) = local {
+                link.insert(WebSocketLocalAddr(local.0));
             }
-            let _ = endpoint;
-            apply_default_ids(world, entity, local, remote);
-        });
+            if let Some(peer) = peer {
+                link.insert(WebSocketPeerAddr(peer.0));
+            }
+        }
+    }
+
+    fn on_linked(
+        trigger: On<Add, (Linked, WebSocketLocalAddr, WebSocketPeerAddr)>,
+        links: Query<(Entity, &LinkOf, &WebSocketPeerAddr), (With<Linked>, Without<P2P>)>,
+        endpoints: Query<&WebSocketLocalAddr, With<WebSocketEndpoint>>,
+        mut commands: Commands,
+    ) {
+        // A bound-address callback can arrive after an accepted session becomes linked.
+        let mut admit = |(entity, link_of, peer_addr): (Entity, &LinkOf, &WebSocketPeerAddr)| {
+            let Ok(local_addr) = endpoints.get(link_of.endpoint) else {
+                return;
+            };
+            let endpoint = link_of.endpoint;
+            let local = LocalId(PeerId::Raw(local_addr.0));
+            let remote = RemoteId(PeerId::Raw(peer_addr.0));
+            commands.queue(move |world: &mut World| {
+                #[cfg(feature = "lobby")]
+                if world.get::<crate::lobby::LobbyEndpoint>(endpoint).is_some() {
+                    return;
+                }
+                let _ = endpoint;
+                apply_default_ids(world, entity, local, remote);
+            });
+        };
+        if endpoints.contains(trigger.entity) {
+            for link in &links {
+                if link.1.endpoint == trigger.entity {
+                    admit(link);
+                }
+            }
+        } else if let Ok(link) = links.get(trigger.entity) {
+            admit(link);
+        }
     }
 
     fn link(
         trigger: On<LinkStart>,
-        query: Query<
-            (Entity, &WebSocketEndpoint, Option<&LocalAddr>),
-            (Without<Linking>, Without<Linked>),
-        >,
+        query: Query<(Entity, &WebSocketEndpoint), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, io, local_addr)) = query.get(trigger.entity) {
-            let server_addr = local_addr.ok_or(WebSocketError::LocalAddrMissing)?.0;
+        if let Ok((entity, io)) = query.get(trigger.entity) {
             let config = io.config.clone();
             commands.queue(move |world: &mut World| {
-                info!("Server WebSocket starting at {}", server_addr);
+                info!("Server WebSocket starting");
                 let child = world.spawn((AeronetLinkOf(entity), Name::from("WebSocketServer")));
                 WebSocketServer::open(config).apply(child);
             });
@@ -105,15 +137,20 @@ impl WebSocketEndpointPlugin {
         Ok(())
     }
 
-    // TODO: should also add on_connecting? Or maybe it's handled automatically
-    //  because the connecting entity adds SessionEndpoint? (and lightyear_aeronet handles that)
     fn on_connection(
-        trigger: On<Add, Session>,
+        trigger: On<Add, (Session, WebSocketServerClient)>,
         query: Query<&AeronetLinkOf>,
-        child_query: Query<(&ChildOf, &PeerAddr), With<WebSocketServerClient>>,
+        child_query: Query<
+            &ChildOf,
+            (
+                With<WebSocketServerClient>,
+                With<Session>,
+                Without<AeronetLinkOf>,
+            ),
+        >,
         mut commands: Commands,
     ) {
-        if let Ok((child_of, peer_addr)) = child_query.get(trigger.entity)
+        if let Ok(child_of) = child_query.get(trigger.entity)
             && let Ok(server_link) = query.get(child_of.parent())
         {
             let link_entity = commands
@@ -122,7 +159,6 @@ impl WebSocketEndpointPlugin {
                         endpoint: server_link.0,
                     },
                     Link::default(),
-                    PeerAddr(peer_addr.0),
                 ))
                 .id();
             commands
@@ -140,10 +176,43 @@ mod tests {
     use std::thread;
 
     use lightyear_aeronet::AeronetLink;
+    #[test]
+    fn accepted_session_waits_for_bound_and_peer_addresses() {
+        use lightyear_connection::client::Connected;
+
+        let mut app = App::new();
+        app.add_plugins(WebSocketEndpointPlugin);
+        let local = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 4100);
+        let peer = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 4101);
+        let endpoint = app
+            .world_mut()
+            .spawn(WebSocketEndpoint {
+                config: server_config(local),
+            })
+            .id();
+        let link = app
+            .world_mut()
+            .spawn((LinkOf { endpoint }, Link::default(), Linked))
+            .id();
+        assert!(app.world().get::<Connected>(link).is_none());
+        app.world_mut()
+            .entity_mut(link)
+            .insert(WebSocketPeerAddr(peer));
+        assert!(app.world().get::<Connected>(link).is_none());
+        app.world_mut()
+            .entity_mut(endpoint)
+            .insert(WebSocketLocalAddr(local));
+        assert!(app.world().get::<Connected>(link).is_some());
+        assert_eq!(
+            app.world().get::<RemoteId>(link).unwrap().0,
+            PeerId::Raw(peer)
+        );
+    }
+
     #[cfg(feature = "client")]
     #[test]
     fn local_sessions_respect_admission_ownership_and_disconnect() {
-        use crate::client::{WebSocketClientIo, WebSocketClientPlugin, WebSocketScheme};
+        use crate::client::{WebSocketClientIo, WebSocketClientPlugin};
         use lightyear_connection::admission::NoDefaultConnection;
         use lightyear_connection::client::{Connected, Disconnect};
         use lightyear_connection::client_of::ClientOf;
@@ -180,9 +249,24 @@ mod tests {
                 .world_mut()
                 .spawn((
                     Server,
-                    LocalAddr(address),
                     WebSocketEndpoint {
-                        config: server_config(address),
+                        config: server_config(address).with_handshake_handler(
+                            aeronet_websocket::server::HandshakeHandler::new(
+                                |request, response| {
+                                    assert_eq!(
+                                        request.uri().path_and_query().unwrap().as_str(),
+                                        "/session?transport=ws"
+                                    );
+                                    assert!(
+                                        request.headers()["host"]
+                                            .to_str()
+                                            .unwrap()
+                                            .starts_with("localhost:")
+                                    );
+                                    Ok(response)
+                                },
+                            ),
+                        ),
                     },
                 ))
                 .id();
@@ -199,12 +283,12 @@ mod tests {
             }
             app.world_mut().trigger(LinkStart { entity: server });
             run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());
-            let address = app.world().get::<LocalAddr>(server).unwrap().0;
+            let address = app.world().get::<WebSocketLocalAddr>(server).unwrap().0;
             let client = client_app
                 .world_mut()
-                .spawn((
-                    PeerAddr(address),
-                    WebSocketClientIo::from_addr(Default::default(), WebSocketScheme::Plain),
+                .spawn(WebSocketClientIo::from_url(
+                    Default::default(),
+                    format!("ws://localhost:{}/session?transport=ws", address.port()),
                 ))
                 .id();
             if mode == 1 {
@@ -246,6 +330,20 @@ mod tests {
                 })
                 .unwrap()
                 .id();
+            assert_eq!(
+                client_app
+                    .world()
+                    .get::<WebSocketPeerAddr>(client)
+                    .unwrap()
+                    .0,
+                address
+            );
+            for entity in [server, accepted] {
+                assert!(app.world().get::<LocalAddr>(entity).is_none());
+                assert!(app.world().get::<PeerAddr>(entity).is_none());
+            }
+            assert!(client_app.world().get::<LocalAddr>(client).is_none());
+            assert!(client_app.world().get::<PeerAddr>(client).is_none());
             if mode == 0 {
                 assert!(client_app.world().get::<Connected>(client).is_some());
                 assert!(app.world().get::<Connected>(accepted).is_some());
@@ -256,7 +354,13 @@ mod tests {
                 );
                 assert_eq!(
                     app.world().get::<RemoteId>(accepted).unwrap().0,
-                    PeerId::Raw(client_app.world().get::<LocalAddr>(client).unwrap().0),
+                    PeerId::Raw(
+                        client_app
+                            .world()
+                            .get::<WebSocketLocalAddr>(client)
+                            .unwrap()
+                            .0
+                    ),
                 );
                 client_app
                     .world_mut()
@@ -313,12 +417,9 @@ mod tests {
     fn spawn_server(app: &mut App, addr: SocketAddr) -> Entity {
         let entity = app
             .world_mut()
-            .spawn((
-                LocalAddr(addr),
-                WebSocketEndpoint {
-                    config: server_config(addr),
-                },
-            ))
+            .spawn(WebSocketEndpoint {
+                config: server_config(addr),
+            })
             .id();
         app.world_mut().trigger(LinkStart { entity });
         entity
@@ -343,7 +444,7 @@ mod tests {
 
         let server = spawn_server(&mut app, SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0));
         run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());
-        let local_addr = app.world().get::<LocalAddr>(server).unwrap().0;
+        let local_addr = app.world().get::<WebSocketLocalAddr>(server).unwrap().0;
         assert_ne!(local_addr.port(), 0);
 
         app.world_mut().trigger(Unlink {

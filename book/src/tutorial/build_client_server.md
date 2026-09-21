@@ -76,27 +76,25 @@ Here is how you can set up a client in your app:
 ```rust,ignore
 let auth = Authentication::Manual {
     server_addr: SERVER_ADDR,
-    client_id: 0,
+    client_id: 1,
     private_key: Key::default(),
     protocol_id: 0,
 };
 let client = commands
     .spawn((
         Client,
-        LocalAddr(CLIENT_ADDR),
-        PeerAddr(SERVER_ADDR),
         Link::default(),
         ReplicationReceiver,
         NetcodeClient::new(auth, NetcodeConfig::default())?,
-        UdpIo::default(),
+        UdpIo::new(CLIENT_ADDR, SERVER_ADDR),
     ))
     .id();
-commands.trigger_targets(Connect, client);
+commands.trigger(Connect { entity: client });
 ```
 
 Let's walk through this:
 - we add the [`Client`] marker component to the entity to identify it as a client.
-- we manually specify the [`LocalAddr`] and [`PeerAddr`] components to define the local and remote addresses of the link.
+- UDP's constructor owns its bind and dial addresses; no shared address components are required.
 - we add the [`Link`] component to the entity, which will be used to send and receive raw bytes over the network.
 - we add the [`ReplicationReceiver`] component to the entity, which will be used to receive replicated entities and components from the server.
 - netcode is the explicit connection backend in this example. For testing, `Manual` authentication
@@ -117,27 +115,52 @@ a new entity will be spawned with the [`LinkOf`] component that will mark that [
 ```rust,ignore
 let server = commands
     .spawn((
-        NetcodeServer::new(NetcodeConfig::default()),
-        LocalAddr(SERVER_ADDR),
-        UdpEndpoint::default(),
+        NetcodeServer::new(NetcodeConfig::default().with_expected_addresses([SERVER_ADDR])),
+        UdpEndpoint::new(SERVER_ADDR),
         Server,
     ))
     .id();
-commands.trigger_targets(Start, server);
+commands.trigger(Start { entity: server });
 ```
 
-We need to add `NetcodeServer` because we need a connection layer. This will automatically insert the [`Server`] component.
-By default, it uses the server entity's [`LocalAddr`] to validate the private address list in
-incoming connection tokens. The transport updates [`LocalAddr`] after binding, so this also picks
-up an OS-assigned port when binding to port `0`.
-We also need to specify the [`LocalAddr`] component to define the local address of the server.
-The IO layer we choose is UDP, so we add the [`UdpEndpoint`] component to the entity, alongside the
-[`Server`] role marker that identifies it as an authoritative server rather than a P2P peer endpoint.
+`NetcodeServer` selects the authenticated connection backend and adds the `Server` role.
+Its `expected_addresses` are the server addresses authorized by incoming tokens, not a transport
+bind configuration. An empty list rejects connection requests. This also applies to Crossbeam:
+configure the same authorization address used when minting the token, without inventing socket
+components on the channel link.
 
-For local development, wildcard and loopback addresses of the same family and port are considered
-equivalent, such as `0.0.0.0:5000` and `127.0.0.1:5000`. Address checking can be disabled for an
-addressless transport by setting `NetcodeConfig::server_addr_check` to `false`.
+`UdpEndpoint::new` owns the actual UDP bind. After a port-zero bind, read `UdpLocalAddr` for the
+assigned port. Choose the publicly reachable address for that port, call
+`NetcodeServer::set_expected_addresses([advertised_address])`, and mint tokens using that address
+before clients connect. NAT/public addresses can differ from the listener's bind address.
+
+For local development, wildcard and loopback addresses of the same family and port remain
+equivalent, such as `0.0.0.0:5000` and `127.0.0.1:5000`. There is no implicit address-validation
+opt-out for addressless transports.
 
 Finally we trigger the [`Start`] trigger so that the server can start listening for incoming connections.
+
+## Native dialing and failover
+
+WebSocket clients use `WebSocketClientIo::from_url(config, "wss://game.example/session")` or
+`from_host(config, WebSocketScheme::Secure, "game.example", 443)`. WebTransport clients use
+`WebTransportClientIo::from_url("https://game.example/session", certificate_digest)` or
+`from_host("game.example", 443, certificate_digest)`. Hostnames stay intact for DNS, TLS and browser
+APIs; do not pre-resolve them into IP addresses. The host constructors also handle unbracketed IPv6.
+
+WebSocket's `ServerConfig` owns its bind configuration. `WebTransportEndpoint` owns `bind_addr`
+and `certificate`. Read `WebSocketLocalAddr` / `WebTransportLocalAddr` after binding for the actual
+listener address; their corresponding `PeerAddr` types describe observed native sessions, not
+dial inputs. Browsers do not expose socket addresses, so those observations may be absent.
+
+Netcode never inserts or changes a transport dial target. For a socket token, choose an address
+from `NetcodeClient::token_server_addresses()` and explicitly construct `UdpIo::new(bind, address)`
+or the appropriate stream client. A URL may use a hostname or proxy representation different
+from the token's authorized address; there is no literal URL-versus-socket comparison.
+
+For failover, disconnect the old link and wait for `Disconnected` to release its routing identity.
+Create a new entity with the next native target and a token authorizing that server, then trigger
+`Connect`. Netcode does not advance an internal address index that leaves the transport pointed
+at the original server.
 
 Next we will start adding systems to the client and server.

@@ -31,6 +31,8 @@ pub enum Authentication {
     /// This is only useful for testing purposes. In production, the client should not have access
     /// to the `private_key`.
     Manual {
+        /// Socket authorization address embedded in the token, not a transport dial target.
+        /// Configure the client's native transport destination separately.
         server_addr: SocketAddr,
         client_id: u64,
         private_key: Key,

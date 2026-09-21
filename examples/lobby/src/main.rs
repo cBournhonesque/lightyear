@@ -89,6 +89,11 @@ fn main() {
                     shared: SHARED_SETTINGS,
                 })
                 .id();
+            app.world_mut()
+                .entity_mut(client)
+                .insert(client::LobbyClientId(
+                    cli.client_id().expect("client mode requires an ID"),
+                ));
             app.world_mut().trigger(Connect { entity: client })
         }
     }

@@ -23,6 +23,16 @@ pub mod endpoint;
 pub mod lobby;
 
 use alloc::string::String;
+use bevy_ecs::prelude::Component;
+use core::net::SocketAddr;
+
+/// Observed local socket address, published after the native transport binds or connects.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebTransportLocalAddr(pub SocketAddr);
+
+/// Observed remote socket address of a native WebTransport session.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebTransportPeerAddr(pub SocketAddr);
 
 /// Errors produced while creating WebTransport client or server transport entities.
 #[derive(thiserror::Error, Debug)]
@@ -30,17 +40,11 @@ pub enum WebTransportError {
     /// The configured certificate hash or digest string is invalid.
     #[error("the certificate hash `{0}` is invalid")]
     Certificate(String),
-    /// A [`PeerAddr`](aeronet_io::connection::PeerAddr) component was required but missing.
-    #[error("PeerAddr is required to start the WebTransportClientIo link when target is None")]
-    PeerAddrMissing,
-    /// A [`LocalAddr`](aeronet_io::connection::LocalAddr) component was required but missing.
-    #[error("LocalAddr is required to start the WebTransportEndpoint")]
-    LocalAddrMissing,
 }
 
 /// Re-exports commonly needed by applications configuring WebTransport.
 pub mod prelude {
-    pub use crate::WebTransportError;
+    pub use crate::{WebTransportError, WebTransportLocalAddr, WebTransportPeerAddr};
 
     #[cfg(not(target_family = "wasm"))]
     pub use aeronet_webtransport::wtransport::Identity;

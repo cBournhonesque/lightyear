@@ -96,8 +96,7 @@ impl LobbyPeer {
                 use lightyear_udp::lobby::UdpLobbyPlugin;
 
                 app.add_plugins(UdpLobbyPlugin);
-                app.world_mut()
-                    .spawn((UdpEndpoint::default(), LocalAddr(local)));
+                app.world_mut().spawn(UdpEndpoint::new(local));
             }
             #[cfg(feature = "p2p_websocket")]
             TestTransport::WebSocket => {
@@ -111,14 +110,11 @@ impl LobbyPeer {
                     ClientConfig::builder().with_no_cert_validation(),
                     WebSocketScheme::Plain,
                 ));
-                app.world_mut().spawn((
-                    WebSocketEndpoint {
-                        config: ServerConfig::builder()
-                            .with_bind_address(local)
-                            .with_no_encryption(),
-                    },
-                    LocalAddr(local),
-                ));
+                app.world_mut().spawn((WebSocketEndpoint {
+                    config: ServerConfig::builder()
+                        .with_bind_address(local)
+                        .with_no_encryption(),
+                },));
             }
             #[cfg(feature = "p2p_webtransport")]
             TestTransport::WebTransport => {
@@ -131,8 +127,10 @@ impl LobbyPeer {
                 app.add_plugins(WebTransportLobbyPlugin);
                 let certificate = Identity::self_signed(["localhost", "127.0.0.1", "::1"])
                     .expect("self-signed identity should be valid");
-                app.world_mut()
-                    .spawn((WebTransportEndpoint { certificate }, LocalAddr(local)));
+                app.world_mut().spawn(WebTransportEndpoint {
+                    certificate,
+                    bind_addr: local,
+                });
             }
         }
 

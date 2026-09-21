@@ -8,10 +8,10 @@ use bevy::prelude::*;
 use crate::shared::SharedSettings;
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
+use lightyear::netcode::NetcodeClient;
 use lightyear::netcode::client_plugin::NetcodeConfig;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear::{netcode::NetcodeClient, websocket::client::WebSocketTarget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -53,8 +53,6 @@ impl ExampleClient {
                 Client,
                 ReplicationReceiver,
                 Link::default().with_conditioner(settings.conditioner.clone()),
-                LocalAddr(client_addr),
-                PeerAddr(settings.server_addr),
                 Name::from("Client"),
             ));
 
@@ -80,7 +78,7 @@ impl ExampleClient {
                 #[cfg(all(feature = "udp", not(target_family = "wasm")))]
                 ClientTransports::Udp => {
                     add_netcode(&mut entity_mut)?;
-                    entity_mut.insert(UdpIo::default());
+                    entity_mut.insert(UdpIo::new(client_addr, settings.server_addr));
                 }
                 ClientTransports::WebTransport => {
                     add_netcode(&mut entity_mut)?;
@@ -94,10 +92,10 @@ impl ExampleClient {
                             "".to_string()
                         }
                     };
-                    entity_mut.insert(WebTransportClientIo {
+                    entity_mut.insert(WebTransportClientIo::from_addr(
+                        settings.server_addr,
                         certificate_digest,
-                        target: None,
-                    });
+                    ));
                 }
                 ClientTransports::WebSocket => {
                     add_netcode(&mut entity_mut)?;
@@ -111,10 +109,11 @@ impl ExampleClient {
                             ClientConfig::builder().with_no_cert_validation()
                         }
                     };
-                    entity_mut.insert(WebSocketClientIo {
+                    entity_mut.insert(WebSocketClientIo::from_addr(
                         config,
-                        target: WebSocketTarget::Addr(Default::default()),
-                    });
+                        Default::default(),
+                        settings.server_addr,
+                    ));
                 }
                 #[cfg(feature = "steam")]
                 ClientTransports::Steam => {

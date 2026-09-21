@@ -21,6 +21,8 @@ pub enum Error {
     ClientNotConnected(PeerId),
     #[error("failed to read connect token")]
     InvalidConnectToken,
+    #[error("server has no expected authorization addresses configured")]
+    MissingExpectedAddresses,
     #[error("client_id {0} connect token has already been used")]
     ConnectTokenInUse(PeerId),
     #[error("client_id {0} failed to encrypt challenge token")]

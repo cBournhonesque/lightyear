@@ -60,7 +60,7 @@ impl ExampleServer {
                 Endpoint::new(settings.conditioner.clone()),
             ));
 
-            let add_netcode = |entity_mut: &mut EntityWorldMut| {
+            let add_netcode = |entity_mut: &mut EntityWorldMut, port: u16| {
                 // Use private key from environment variable, if set. Otherwise from settings file.
                 let private_key = if let Some(key) = parse_private_key_from_env() {
                     info!("Using private key from LIGHTYEAR_PRIVATE_KEY env var");
@@ -71,32 +71,35 @@ impl ExampleServer {
                 entity_mut.insert(NetcodeServer::new(NetcodeConfig {
                     protocol_id: settings.shared.protocol_id,
                     private_key,
+                    expected_addresses: vec![SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port)],
                     ..Default::default()
                 }));
             };
             match settings.transport {
                 #[cfg(feature = "udp")]
                 ServerTransports::Udp { local_port } => {
-                    add_netcode(&mut entity_mut);
+                    use lightyear_udp::endpoint::UdpEndpoint;
+
+                    add_netcode(&mut entity_mut, local_port);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
-                    entity_mut.insert((LocalAddr(server_addr), ServerUdpIo));
+                    entity_mut.insert((UdpEndpoint::new(server_addr), ServerUdpIo));
                 }
                 ServerTransports::WebTransport {
                     local_port,
                     certificate,
                 } => {
-                    add_netcode(&mut entity_mut);
+                    add_netcode(&mut entity_mut, local_port);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     entity_mut.insert((
-                        LocalAddr(server_addr),
                         WebTransportEndpoint {
+                            bind_addr: server_addr,
                             certificate: (&certificate).into(),
                         },
                         Server,
                     ));
                 }
                 ServerTransports::WebSocket { local_port } => {
-                    add_netcode(&mut entity_mut);
+                    add_netcode(&mut entity_mut, local_port);
                     let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), local_port);
                     let sans = vec![
                         "localhost".to_string(),
@@ -108,11 +111,7 @@ impl ExampleServer {
                         .with_identity(
                             lightyear::websocket::endpoint::Identity::self_signed(sans).unwrap(),
                         );
-                    entity_mut.insert((
-                        LocalAddr(server_addr),
-                        WebSocketEndpoint { config },
-                        Server,
-                    ));
+                    entity_mut.insert((WebSocketEndpoint { config }, Server));
                 }
                 #[cfg(feature = "steam")]
                 ServerTransports::Steam { local_port } => {

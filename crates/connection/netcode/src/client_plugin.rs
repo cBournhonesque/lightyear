@@ -3,13 +3,12 @@ use alloc::format;
 use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
-use aeronet_io::connection::PeerAddr;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
-use bevy_ecs::{system::ParallelCommands, world::DeferredWorld};
+use bevy_ecs::system::ParallelCommands;
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
+use core::net::SocketAddr;
 use lightyear_connection::ConnectionSystems;
 use lightyear_connection::admission::{NoDefaultConnection, admit, reject};
 use lightyear_connection::client::{
@@ -34,25 +33,9 @@ pub struct NetcodeClientPlugin;
 #[derive(Component)]
 #[require(Link, lightyear_connection::client::Client)]
 #[require(Disconnected, NoDefaultConnection)]
-#[component(on_insert = NetcodeClient::on_insert)]
 pub struct NetcodeClient {
     pub inner: crate::client::Client<()>,
     token_client_id: Option<u64>,
-}
-
-impl NetcodeClient {
-    fn on_insert(mut world: DeferredWorld, context: HookContext) {
-        if let Some(server_addr) = world
-            .get::<NetcodeClient>(context.entity)
-            .map(|client| client.inner.server_addr())
-        {
-            world
-                .commands()
-                .get_entity(context.entity)
-                .unwrap()
-                .insert(PeerAddr(server_addr));
-        }
-    }
 }
 
 #[derive(Clone, Reflect)]
@@ -101,6 +84,14 @@ impl NetcodeClient {
             inner: crate::client::Client::with_config(&token_bytes, config.build())?,
             token_client_id,
         })
+    }
+
+    /// Socket addresses authorized by the token, in issuer-provided order.
+    ///
+    /// These do not configure the transport. To try another address, the application
+    /// must create a new link with the appropriate native transport configuration.
+    pub fn token_server_addresses(&self) -> &[SocketAddr] {
+        self.inner.token_server_addresses()
     }
 
     pub fn id(&self) -> PeerId {

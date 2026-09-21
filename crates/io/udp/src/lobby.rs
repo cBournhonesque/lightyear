@@ -25,9 +25,9 @@
 //!
 //! Only two things, neither of them per-peer:
 //!
-//! 1. **Where to bind**, by spawning an [`UdpEndpoint`](crate::endpoint::UdpEndpoint) with a
-//!    [`LocalAddr`](aeronet_io::connection::LocalAddr). Bind port `0` to let
-//!    the OS choose; the endpoint updates [`LocalAddr`] with the address it actually got.
+//! 1. **Where to bind**, by spawning an [`UdpEndpoint`](crate::endpoint::UdpEndpoint) with
+//!    [`UdpEndpoint::new`]. Bind port `0` to let the OS choose; the endpoint publishes
+//!    [`UdpLocalAddr`](crate::UdpLocalAddr) with the address it actually got.
 //! 2. **The seeds**, by handing the lobby the `PeerId::Raw` of the peers it should dial first. Every
 //!    other peer is discovered through announces and dialed with no configuration at all.
 //!
@@ -35,14 +35,13 @@
 //! # use core::net::{Ipv4Addr, SocketAddr};
 //! # use lightyear_udp::endpoint::UdpEndpoint;
 //! # use lightyear_udp::lobby::UdpLobbyPlugin;
-//! # use aeronet_io::connection::LocalAddr;
 //! # use bevy_app::App;
 //! fn setup(app: &mut App) {
 //!     app.add_plugins(UdpLobbyPlugin);
 //!     // Give the peer a socket. Any address the peers can reach will do.
 //!     let local = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
 //!     app.world_mut()
-//!         .spawn((UdpEndpoint::default(), LocalAddr(local)));
+//!         .spawn(UdpEndpoint::new(local));
 //! }
 //! ```
 //!
@@ -67,7 +66,7 @@ use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked};
 use lightyear_p2p::DialPeer;
 use tracing::{debug, warn};
 
-use aeronet_io::connection::PeerAddr;
+use crate::UdpPeerAddr;
 
 use crate::endpoint::{UdpEndpoint, UdpEndpointPlugin, UdpLinkOfIO};
 
@@ -104,7 +103,7 @@ fn on_endpoint_added(trigger: On<Add, UdpEndpoint>, mut commands: Commands) {
 fn on_dial(
     trigger: On<DialPeer>,
     endpoints: Query<Entity, With<UdpEndpoint>>,
-    peer_links: Query<(&LinkOf, &PeerAddr), With<UdpLinkOfIO>>,
+    peer_links: Query<(&LinkOf, &UdpPeerAddr), With<UdpLinkOfIO>>,
     mut ios: Query<&mut UdpEndpoint>,
     mut commands: Commands,
 ) {
@@ -120,7 +119,7 @@ fn on_dial(
     let Ok(endpoint) = endpoints.single() else {
         warn!(
             ?peer,
-            "no UdpEndpoint exists, so no Link can be dialed; spawn an UdpEndpoint with a LocalAddr"
+            "no UdpEndpoint exists, so no Link can be dialed; spawn one with UdpEndpoint::new"
         );
         return;
     };
@@ -144,7 +143,7 @@ fn on_dial(
             Link::default(),
             // The endpoint's socket is already bound, so the link can send immediately.
             Linked,
-            PeerAddr(address),
+            UdpPeerAddr(address),
             UdpLinkOfIO,
         ))
         .id();

@@ -35,13 +35,11 @@
 
 extern crate alloc;
 
-use aeronet_io::connection::{LocalAddr, PeerAddr};
 use alloc::string::String;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use bytes::Bytes;
-use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
@@ -54,20 +52,16 @@ use tracing::{error, trace};
 
 /// Maximum payload size used by Lightyear's packet transports.
 pub(crate) const MTU: usize = 1472;
-const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 
 /// In-process transport component backed by `crossbeam-channel`.
 ///
-/// `CrossbeamIo` is inserted on a Lightyear link entity and requires a [`Link`], `LocalAddr`, and
-/// `PeerAddr`. The addresses are dummy localhost values used by connection-layer code that expects
-/// address components even though no real socket exists.
+/// `CrossbeamIo` is inserted on a Lightyear link entity and requires a [`Link`].
+/// Channel links have no network addresses.
 ///
 /// Use [`new_pair`](Self::new_pair) for the normal bidirectional setup: one returned component goes
 /// on the client-side entity and the other on the server-side mirror entity.
 #[derive(Component, Clone)]
 #[require(Link::default())]
-#[require(LocalAddr(LOCALHOST))]
-#[require(PeerAddr(LOCALHOST))]
 pub struct CrossbeamIo {
     sender: Sender<Bytes>,
     receiver: Receiver<Bytes>,

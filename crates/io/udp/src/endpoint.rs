@@ -1,7 +1,7 @@
 //! Multi-peer UDP endpoint.
 //!
-//! A [`UdpEndpoint`](crate::endpoint::UdpEndpoint) owns one non-blocking UDP socket bound to a
-//! [`LocalAddr`](aeronet_io::connection::LocalAddr). It is the address
+//! A [`UdpEndpoint`](crate::endpoint::UdpEndpoint) owns one non-blocking UDP socket whose bound
+//! address is reported by [`UdpLocalAddr`]. It is the address
 //! other peers reach this one at, and it fans out to one child [`Link`] per remote address, related
 //! to it through [`LinkOf`](lightyear_link::prelude::LinkOf). This is what gives a peer a single stable identity: the socket it is
 //! reachable on, regardless of how many peers it talks to.
@@ -25,8 +25,7 @@ use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::system::ParallelCommands;
 use tracing::{debug, error, info};
 
-use crate::UdpError;
-use aeronet_io::connection::{LocalAddr, PeerAddr};
+use crate::{UdpLocalAddr, UdpPeerAddr};
 use bevy_platform::collections::{HashMap, hash_map::Entry};
 use bytes::BufMut;
 use core::net::SocketAddr;
@@ -40,16 +39,19 @@ use lightyear_link::{Link, LinkStart, LinkSystems, Linked, Linking, Unlink, Unli
 
 /// UDP endpoint component.
 ///
-/// Insert this on the entity that should own a UDP socket. A [`LocalAddr`] component is required
-/// before [`LinkStart`] is triggered; the plugin binds one socket to that address and creates child
-/// link entities for remote addresses as datagrams arrive. After binding, [`LocalAddr`] is updated to
-/// the address reported by the socket, including the OS-assigned port when binding to port `0`.
+/// Insert this on the entity that should own a UDP socket. Supply the bind address with
+/// [`UdpEndpoint::new`] before [`LinkStart`] is triggered; the plugin binds one socket and creates
+/// child link entities for remote addresses as datagrams arrive. After binding, [`UdpLocalAddr`]
+/// reports the actual address, including the OS-assigned port when binding to port `0`.
+/// The default endpoint binds to `0.0.0.0:0`.
 ///
-/// Each child link receives [`PeerAddr`] for its remote socket address and [`UdpLinkOfIO`] to mark it
+/// Each child link receives [`UdpPeerAddr`] for its remote socket address and [`UdpLinkOfIO`] to mark it
 /// as owned by this transport.
 #[derive(Component)]
 #[require(Endpoint)]
 pub struct UdpEndpoint {
+    /// Requested local bind address. Port `0` lets the OS choose a port.
+    pub bind_addr: SocketAddr,
     socket: Option<std::net::UdpSocket>,
     recv_buffers: BufferPool,
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
@@ -76,15 +78,21 @@ enum LinkOfStatus {
 
 impl Default for UdpEndpoint {
     fn default() -> Self {
-        UdpEndpoint {
+        Self::new(SocketAddr::from((core::net::Ipv4Addr::UNSPECIFIED, 0)))
+    }
+}
+
+impl UdpEndpoint {
+    /// Creates an endpoint with an explicit local bind address.
+    pub fn new(bind: SocketAddr) -> Self {
+        Self {
+            bind_addr: bind,
             socket: None,
             recv_buffers: crate::recv_buffer_pool(),
             connected_addresses: HashMap::with_capacity(1),
         }
     }
-}
 
-impl UdpEndpoint {
     /// Returns receive-buffer pool misses for allocation regression tests.
     #[cfg(feature = "test_utils")]
     pub fn recv_buffer_pool_misses(&self) -> usize {
@@ -93,6 +101,7 @@ impl UdpEndpoint {
 
     /// Records `entity` as the link for `address`, before any datagram has arrived from it.
     ///
+    /// Give that link [`UdpPeerAddr`] with the same address so outgoing datagrams use this route.
     /// The endpoint otherwise learns remote addresses only from inbound datagrams, so a link created
     /// for a peer that was dialed would not be found on that peer's first reply: a second link would
     /// be spawned for the same address, and the peer's datagrams would land in it while replies are
@@ -111,7 +120,7 @@ impl UdpEndpoint {
 /// - an [`Unlink`] observer that closes the socket;
 /// - a receive system that creates or finds a child link for each remote address and queues the
 ///   datagram in that child [`Link::recv`];
-/// - a send system that drains each UDP child [`Link::send`] to its [`PeerAddr`].
+/// - a send system that drains each UDP child [`Link::send`] to its [`UdpPeerAddr`].
 pub struct UdpEndpointPlugin;
 
 impl UdpEndpointPlugin {
@@ -122,13 +131,13 @@ impl UdpEndpointPlugin {
                 return;
             };
             let Some(local) = world
-                .get::<LocalAddr>(endpoint)
+                .get::<UdpLocalAddr>(endpoint)
                 .map(|addr| LocalId(PeerId::Raw(addr.0)))
             else {
                 return;
             };
             let Some(remote) = world
-                .get::<PeerAddr>(entity)
+                .get::<UdpPeerAddr>(entity)
                 .map(|addr| RemoteId(PeerId::Raw(addr.0)))
             else {
                 return;
@@ -149,20 +158,18 @@ impl UdpEndpointPlugin {
 
     fn link(
         trigger: On<LinkStart>,
-        mut query: Query<
-            (&mut UdpEndpoint, Option<&mut LocalAddr>),
-            (Without<Linking>, Without<Linked>),
-        >,
+        mut query: Query<&mut UdpEndpoint, (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((mut udp_endpoint, local_addr)) = query.get_mut(trigger.entity) {
-            let mut local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?;
-            let socket = std::net::UdpSocket::bind(local_addr.0)?;
+        if let Ok(mut udp_endpoint) = query.get_mut(trigger.entity) {
+            let socket = std::net::UdpSocket::bind(udp_endpoint.bind_addr)?;
             socket.set_nonblocking(true)?;
-            local_addr.0 = socket.local_addr()?;
-            info!("UDP endpoint bound to {}", local_addr.0);
+            let local_addr = socket.local_addr()?;
+            info!("UDP endpoint bound to {}", local_addr);
             udp_endpoint.socket = Some(socket);
-            commands.entity(trigger.entity).insert(Linked);
+            commands
+                .entity(trigger.entity)
+                .insert((UdpLocalAddr(local_addr), Linked));
         }
         Ok(())
     }
@@ -176,7 +183,7 @@ impl UdpEndpointPlugin {
 
     fn send(
         mut endpoint_query: Query<(&mut UdpEndpoint, &Endpoint), With<Linked>>,
-        mut link_query: Query<(&mut Link, &PeerAddr), With<UdpLinkOfIO>>,
+        mut link_query: Query<(&mut Link, &UdpPeerAddr), With<UdpLinkOfIO>>,
     ) {
         // TODO: parallelize
         endpoint_query
@@ -301,9 +308,8 @@ impl UdpEndpointPlugin {
                                                 },
                                                 link,
                                                 Linked,
-                                                PeerAddr(address),
+                                                UdpPeerAddr(address),
                                                 UdpLinkOfIO,
-                                                // TODO: should we add LocalAddr?
                                             ))
                                             .id();
                                         info!(?entity, ?endpoint_entity, "Received UDP packet from new address {address}, Spawn new LinkOf");
@@ -381,13 +387,12 @@ mod tests {
             .world_mut()
             .spawn((
                 Server::default(),
-                UdpEndpoint::default(),
-                LocalAddr("127.0.0.1:0".parse().unwrap()),
+                UdpEndpoint::new("127.0.0.1:0".parse().unwrap()),
             ))
             .id();
         app.world_mut().trigger(Start { entity: endpoint });
         app.update();
-        let address = app.world().get::<LocalAddr>(endpoint).unwrap().0;
+        let address = app.world().get::<UdpLocalAddr>(endpoint).unwrap().0;
         assert!(app.world().get::<Started>(endpoint).is_some());
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.send_to(b"hello", address).unwrap();
@@ -428,6 +433,18 @@ mod tests {
                 .as_ref(),
             b"hello"
         );
+        app.world_mut()
+            .get_mut::<Link>(child)
+            .unwrap()
+            .send
+            .push(bytes::Bytes::from_static(b"reply"));
+        app.update();
+        peer.set_read_timeout(Some(core::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut packet = [0; crate::MTU];
+        let (len, source) = peer.recv_from(&mut packet).unwrap();
+        assert_eq!(&packet[..len], b"reply");
+        assert_eq!(source, address);
         app.world_mut().trigger(Stop { entity: endpoint });
         app.update();
         assert!(app.world().get::<Stopped>(endpoint).is_some());
@@ -456,12 +473,9 @@ mod tests {
         app.add_plugins(crate::lobby::UdpLobbyPlugin);
         let endpoint = app
             .world_mut()
-            .spawn((
-                UdpEndpoint::default(),
-                LocalAddr("127.0.0.1:0".parse().unwrap()),
-            ))
+            .spawn(UdpEndpoint::new("127.0.0.1:0".parse().unwrap()))
             .id();
-        let address = app.world().get::<LocalAddr>(endpoint).unwrap().0;
+        let address = app.world().get::<UdpLocalAddr>(endpoint).unwrap().0;
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.send_to(b"hello", address).unwrap();
         app.update();
@@ -559,15 +573,12 @@ mod tests {
         app.add_plugins(UdpEndpointPlugin);
 
         let requested_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-        let endpoint = app
-            .world_mut()
-            .spawn((LocalAddr(requested_addr), UdpEndpoint::default()))
-            .id();
+        let endpoint = app.world_mut().spawn(UdpEndpoint::new(requested_addr)).id();
 
         app.world_mut().trigger(LinkStart { entity: endpoint });
         app.world_mut().flush();
 
-        let bound_addr = app.world().get::<LocalAddr>(endpoint).unwrap().0;
+        let bound_addr = app.world().get::<UdpLocalAddr>(endpoint).unwrap().0;
         assert_eq!(bound_addr.ip(), requested_addr.ip());
         assert_ne!(bound_addr.port(), 0);
         assert!(app.world().get::<Linked>(endpoint).is_some());

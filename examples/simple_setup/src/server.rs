@@ -39,7 +39,7 @@ fn startup(mut commands: Commands) -> Result {
         .spawn((
             // No explicit backend is needed for this unauthenticated debug connection.
             // you need to specify the address to bind the server to
-            LocalAddr(SERVER_ADDR),
+            UdpEndpoint::new(SERVER_ADDR),
             // the transport that we will use is Udp
             ServerUdpIo,
         ))

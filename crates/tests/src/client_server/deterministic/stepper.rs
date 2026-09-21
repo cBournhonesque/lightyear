@@ -65,7 +65,7 @@ impl DetStepper {
             .world_mut()
             .spawn(NetcodeServer::new(
                 lightyear_netcode::server_plugin::NetcodeConfig {
-                    server_addr_check: false,
+                    expected_addresses: vec![DET_SERVER_ADDR],
                     ..Default::default()
                 },
             ))
@@ -170,10 +170,6 @@ impl DetStepper {
                 ReplicationSender,
                 ReplicationReceiver,
                 Link::default(),
-                PeerAddr(SocketAddr::new(
-                    core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
-                    client_id as u16,
-                )),
                 Linked,
                 crossbeam_server,
             ))

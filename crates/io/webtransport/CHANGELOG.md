@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Client dialing uses an explicit URL or hostname constructor; DNS names, paths and queries reach native and browser transport APIs unchanged.
+- `WebTransportEndpoint::bind_addr` owns the listener configuration. Read `WebTransportLocalAddr` and `WebTransportPeerAddr` for observed socket facts.
+- Removed shared `LocalAddr`/`PeerAddr` configuration and generic Aeronet address copying onto Lightyear entities. Browser links do not manufacture socket facts.
+- Native clients use a dual-stack bind so hostname resolution and IPv6 targets remain usable.
+
 ## v0.21.0 (2025-07-03)
 
 <csr-id-5dc2e81f8c2b1171df33703d73e38a49e7b4695d/>

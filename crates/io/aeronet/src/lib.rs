@@ -3,8 +3,8 @@
 //! Aeronet owns concrete connection/session entities and packet queues. Lightyear owns
 //! transport-neutral [`Link`] buffers and lifecycle markers. This crate bridges the two by keeping
 //! an Aeronet session entity related to a Lightyear link entity through [`AeronetLink`] and
-//! [`AeronetLinkOf`], copying Aeronet endpoint addresses onto the link, mirroring Aeronet session
-//! state into [`Linked`], [`Linking`], and [`Unlinked`], and moving byte payloads between
+//! [`AeronetLinkOf`], mirroring Aeronet session state into [`Linked`], [`Linking`], and
+//! [`Unlinked`], and moving byte payloads between
 //! [`aeronet_io::Session`] queues and [`Link`] buffers.
 //!
 //! Concrete Aeronet-backed transports such as `lightyear_websocket` and `lightyear_webtransport`
@@ -18,7 +18,7 @@ extern crate std;
 /// Aeronet endpoint lifecycle bridge for Lightyear endpoint link entities.
 pub mod endpoint;
 
-use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
+use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSystems, Session, SessionEndpoint};
 use alloc::{format, string::ToString};
@@ -53,7 +53,6 @@ pub struct AeronetLinkOf(pub Entity);
 /// Plugin that bridges Aeronet session state and queues into Lightyear links.
 ///
 /// This plugin installs observers that:
-/// - copy Aeronet endpoint [`LocalAddr`] and [`PeerAddr`] components onto the Lightyear link entity;
 /// - mirror Aeronet connecting/connected/disconnected state into [`Linking`], [`Linked`], and
 ///   [`Unlinked`];
 /// - translate [`Unlink`] into Aeronet [`Disconnect`] or server [`Close`] requests;
@@ -63,40 +62,6 @@ pub struct AeronetLinkOf(pub Entity);
 pub struct AeronetPlugin;
 
 impl AeronetPlugin {
-    /// Copies [`LocalAddr`] from an Aeronet entity onto its Lightyear [`Link`] entity.
-    fn on_local_addr_added(
-        trigger: On<Add, (LocalAddr, AeronetLinkOf)>,
-        query: Query<(&AeronetLinkOf, &LocalAddr)>,
-        mut commands: Commands,
-    ) {
-        if let Ok((aeronet_link, local_addr)) = query.get(trigger.entity)
-            && let Ok(mut c) = commands.get_entity(aeronet_link.0)
-        {
-            trace!(
-                "LocalAddr added on Aeronet entity {:?}. Adding on Link entity {:?}",
-                trigger.entity, aeronet_link.0
-            );
-            c.insert(LocalAddr(local_addr.0));
-        }
-    }
-
-    /// Copies [`PeerAddr`] from an Aeronet entity onto its Lightyear [`Link`] entity.
-    fn on_peer_addr_added(
-        trigger: On<Add, (PeerAddr, AeronetLinkOf)>,
-        query: Query<(&AeronetLinkOf, &PeerAddr)>,
-        mut commands: Commands,
-    ) {
-        if let Ok((aeronet_link, peer_addr)) = query.get(trigger.entity)
-            && let Ok(mut c) = commands.get_entity(aeronet_link.0)
-        {
-            trace!(
-                "PeerAddr added on Aeronet entity {:?}. Adding on Link entity {:?}",
-                trigger.entity, aeronet_link.0
-            );
-            c.insert(PeerAddr(peer_addr.0));
-        }
-    }
-
     fn on_connecting(
         trigger: On<Add, (SessionEndpoint, AeronetLinkOf)>,
         query: Query<&AeronetLinkOf, With<SessionEndpoint>>,
@@ -120,23 +85,16 @@ impl AeronetPlugin {
 
     fn on_connected(
         trigger: On<Add, (Session, AeronetLinkOf)>,
-        query: Query<(&AeronetLinkOf, Option<&LocalAddr>, Option<&PeerAddr>), With<Session>>,
+        query: Query<&AeronetLinkOf, With<Session>>,
         mut commands: Commands,
     ) {
-        if let Ok((aeronet_link, local_addr, peer_addr)) = query.get(trigger.entity)
+        if let Ok(aeronet_link) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(aeronet_link.0)
         {
             trace!(
                 "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
                 trigger.entity, aeronet_link.0
             );
-            // Connection observers must see native facts before the link becomes usable.
-            if let Some(local_addr) = local_addr {
-                c.insert(LocalAddr(local_addr.0));
-            }
-            if let Some(peer_addr) = peer_addr {
-                c.insert(PeerAddr(peer_addr.0));
-            }
             c.insert(Linked);
         }
     }
@@ -230,8 +188,6 @@ impl Plugin for AeronetPlugin {
             app.add_plugins(LinkPlugin);
         }
 
-        app.add_observer(Self::on_local_addr_added);
-        app.add_observer(Self::on_peer_addr_added);
         app.add_observer(Self::on_connecting);
         app.add_observer(Self::on_connected);
         app.add_observer(Self::on_disconnected);

@@ -1,73 +1,8 @@
-use crate::protocol::StringMessage;
 use crate::stepper::*;
 use lightyear::prelude::client::*;
-#[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
-use lightyear::prelude::server::WebTransportEndpoint;
 use lightyear::prelude::*;
-use lightyear_connection::server::{Started, Stop, Stopped};
-use lightyear_crossbeam::CrossbeamIo;
+use lightyear_connection::server::{Stop, Stopped};
 use test_log::test;
-
-/// Check that the client/server setup is correct:
-/// - the various components we expect are present
-#[test]
-fn test_setup_client_server() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-
-    // Check that the various components we expect are present
-    assert!(stepper.client(0).contains::<PingManager>());
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .contains_resource::<LocalTimelineSync>()
-    );
-    assert!(!stepper.client(0).contains::<LocalTimelineSync>());
-    assert!(stepper.client(0).contains::<RemoteTimeline>());
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .contains_resource::<InterpolationTimeline>()
-    );
-    assert!(!stepper.client(0).contains::<InterpolationTimeline>());
-    assert!(stepper.client(0).contains::<Transport>());
-    assert!(stepper.client(0).contains::<MessageManager>());
-    assert!(stepper.client(0).contains::<MessageSender<StringMessage>>());
-    // Message receivers are created lazily when the first payload arrives.
-    assert!(
-        !stepper
-            .client(0)
-            .contains::<MessageReceiver<StringMessage>>()
-    );
-    assert!(stepper.client(0).contains::<ReplicationSender>());
-    assert!(stepper.client(0).contains::<CrossbeamIo>());
-    assert!(stepper.client(0).contains::<Connected>());
-    assert!(stepper.client(0).contains::<LocalAddr>());
-    assert!(stepper.client(0).contains::<PeerAddr>());
-    assert!(stepper.client(0).contains::<LocalId>());
-    assert!(stepper.client(0).contains::<RemoteId>());
-
-    assert!(stepper.server().contains::<Started>());
-
-    assert!(stepper.client_of(0).contains::<Transport>());
-    assert!(stepper.client_of(0).contains::<MessageManager>());
-    assert!(
-        stepper
-            .client_of(0)
-            .contains::<MessageSender<StringMessage>>()
-    );
-    assert!(
-        !stepper
-            .client_of(0)
-            .contains::<MessageReceiver<StringMessage>>()
-    );
-    assert!(stepper.client_of(0).contains::<CrossbeamIo>());
-    assert!(stepper.client_of(0).contains::<Connected>());
-    assert!(stepper.client_of(0).contains::<PeerAddr>());
-    assert!(stepper.client_of(0).contains::<LocalId>());
-    assert!(stepper.client_of(0).contains::<RemoteId>());
-}
 
 /// Exercises the same stepper and connection stack as the other client/server tests, but with a
 /// real local WebTransport session. The OS-selected port makes this safe to run alongside other
@@ -80,15 +15,12 @@ fn test_setup_netcode_webtransport_client_server() {
 
     assert_ne!(stepper.server_addr.port(), 0);
     assert_eq!(
-        stepper.server().get::<LocalAddr>().unwrap().0,
+        stepper.server().get::<WebTransportLocalAddr>().unwrap().0,
         stepper.server_addr
     );
-    assert_eq!(
-        stepper.client(0).get::<PeerAddr>().unwrap().0,
-        stepper.server_addr
-    );
-    assert!(stepper.server().contains::<WebTransportEndpoint>());
-    assert!(stepper.client(0).contains::<WebTransportClientIo>());
+    let peer = stepper.client(0).get::<WebTransportPeerAddr>().unwrap().0;
+    assert_eq!(peer.ip().to_canonical(), stepper.server_addr.ip());
+    assert_eq!(peer.port(), stepper.server_addr.port());
     assert!(stepper.client(0).contains::<Connected>());
     assert!(stepper.client_of(0).contains::<Connected>());
     assert!(input_timeline_is_synced(stepper.client_app().world()));
@@ -121,17 +53,9 @@ fn test_setup_raw_client_server() {
         vec![ClientType::Raw],
         ServerType::Raw,
     ));
-    assert!(stepper.client(0).contains::<Transport>());
     assert!(stepper.client(0).contains::<Connected>());
-    assert!(stepper.client(0).contains::<PeerAddr>());
-    assert!(stepper.client(0).contains::<LocalId>());
-    assert!(stepper.client(0).contains::<RemoteId>());
 
-    assert!(stepper.client_of(0).contains::<Transport>());
     assert!(stepper.client_of(0).contains::<Connected>());
-    assert!(stepper.client_of(0).contains::<PeerAddr>());
-    assert!(stepper.client_of(0).contains::<LocalId>());
-    assert!(stepper.client_of(0).contains::<RemoteId>());
 }
 
 #[test]

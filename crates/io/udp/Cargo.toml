@@ -27,8 +27,6 @@ lightyear_utils.workspace = true
 lightyear_p2p = { workspace = true, optional = true, features = ["std"] }
 lightyear_connection.workspace = true
 
-aeronet_io.workspace = true
-
 metrics = { workspace = true, optional = true }
 tracing.workspace = true
 
@@ -39,7 +37,6 @@ bevy_platform = { workspace = true, optional = true }
 
 # utils
 bytes.workspace = true
-thiserror.workspace = true
 
 [lints]
 workspace = true

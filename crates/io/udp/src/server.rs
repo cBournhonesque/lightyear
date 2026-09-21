@@ -18,8 +18,9 @@ use crate::endpoint::UdpEndpoint;
 
 /// Marks an entity as a UDP server: requires both [`UdpEndpoint`] and [`Server`].
 ///
-/// A [`LocalAddr`](aeronet_io::connection::LocalAddr) is still required before
-/// [`LinkStart`](lightyear_link::LinkStart) is triggered, exactly as for a bare [`UdpEndpoint`].
+/// Insert [`UdpEndpoint::new`] alongside this marker to choose a bind address; otherwise the
+/// endpoint binds to `0.0.0.0:0`. After [`LinkStart`](lightyear_link::LinkStart), read
+/// [`UdpLocalAddr`](crate::UdpLocalAddr) for the actual socket address.
 #[derive(Component, Default, Debug)]
 #[require(UdpEndpoint, Server)]
 pub struct ServerUdpIo;

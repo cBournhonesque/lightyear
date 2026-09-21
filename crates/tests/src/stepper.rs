@@ -335,7 +335,7 @@ impl ClientServerStepper {
             ServerType::Netcode => {
                 server.insert(NetcodeServer::new(
                     lightyear_netcode::server_plugin::NetcodeConfig {
-                        server_addr_check: io != IoType::Crossbeam,
+                        expected_addresses: vec![server_addr],
                         ..Default::default()
                     },
                 ));
@@ -355,13 +355,16 @@ impl ClientServerStepper {
         }
         #[cfg(feature = "std")]
         if io == IoType::Udp {
-            server.insert((LocalAddr(server_addr), ServerUdpIo));
+            server.insert((
+                lightyear_udp::endpoint::UdpEndpoint::new(server_addr),
+                ServerUdpIo,
+            ));
         }
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         if io == IoType::WebTransport {
             server.insert((
-                LocalAddr(server_addr),
                 WebTransportEndpoint {
+                    bind_addr: server_addr,
                     certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"])
                         .expect("test WebTransport identity should be valid"),
                 },
@@ -476,10 +479,6 @@ impl ClientServerStepper {
                                 endpoint: self.server_entity,
                             },
                             Link::default(),
-                            PeerAddr(SocketAddr::new(
-                                core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
-                                client_id as u16,
-                            )),
                             // Crossbeam has no listening server that creates this link.
                             Linked,
                             crossbeam_server,
@@ -489,27 +488,18 @@ impl ClientServerStepper {
             }
             #[cfg(feature = "std")]
             IoType::Udp => {
-                client.insert((
-                    LocalAddr(SocketAddr::new(
-                        core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
-                        0,
-                    )),
-                    PeerAddr(self.server_addr),
-                    UdpIo::default(),
+                client.insert(UdpIo::new(
+                    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0),
+                    self.server_addr,
                 ));
                 // ServerUdpIo creates the corresponding LinkOf after the first datagram arrives.
                 self.client_of_entities.push(Entity::PLACEHOLDER);
             }
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             IoType::WebTransport => {
-                client.insert((
-                    PeerAddr(self.server_addr),
-                    WebTransportClientIo {
-                        // This native-only test mode enables Lightyear's explicitly dangerous
-                        // no-certificate-validation feature for the ephemeral self-signed identity.
-                        certificate_digest: String::new(),
-                        target: None,
-                    },
+                client.insert(WebTransportClientIo::from_addr(
+                    self.server_addr,
+                    String::new(),
                 ));
                 // The listening WebTransport server creates the corresponding LinkOf after the
                 // session is accepted.
@@ -701,11 +691,18 @@ impl ClientServerStepper {
         for _ in 0..400 {
             if let Some(addr) = self
                 .server()
-                .get::<LocalAddr>()
+                .get::<WebTransportLocalAddr>()
                 .map(|local_addr| local_addr.0)
                 .filter(|addr| addr.port() != 0)
             {
                 self.server_addr = addr;
+                if let Some(mut netcode) = self
+                    .server_app
+                    .world_mut()
+                    .get_mut::<NetcodeServer>(self.server_entity)
+                {
+                    netcode.set_expected_addresses([addr]);
+                }
                 return;
             }
             self.tick_step(1);

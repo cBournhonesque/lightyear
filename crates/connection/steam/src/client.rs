@@ -1,4 +1,4 @@
-use aeronet_io::{Session, connection::PeerAddr};
+use aeronet_io::Session;
 use aeronet_steam::{
     SessionConfig, SteamworksClient,
     client::{ConnectTarget, SteamNetClient, SteamNetClientPlugin},
@@ -55,9 +55,6 @@ impl ClientTransportPlugin {
             let target = client.target;
             let entity = trigger.entity;
             commands.queue(move |world: &mut World| {
-                if let ConnectTarget::Addr(addr) = target {
-                    world.entity_mut(entity).insert(PeerAddr(addr));
-                }
                 let session = world.spawn((AeronetLinkOf(entity), Name::from("SteamClient")));
                 SteamNetClient::connect(config, target).apply(session);
             });

@@ -41,10 +41,10 @@ use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked, Unlinked};
 use lightyear_p2p::DialPeer;
 use tracing::{debug, warn};
 
-use aeronet_io::connection::{LocalAddr, PeerAddr};
+use crate::{WebSocketLocalAddr, WebSocketPeerAddr};
 use aeronet_websocket::client::ClientConfig;
 
-use crate::client::{WebSocketClientIo, WebSocketScheme, WebSocketTarget};
+use crate::client::{WebSocketClientIo, WebSocketScheme};
 use crate::endpoint::{WebSocketEndpoint, WebSocketEndpointPlugin};
 
 /// Dials WebSocket Links for a [`Lobby`](lightyear_p2p::Lobby) through a [`WebSocketEndpoint`].
@@ -126,7 +126,7 @@ fn on_endpoint_added(
 /// The endpoint's bound address, which is this peer's identity.
 fn local_id(
     endpoint: Entity,
-    addresses: &Query<&LocalAddr, With<WebSocketEndpoint>>,
+    addresses: &Query<&WebSocketLocalAddr, With<WebSocketEndpoint>>,
 ) -> Option<PeerId> {
     addresses
         .get(endpoint)
@@ -141,7 +141,7 @@ fn local_id(
 fn on_dial(
     trigger: On<DialPeer>,
     endpoints: Query<Entity, With<WebSocketEndpoint>>,
-    addresses: Query<&LocalAddr, With<WebSocketEndpoint>>,
+    addresses: Query<&WebSocketLocalAddr, With<WebSocketEndpoint>>,
     existing: Query<
         (
             Entity,
@@ -207,12 +207,8 @@ fn on_dial(
             Client,
             LocalId(local_id),
             RemoteId(peer),
-            PeerAddr(address),
             Link::default(),
-            WebSocketClientIo {
-                config: config.config.clone(),
-                target: WebSocketTarget::Addr(config.scheme),
-            },
+            WebSocketClientIo::from_addr(config.config.clone(), config.scheme, address),
         ))
         .id();
     commands.trigger(Connect { entity: link });
@@ -257,40 +253,51 @@ fn on_accepted_identity(
 ///
 /// Only links owned by a [`WebSocketEndpoint`] are touched, so a server's sessions are left alone.
 fn on_accepted_link(
-    trigger: On<Add, PeerAddr>,
-    links: Query<(&LinkOf, &PeerAddr)>,
-    addresses: Query<&LocalAddr, With<WebSocketEndpoint>>,
+    trigger: On<Add, (WebSocketPeerAddr, WebSocketLocalAddr, LinkOf, Linked)>,
+    links: Query<(Entity, &LinkOf, &WebSocketPeerAddr), Without<P2P>>,
+    addresses: Query<&WebSocketLocalAddr, With<WebSocketEndpoint>>,
     endpoints: Query<(), With<LobbyEndpoint>>,
     mut commands: Commands,
 ) {
-    let entity = trigger.entity;
-    let Ok((link_of, peer_addr)) = links.get(entity) else {
-        // Not an endpoint child: a dialed client session, which `on_dial` already annotated.
-        return;
+    let mut annotate = |(entity, link_of, peer_addr): (Entity, &LinkOf, &WebSocketPeerAddr)| {
+        if !endpoints.contains(link_of.endpoint) {
+            return;
+        }
+        let Some(local_id) = local_id(link_of.endpoint, &addresses) else {
+            return;
+        };
+        debug!(remote = %peer_addr.0, "lobby endpoint accepted a peer");
+        commands.entity(entity).insert((
+            P2P::default(),
+            Client,
+            LocalId(local_id),
+            RemoteId(PeerId::Raw(peer_addr.0)),
+            lightyear_p2p::ProvisionalPeerId,
+        ));
     };
-    if !endpoints.contains(link_of.endpoint) {
-        return;
+    if addresses.contains(trigger.entity) {
+        for link in &links {
+            if link.1.endpoint == trigger.entity {
+                annotate(link);
+            }
+        }
+    } else if let Ok(link) = links.get(trigger.entity) {
+        annotate(link);
     }
-    let Some(local_id) = local_id(link_of.endpoint, &addresses) else {
-        return;
-    };
-
-    debug!(remote = %peer_addr.0, "lobby endpoint accepted a peer");
-    commands.entity(entity).insert((
-        P2P::default(),
-        Client,
-        LocalId(local_id),
-        RemoteId(PeerId::Raw(peer_addr.0)),
-        lightyear_p2p::ProvisionalPeerId,
-    ));
 }
 
 /// Admits a `P2P` link only once both its lobby identities and transport are ready.
 fn on_link_linked(
-    trigger: On<Add, (Linked, LocalId, RemoteId, P2P)>,
+    trigger: On<Add, (Linked, LocalId, RemoteId, P2P, WebSocketPeerAddr)>,
     query: Query<
         (&LocalId, &RemoteId),
-        (With<Linked>, With<P2P>, With<Client>, Without<Connected>),
+        (
+            With<Linked>,
+            With<P2P>,
+            With<Client>,
+            With<WebSocketPeerAddr>,
+            Without<Connected>,
+        ),
     >,
     mut commands: Commands,
 ) {

@@ -5,8 +5,6 @@ use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lightyear::input::client::InputSystems;
-use lightyear::netcode::client_plugin::NetcodeConfig;
-use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::server::Stop;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::{SERVER_PORT, SHARED_SETTINGS};
@@ -22,6 +20,29 @@ pub enum AppState {
 
 #[derive(Component)]
 struct SwitchingGameConnection;
+
+/// Application identity survives replacement of a network connection.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct LobbyClientId(pub u64);
+
+fn spawn_remote_client(commands: &mut Commands, id: LobbyClientId, address: SocketAddr) -> Entity {
+    use lightyear_examples_common::client::{ClientTransports, ExampleClient};
+    commands
+        .spawn((
+            id,
+            ExampleClient {
+                client_id: id.0,
+                client_port: 0,
+                server_addr: address,
+                conditioner: Some(RecvLinkConditioner::new(
+                    LinkConditionerConfig::average_condition().half(),
+                )),
+                transport: ClientTransports::WebTransport,
+                shared: SHARED_SETTINGS,
+            },
+        ))
+        .id()
+}
 
 impl Default for AppState {
     fn default() -> Self {
@@ -63,49 +84,31 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// Remove all entities when the client disconnect.
-/// Reset the ClientConfig to connect to the dedicated server on the next connection attempt.
+/// Return to a fresh lobby connection after disconnecting from a game.
 fn on_disconnect(
     trigger: On<Add, Disconnected>,
-    local_id: Single<&LocalId>,
+    clients: Query<(&LobbyClientId, &LocalId), With<Client>>,
     server: Single<Entity, With<Server>>,
     mut commands: Commands,
-    entities: Query<Entity, Or<(With<Lobbies>, With<PlayerId>)>>,
     switching_game_connection: Query<(), With<SwitchingGameConnection>>,
-) -> Result {
-    if switching_game_connection.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .remove::<SwitchingGameConnection>();
-        return Ok(());
+    mut next_app_state: ResMut<NextState<AppState>>,
+) {
+    // Newly constructed backends start Disconnected, before they have a resolved LocalId.
+    let Ok((id, _)) = clients.get(trigger.entity) else {
+        return;
+    };
+    if switching_game_connection.contains(trigger.entity) {
+        return;
     }
-
-    // despawn every entity
-    for entity in entities.iter() {
-        commands.entity(entity).despawn();
-    }
-
-    // stop the server if it was started (if the player was host)
+    // Replication and server ownership perform entity cleanup during teardown.
     commands.trigger(Stop { entity: *server });
-
-    // reset the netcode config to connect to the lobby server
-    let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT);
-    let auth = Authentication::Manual {
-        server_addr: host_addr,
-        client_id: local_id.0.to_bits(),
-        private_key: SHARED_SETTINGS.private_key,
-        protocol_id: SHARED_SETTINGS.protocol_id,
-    };
-    let netcode_config = NetcodeConfig {
-        // Make sure that the server times out clients when their connection is closed
-        client_timeout_secs: 3,
-        token_expire_secs: -1,
-        ..default()
-    };
-    commands
-        .entity(trigger.entity)
-        .insert(NetcodeClient::new(auth, netcode_config)?);
-    Ok(())
+    commands.entity(trigger.entity).despawn();
+    spawn_remote_client(
+        &mut commands,
+        *id,
+        SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT),
+    );
+    next_app_state.set(AppState::Lobby { joined_lobby: None });
 }
 
 mod game {
@@ -422,96 +425,55 @@ mod lobby {
         Ok(())
     }
 
-    /// Listen for the StartGame message, and start the game if it was (which means that a client clicked on the 'start game' button)
-    /// - update the client config to connect to the game host (either the server or one of the other clients)
-    /// - connect by setting the NetworkingState to Connecting
-    /// - set the AppState to Game
+    /// Replace the lobby connection with a connection to the selected game host.
     pub(crate) fn receive_start_game_message(
         mut commands: Commands,
-        local_client: Single<(Entity, &mut MessageReceiver<StartGame>, &LocalId)>,
-        lobby_table: Res<LobbyTable>,
+        local_client: Single<(
+            Entity,
+            &mut MessageReceiver<StartGame>,
+            &LocalId,
+            &LobbyClientId,
+        )>,
         mut next_app_state: ResMut<NextState<AppState>>,
         server: Single<Entity, With<Server>>,
-    ) -> Result {
+    ) {
         let server = server.into_inner();
-        let (local_client, mut receiver, local_id) = local_client.into_inner();
-        for message in receiver.receive() {
-            info!("Received start_game message! {message:?}");
-            let host = message.host;
-            // set the state to Game
-            next_app_state.set(AppState::Game);
-            // the host of the game is another player
-            if let Some(host) = host {
-                if host == local_id.0 {
-                    info!(
-                        "We are the host of the game! Unlinking existing client {local_client:?}"
-                    );
-                    commands
-                        .entity(local_client)
-                        .insert(SwitchingGameConnection);
-                    commands.trigger(Start { entity: server });
-                    // First remove the previous link
-                    commands.trigger(Unlink {
-                        entity: local_client,
-                        reason: UnlinkReason::UserRequested(Some(
-                            "Client becoming Host".to_string(),
-                        )),
-                    });
+        let (local_client, mut receiver, local_id, account_id) = local_client.into_inner();
+        let Some(message) = receiver.receive().next() else {
+            return;
+        };
+        info!("Received start_game message! {message:?}");
+        next_app_state.set(AppState::Game);
+        let Some(host) = message.host else {
+            return;
+        };
 
-                    // Convert the existing remote client into an in-process host-client by
-                    // removing the external transport pieces before linking it to the local server.
-                    commands.entity(local_client).remove::<(
-                        NetcodeClient,
-                        PeerAddr,
-                        lightyear::webtransport::client::WebTransportClientIo,
-                    )>();
+        commands
+            .entity(local_client)
+            .insert(SwitchingGameConnection);
+        commands.trigger(Disconnect {
+            entity: local_client,
+        });
+        commands.entity(local_client).despawn();
 
-                    // Any entity that is both a Client and a LinkOf will be a host-client.
-                    // The corresponding server will be a HostServer.
-                    commands
-                        .entity(local_client)
-                        .insert(LinkOf { endpoint: server });
-                    info!("Connecting as a Host Client");
-                } else {
-                    info!(
-                        "The game is hosted by another client ({host:?}). Connecting to the host..."
-                    );
-                    commands
-                        .entity(local_client)
-                        .insert(SwitchingGameConnection);
-                    // First unlink from the dedicated server
-                    commands.trigger(Unlink {
-                        entity: local_client,
-                        reason: UnlinkReason::UserRequested(Some(
-                            "Connecting to host-client".to_string(),
-                        )),
-                    });
-
-                    let host_addr =
-                        SocketAddr::new(Ipv4Addr::LOCALHOST.into(), host_server_port(host));
-                    let auth = Authentication::Manual {
-                        server_addr: host_addr,
-                        client_id: local_id.0.to_bits(),
-                        private_key: SHARED_SETTINGS.private_key,
-                        protocol_id: SHARED_SETTINGS.protocol_id,
-                    };
-                    let netcode_config = NetcodeConfig {
-                        // Make sure that the server times out clients when their connection is closed
-                        client_timeout_secs: 3,
-                        token_expire_secs: -1,
-                        ..default()
-                    };
-                    let netcode_client = commands.entity(local_client).insert((
-                        NetcodeClient::new(auth, netcode_config)?,
-                        PeerAddr(host_addr),
-                    ));
-                }
-                // Trigger a `Connection` to update the connection settings.
-                commands.trigger(Connect {
-                    entity: local_client,
-                });
-            }
-        }
-        Ok(())
+        // Backend ownership is fixed for an entity, including after disconnection.
+        let client = if host == local_id.0 {
+            commands.trigger(Start { entity: server });
+            commands
+                .spawn((
+                    *account_id,
+                    Client,
+                    ReplicationReceiver,
+                    LinkOf { endpoint: server },
+                ))
+                .id()
+        } else {
+            spawn_remote_client(
+                &mut commands,
+                *account_id,
+                SocketAddr::new(Ipv4Addr::LOCALHOST.into(), host_server_port(host)),
+            )
+        };
+        commands.trigger(Connect { entity: client });
     }
 }

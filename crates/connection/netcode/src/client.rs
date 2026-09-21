@@ -174,7 +174,6 @@ pub struct Client<Ctx = ()> {
     start_time: f64,
     last_send_time: f64,
     last_receive_time: f64,
-    server_addr_idx: usize,
     sequence: u64,
     challenge_token_sequence: u64,
     challenge_token_data: [u8; ChallengeToken::SIZE],
@@ -215,7 +214,6 @@ impl<Ctx> Client<Ctx> {
             start_time: 0.0,
             last_send_time: f64::NEG_INFINITY,
             last_receive_time: f64::NEG_INFINITY,
-            server_addr_idx: 0,
             sequence: 0,
             challenge_token_sequence: 0,
             challenge_token_data: [0u8; ChallengeToken::SIZE],
@@ -307,7 +305,6 @@ impl<Ctx> Client<Ctx> {
     fn reset(&mut self, new_state: ClientState) {
         self.sequence = 0;
         self.start_time = 0.0;
-        self.server_addr_idx = 0;
         self.set_state(new_state);
         self.reset_connection();
         debug!("client disconnected");
@@ -337,15 +334,6 @@ impl<Ctx> Client<Ctx> {
             _ => return Ok(()),
         };
         self.send_netcode_packet(packet)
-    }
-    fn connect_to_next_server(&mut self) -> core::result::Result<(), ()> {
-        if self.server_addr_idx + 1 >= self.token.server_addresses.len() {
-            debug!("no more servers to connect to");
-            return Err(());
-        }
-        self.server_addr_idx += 1;
-        self.connect();
-        Ok(())
     }
     fn send_packet(&mut self, packet: Packet, sender: &mut LinkSender) -> Result<()> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
@@ -398,14 +386,14 @@ impl<Ctx> Client<Ctx> {
         Ok(())
     }
 
-    pub fn server_addr(&self) -> SocketAddr {
-        self.token.server_addresses[self.server_addr_idx]
+    /// Socket addresses authorized by the token, in issuer-provided order.
+    ///
+    /// Netcode does not select or reroute the underlying link. Failover requires the
+    /// application to establish a new link using its chosen transport destination.
+    pub fn token_server_addresses(&self) -> &[SocketAddr] {
+        self.token.server_addresses.as_slice()
     }
     fn process_packet(&mut self, packet: Packet) -> Result<Option<RecvPayload>> {
-        // if addr != self.server_addr() {
-        //     debug!(?addr, server_addr = ?self.server_addr(), "wrong addr");
-        //     return Ok(());
-        // }
         let recv = match (packet, self.state) {
             (
                 Packet::Denied(pkt),
@@ -470,23 +458,14 @@ impl<Ctx> Client<Ctx> {
                     "client should disconnect -> {:?}",
                     self.should_disconnect_state
                 );
-                if self.connect_to_next_server().is_ok() {
-                    return;
-                };
                 self.should_disconnect_state
             }
             ClientState::SendingConnectionRequest if is_connection_timed_out => {
                 info!("client connect failed. connection request timed out");
-                if self.connect_to_next_server().is_ok() {
-                    return;
-                };
                 ClientState::ConnectionRequestTimedOut
             }
             ClientState::SendingChallengeResponse if is_connection_timed_out => {
                 info!("client connect failed. connection response timed out");
-                if self.connect_to_next_server().is_ok() {
-                    return;
-                };
                 ClientState::ChallengeResponseTimedOut
             }
             ClientState::Connected if is_connection_timed_out => {
@@ -554,12 +533,7 @@ impl<Ctx> Client<Ctx> {
     pub fn connect(&mut self) {
         self.reset_connection();
         self.set_state(ClientState::SendingConnectionRequest);
-        info!(
-            "client connecting to server {} [{}/{}]",
-            self.token.server_addresses[self.server_addr_idx],
-            self.server_addr_idx + 1,
-            self.token.server_addresses.len()
-        );
+        info!("client starting netcode handshake on its configured link");
     }
     /// Updates the client.
     ///
@@ -648,6 +622,41 @@ impl<Ctx> Client<Ctx> {
     /// Returns true if the client is disconnected from the server.
     pub fn is_disconnected(&self) -> bool {
         self.state == ClientState::Disconnected
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_link::Link;
+
+    #[test]
+    fn timeout_ends_handshake_without_implicit_address_failover() {
+        let addresses = [
+            SocketAddr::from(([127, 0, 0, 1], 5000)),
+            SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 5001)),
+        ];
+        let token = ConnectToken::build(addresses.as_slice(), 1, 7, [42; 32])
+            .expire_seconds(-1)
+            .timeout_seconds(1)
+            .generate()
+            .unwrap()
+            .try_into_bytes()
+            .unwrap();
+        let mut client = Client::new(&token).unwrap();
+        let mut link = Link::default();
+        assert_eq!(client.token_server_addresses(), addresses.as_slice());
+        client.connect();
+
+        assert_eq!(
+            client.try_update(2.0, &mut link.recv).unwrap(),
+            ClientState::ConnectionRequestTimedOut
+        );
+        assert_eq!(
+            client.try_update(2.0, &mut link.recv).unwrap(),
+            ClientState::ConnectionRequestTimedOut
+        );
+        assert_eq!(client.token_server_addresses(), addresses.as_slice());
     }
 }
 

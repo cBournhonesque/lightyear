@@ -4,7 +4,7 @@
 //! Each accepted Aeronet session receives its own Lightyear [`Link`](lightyear_link::Link)
 //! through [`LinkOf`].
 
-use crate::WebTransportError;
+use crate::{WebTransportLocalAddr, WebTransportPeerAddr};
 use aeronet_io::Session;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use aeronet_webtransport::server::{
@@ -13,6 +13,7 @@ use aeronet_webtransport::server::{
 use aeronet_webtransport::wtransport::Identity;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
+use core::net::SocketAddr;
 use core::time::Duration;
 use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
@@ -43,13 +44,14 @@ impl Plugin for WebTransportEndpointPlugin {
         app.add_observer(Self::on_session_request);
         app.add_observer(Self::on_connection);
         app.add_observer(Self::on_linked);
+        app.add_observer(Self::on_addresses);
     }
 }
 
 /// Lightyear component for a WebTransport endpoint: one bound address that many peers connect to.
 ///
-/// A [`LocalAddr`] must be present when [`LinkStart`] is triggered; the plugin opens an Aeronet
-/// [`WebTransportServer`] with [`certificate`](Self::certificate) as its TLS identity.
+/// When [`LinkStart`] is triggered, the plugin opens an Aeronet [`WebTransportServer`] at
+/// [`bind_addr`](Self::bind_addr) with [`certificate`](Self::certificate) as its TLS identity.
 ///
 /// This wrapper accepts [`SessionRequest`] events automatically. Accepted peers are represented
 /// as Lightyear link entities related through [`LinkOf`].
@@ -57,48 +59,82 @@ impl Plugin for WebTransportEndpointPlugin {
 #[derive(Debug, Component)]
 #[require(Endpoint)]
 pub struct WebTransportEndpoint {
+    /// Address to bind. Port zero lets the OS choose a port, exposed through [`WebTransportLocalAddr`].
+    pub bind_addr: SocketAddr,
     /// TLS identity used by the underlying WebTransport server.
     pub certificate: Identity,
 }
 
 impl WebTransportEndpointPlugin {
-    fn on_linked(
-        trigger: On<Add, Linked>,
-        links: Query<(&LinkOf, &PeerAddr), Without<P2P>>,
-        endpoints: Query<&LocalAddr, With<WebTransportEndpoint>>,
+    fn on_addresses(
+        trigger: On<
+            Insert,
+            (
+                LocalAddr,
+                PeerAddr,
+                AeronetLinkOf,
+                WebTransportServer,
+                WebTransportServerClient,
+            ),
+        >,
+        query: Query<
+            (&AeronetLinkOf, Option<&LocalAddr>, Option<&PeerAddr>),
+            Or<(With<WebTransportServer>, With<WebTransportServerClient>)>,
+        >,
         mut commands: Commands,
     ) {
-        let Ok((link_of, peer_addr)) = links.get(trigger.entity) else {
-            return;
-        };
-        let Ok(local_addr) = endpoints.get(link_of.endpoint) else {
-            return;
-        };
-        let entity = trigger.entity;
-        let endpoint = link_of.endpoint;
-        let local = LocalId(PeerId::Raw(local_addr.0));
-        let remote = RemoteId(PeerId::Raw(peer_addr.0));
-        commands.queue(move |world: &mut World| {
-            // Lobby links are admitted only after their P2P IDs and roles have been installed.
-            #[cfg(feature = "lobby")]
-            if world.get::<crate::lobby::LobbyEndpoint>(endpoint).is_some() {
-                return;
+        if let Ok((owner, local, peer)) = query.get(trigger.entity) {
+            let mut link = commands.entity(owner.0);
+            if let Some(local) = local {
+                link.insert(WebTransportLocalAddr(local.0));
             }
-            let _ = endpoint;
-            apply_default_ids(world, entity, local, remote);
-        });
+            if let Some(peer) = peer {
+                link.insert(WebTransportPeerAddr(peer.0));
+            }
+        }
+    }
+
+    fn on_linked(
+        trigger: On<Add, (Linked, WebTransportLocalAddr, WebTransportPeerAddr)>,
+        links: Query<(Entity, &LinkOf, &WebTransportPeerAddr), (With<Linked>, Without<P2P>)>,
+        endpoints: Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
+        mut commands: Commands,
+    ) {
+        // A bound-address callback can arrive after an accepted session becomes linked.
+        let mut admit = |(entity, link_of, peer_addr): (Entity, &LinkOf, &WebTransportPeerAddr)| {
+            let Ok(local_addr) = endpoints.get(link_of.endpoint) else {
+                return;
+            };
+            let endpoint = link_of.endpoint;
+            let local = LocalId(PeerId::Raw(local_addr.0));
+            let remote = RemoteId(PeerId::Raw(peer_addr.0));
+            commands.queue(move |world: &mut World| {
+                #[cfg(feature = "lobby")]
+                if world.get::<crate::lobby::LobbyEndpoint>(endpoint).is_some() {
+                    return;
+                }
+                let _ = endpoint;
+                apply_default_ids(world, entity, local, remote);
+            });
+        };
+        if endpoints.contains(trigger.entity) {
+            for link in &links {
+                if link.1.endpoint == trigger.entity {
+                    admit(link);
+                }
+            }
+        } else if let Ok(link) = links.get(trigger.entity) {
+            admit(link);
+        }
     }
 
     fn link(
         trigger: On<LinkStart>,
-        query: Query<
-            (Entity, &WebTransportEndpoint, Option<&LocalAddr>),
-            (Without<Linking>, Without<Linked>),
-        >,
+        query: Query<(Entity, &WebTransportEndpoint), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, io, local_addr)) = query.get(trigger.entity) {
-            let server_addr = local_addr.ok_or(WebTransportError::LocalAddrMissing)?.0;
+        if let Ok((entity, io)) = query.get(trigger.entity) {
+            let server_addr = io.bind_addr;
             let certificate = io.certificate.clone_identity();
             commands.queue(move |world: &mut World| {
                 let config = ServerConfig::builder()
@@ -120,15 +156,20 @@ impl WebTransportEndpointPlugin {
         request.respond(SessionResponse::Accepted);
     }
 
-    // TODO: should also add on_connecting? Or maybe it's handled automatically
-    //  because the connecting entity adds SessionEndpoint? (and lightyear_aeronet handles that)
     fn on_connection(
-        trigger: On<Add, Session>,
+        trigger: On<Add, (Session, WebTransportServerClient)>,
         query: Query<&AeronetLinkOf>,
-        child_query: Query<(&ChildOf, &PeerAddr), With<WebTransportServerClient>>,
+        child_query: Query<
+            &ChildOf,
+            (
+                With<WebTransportServerClient>,
+                With<Session>,
+                Without<AeronetLinkOf>,
+            ),
+        >,
         mut commands: Commands,
     ) {
-        if let Ok((child_of, peer_addr)) = child_query.get(trigger.entity)
+        if let Ok(child_of) = child_query.get(trigger.entity)
             && let Ok(server_link) = query.get(child_of.parent())
         {
             let link_entity = commands
@@ -137,7 +178,6 @@ impl WebTransportEndpointPlugin {
                         endpoint: server_link.0,
                     },
                     Link::default(),
-                    PeerAddr(peer_addr.0),
                 ))
                 .id();
             commands.entity(trigger.entity).insert((
@@ -157,6 +197,40 @@ mod tests {
 
     use lightyear_aeronet::AeronetLink;
     use lightyear_link::{LinkStart, Unlink, UnlinkReason, Unlinked};
+
+    #[test]
+    fn accepted_session_waits_for_bound_and_peer_addresses() {
+        use lightyear_connection::client::Connected;
+
+        let mut app = App::new();
+        app.add_plugins(WebTransportEndpointPlugin);
+        let local = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 4100);
+        let peer = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 4101);
+        let endpoint = app
+            .world_mut()
+            .spawn(WebTransportEndpoint {
+                bind_addr: local,
+                certificate: Identity::self_signed(["localhost"]).unwrap(),
+            })
+            .id();
+        let link = app
+            .world_mut()
+            .spawn((LinkOf { endpoint }, Link::default(), Linked))
+            .id();
+        assert!(app.world().get::<Connected>(link).is_none());
+        app.world_mut()
+            .entity_mut(link)
+            .insert(WebTransportPeerAddr(peer));
+        assert!(app.world().get::<Connected>(link).is_none());
+        app.world_mut()
+            .entity_mut(endpoint)
+            .insert(WebTransportLocalAddr(local));
+        assert!(app.world().get::<Connected>(link).is_some());
+        assert_eq!(
+            app.world().get::<RemoteId>(link).unwrap().0,
+            PeerId::Raw(peer)
+        );
+    }
 
     #[cfg(feature = "client")]
     #[test]
@@ -191,9 +265,13 @@ mod tests {
         for mode in 0..3 {
             let mut app = App::new();
             app.add_plugins(WebTransportEndpointPlugin);
+            app.add_observer(|request: On<SessionRequest>| {
+                assert!(request.authority.starts_with("localhost:"));
+                assert_eq!(request.path, "/session?transport=wt");
+            });
             let mut client_app = App::new();
             client_app.add_plugins(WebTransportClientPlugin);
-            let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+            let address = SocketAddr::new(core::net::Ipv6Addr::UNSPECIFIED.into(), 0);
             let certificate = Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap();
             let digest: String = certificate.certificate_chain().as_slice()[0]
                 .hash()
@@ -205,8 +283,10 @@ mod tests {
                 .world_mut()
                 .spawn((
                     Server,
-                    LocalAddr(address),
-                    WebTransportEndpoint { certificate },
+                    WebTransportEndpoint {
+                        bind_addr: address,
+                        certificate,
+                    },
                 ))
                 .id();
             if mode == 1 {
@@ -222,15 +302,12 @@ mod tests {
             }
             app.world_mut().trigger(LinkStart { entity: server });
             run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());
-            let address = app.world().get::<LocalAddr>(server).unwrap().0;
+            let address = app.world().get::<WebTransportLocalAddr>(server).unwrap().0;
             let client = client_app
                 .world_mut()
-                .spawn((
-                    PeerAddr(address),
-                    WebTransportClientIo {
-                        certificate_digest: digest,
-                        target: None,
-                    },
+                .spawn(WebTransportClientIo::from_url(
+                    format!("https://localhost:{}/session?transport=wt", address.port()),
+                    digest,
                 ))
                 .id();
             if mode == 1 {
@@ -272,6 +349,21 @@ mod tests {
                 })
                 .unwrap()
                 .id();
+            assert_eq!(
+                client_app
+                    .world()
+                    .get::<WebTransportPeerAddr>(client)
+                    .unwrap()
+                    .0
+                    .port(),
+                address.port()
+            );
+            for entity in [server, accepted] {
+                assert!(app.world().get::<LocalAddr>(entity).is_none());
+                assert!(app.world().get::<PeerAddr>(entity).is_none());
+            }
+            assert!(client_app.world().get::<LocalAddr>(client).is_none());
+            assert!(client_app.world().get::<PeerAddr>(client).is_none());
             if mode == 0 {
                 assert!(client_app.world().get::<Connected>(client).is_some());
                 assert!(app.world().get::<Connected>(accepted).is_some());
@@ -282,7 +374,7 @@ mod tests {
                 );
                 assert_eq!(
                     app.world().get::<RemoteId>(accepted).unwrap().0,
-                    PeerId::Raw(app.world().get::<PeerAddr>(accepted).unwrap().0),
+                    PeerId::Raw(app.world().get::<WebTransportPeerAddr>(accepted).unwrap().0),
                 );
                 client_app
                     .world_mut()
@@ -331,12 +423,10 @@ mod tests {
     fn spawn_server(app: &mut App, addr: SocketAddr) -> Entity {
         let entity = app
             .world_mut()
-            .spawn((
-                LocalAddr(addr),
-                WebTransportEndpoint {
-                    certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap(),
-                },
-            ))
+            .spawn(WebTransportEndpoint {
+                bind_addr: addr,
+                certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap(),
+            })
             .id();
         app.world_mut().trigger(LinkStart { entity });
         entity
@@ -361,7 +451,7 @@ mod tests {
 
         let server = spawn_server(&mut app, SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0));
         run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());
-        let local_addr = app.world().get::<LocalAddr>(server).unwrap().0;
+        let local_addr = app.world().get::<WebTransportLocalAddr>(server).unwrap().0;
         assert_ne!(local_addr.port(), 0);
 
         app.world_mut().trigger(Unlink {
@@ -375,12 +465,10 @@ mod tests {
 
         let restarted_server = app
             .world_mut()
-            .spawn((
-                LocalAddr(local_addr),
-                WebTransportEndpoint {
-                    certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap(),
-                },
-            ))
+            .spawn(WebTransportEndpoint {
+                bind_addr: local_addr,
+                certificate: Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap(),
+            })
             .id();
         app.world_mut().trigger(LinkStart {
             entity: restarted_server,

@@ -181,8 +181,7 @@ pub(crate) fn spawn_connections(
         P2PTransport::Udp => {
             app.world_mut().spawn((
                 Endpoint::new(Some(conditioner)),
-                UdpEndpoint::default(),
-                LocalAddr(bind),
+                UdpEndpoint::new(bind),
                 Name::new("P2P Endpoint"),
             ));
         }
@@ -194,7 +193,6 @@ pub(crate) fn spawn_connections(
             app.world_mut().spawn((
                 Endpoint::new(Some(conditioner)),
                 WebSocketEndpoint { config },
-                LocalAddr(bind),
                 Name::new("P2P Endpoint"),
             ));
         }
@@ -203,8 +201,10 @@ pub(crate) fn spawn_connections(
             let certificate = Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap();
             app.world_mut().spawn((
                 Endpoint::new(Some(conditioner)),
-                WebTransportEndpoint { certificate },
-                LocalAddr(bind),
+                WebTransportEndpoint {
+                    certificate,
+                    bind_addr: bind,
+                },
                 Name::new("P2P Endpoint"),
             ));
         }

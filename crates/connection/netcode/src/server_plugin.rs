@@ -1,5 +1,4 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES, server::MAX_CLIENTS};
-use aeronet_io::connection::LocalAddr;
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
@@ -49,7 +48,6 @@ pub(crate) struct NetcodeServerContext {
 #[require(Server, NoDefaultConnection)]
 pub struct NetcodeServer {
     pub(crate) inner: crate::server::Server<NetcodeServerContext>,
-    server_addr_check: bool,
 }
 
 // TODO: should be part of the NetcodeServer component
@@ -65,17 +63,13 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
-    /// Whether to validate private connect tokens against the server entity's [`LocalAddr`].
+    /// Socket addresses accepted during private connect-token validation.
     ///
-    /// The default is `true`. Set this to `false` for addressless transports. When enabled, a
-    /// [`LocalAddr`] must be present on the server entity.
-    pub server_addr_check: bool,
-    /// Additional server addresses accepted during private connect-token validation.
-    ///
-    /// These addresses are accepted in addition to the server entity's [`LocalAddr`]. This is
-    /// useful when the address in a token is a public address or another stable identity that
-    /// differs from the transport's bind address.
-    pub additional_expected_addresses: Vec<SocketAddr>,
+    /// These authorization addresses are independent of the transport's bind address or
+    /// dial target. An empty list rejects connection requests with an explicit error.
+    /// For port-zero binds, install the observed address with
+    /// [`NetcodeServer::set_expected_addresses`] before clients connect.
+    pub expected_addresses: Vec<SocketAddr>,
     pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
@@ -88,8 +82,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
-            server_addr_check: true,
-            additional_expected_addresses: Vec::new(),
+            expected_addresses: Vec::new(),
             connection_request_handler: None,
         }
     }
@@ -115,14 +108,14 @@ impl NetcodeConfig {
         self
     }
 
-    /// Set the additional server addresses accepted during private connect-token validation.
+    /// Set the socket addresses accepted during private connect-token validation.
     ///
-    /// These are accepted in addition to the server entity's [`LocalAddr`].
-    pub fn with_additional_expected_addresses(
+    /// An empty list rejects connection requests.
+    pub fn with_expected_addresses(
         mut self,
         addresses: impl IntoIterator<Item = SocketAddr>,
     ) -> Self {
-        self.additional_expected_addresses = addresses.into_iter().collect();
+        self.expected_addresses = addresses.into_iter().collect();
         self
     }
 
@@ -149,22 +142,26 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        cfg = cfg.additional_expected_addresses(config.additional_expected_addresses);
-        let server_addr_check = config.server_addr_check;
+        cfg = cfg.expected_addresses(config.expected_addresses);
         if let Some(handler) = config.connection_request_handler {
             cfg = cfg.connection_request_handler(handler);
         }
         let server =
             crate::server::Server::with_config(config.protocol_id, config.private_key, cfg)
                 .expect("Could not create server netcode");
-        Self {
-            inner: server,
-            server_addr_check,
-        }
+        Self { inner: server }
     }
 
     pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
         self.inner.set_connection_request_handler(handler);
+    }
+
+    /// Replace the socket addresses accepted during private connect-token validation.
+    ///
+    /// Use this after a port-zero bind to explicitly authorize the observed address,
+    /// before clients connect. An empty list rejects new connection requests.
+    pub fn set_expected_addresses(&mut self, addresses: impl IntoIterator<Item = SocketAddr>) {
+        self.inner.set_expected_addresses(addresses);
     }
 
     /// Clears the Netcode runtime state while preserving this server's configuration.
@@ -317,13 +314,7 @@ impl NetcodeServerPlugin {
         parallel_commands: ParallelCommands,
         real_time: Res<Time<Real>>,
         mut server_query: Query<
-            (
-                Entity,
-                &mut NetcodeServer,
-                &mut Endpoint,
-                Has<Stopping>,
-                Option<&LocalAddr>,
-            ),
+            (Entity, &mut NetcodeServer, &mut Endpoint, Has<Stopping>),
             Without<Stopped>,
         >,
         link_query: Query<(Entity, &mut Link), (With<LinkOf>, Without<HostClient>)>,
@@ -337,24 +328,12 @@ impl NetcodeServerPlugin {
         // receive packets from the link and process them through the server
         let server_query = adaptive_for_each_mut!(server_query);
         server_query.for_each(
-            |(server_entity, mut netcode_server, mut server, stopping, local_addr)| {
+            |(server_entity, mut netcode_server, mut server, stopping)| {
                 parallel_commands.command_scope(|mut c| {
                     // SAFETY: we know that each client is unique to a single server so we won't
                     //  violate aliasing rules
                     let mut link_query = unsafe { link_query.reborrow_unsafe() };
 
-                    let server_addr = if netcode_server.server_addr_check {
-                        local_addr.map(|addr| addr.0)
-                    } else {
-                        None
-                    };
-                    let can_receive = !netcode_server.server_addr_check || server_addr.is_some();
-                    if !can_receive {
-                        error!(
-                            ?server_entity,
-                            "server address checking is enabled but the server has no LocalAddr"
-                        );
-                    }
                     netcode_server.inner.update_state(delta.as_secs_f64());
 
                     // TODO: try to make this parallel!
@@ -384,30 +363,24 @@ impl NetcodeServerPlugin {
                             // trace!("SERVER: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
                             // TODO: insert Connecting if we receive a ConnectionRequest packet
-                            if can_receive {
-                                match netcode_server.inner.receive(
-                                    link.as_mut(),
-                                    &mut entity_mut,
-                                    server_addr,
-                                ) {
-                                    Ok(errors) => {
-                                        for error in errors {
-                                            error.log();
-                                            c.write_message(NetcodeServerError {
-                                                server_entity,
-                                                client_entity: entity,
-                                                error,
-                                            });
-                                        }
-                                    }
-                                    Err(error) => {
-                                        error!("Error receiving packet: {:?}", error);
+                            match netcode_server.inner.receive(link.as_mut(), &mut entity_mut) {
+                                Ok(errors) => {
+                                    for error in errors {
+                                        error.log();
                                         c.write_message(NetcodeServerError {
                                             server_entity,
                                             client_entity: entity,
                                             error,
                                         });
                                     }
+                                }
+                                Err(error) => {
+                                    error!("Error receiving packet: {:?}", error);
+                                    c.write_message(NetcodeServerError {
+                                        server_entity,
+                                        client_entity: entity,
+                                        error,
+                                    });
                                 }
                             }
                         });
@@ -565,7 +538,7 @@ mod tests {
         let server = app
             .world_mut()
             .spawn(NetcodeServer::new(NetcodeConfig {
-                server_addr_check: false,
+                expected_addresses: alloc::vec!["127.0.0.1:5000".parse().unwrap()],
                 ..Default::default()
             }))
             .id();

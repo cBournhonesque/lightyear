@@ -13,7 +13,6 @@ use core::mem::size_of;
 use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::writer::WriteInteger;
-use lightyear_utils::free_list::{FreeList, FreeListIter};
 use no_std_io2::io::{self, Write};
 use thiserror::Error;
 
@@ -37,43 +36,35 @@ pub enum InvalidTokenError {
 
 #[derive(Debug, Clone, Copy)]
 pub struct AddressList {
-    addrs: FreeList<SocketAddr, MAX_SERVERS_PER_CONNECT>,
+    addrs: [SocketAddr; MAX_SERVERS_PER_CONNECT],
+    len: usize,
 }
 
 impl AddressList {
     const IPV4: u8 = 1;
     const IPV6: u8 = 2;
-    pub fn new(addrs: impl utils::ToSocketAddrs) -> Result<Self, Error> {
-        let mut server_addresses = FreeList::new();
-
-        for (i, addr) in addrs.to_socket_addrs()?.enumerate() {
-            if i >= MAX_SERVERS_PER_CONNECT {
-                break;
-            }
-
-            server_addresses.insert(addr);
+    fn empty() -> Self {
+        Self {
+            addrs: [SocketAddr::from(([0, 0, 0, 0], 0)); MAX_SERVERS_PER_CONNECT],
+            len: 0,
         }
-
-        Ok(AddressList {
-            addrs: server_addresses,
-        })
+    }
+    pub fn new(addrs: impl utils::ToSocketAddrs) -> Result<Self, Error> {
+        let mut addresses = Self::empty();
+        for addr in addrs.to_socket_addrs()?.take(MAX_SERVERS_PER_CONNECT) {
+            addresses.addrs[addresses.len] = addr;
+            addresses.len += 1;
+        }
+        Ok(addresses)
     }
     pub fn len(&self) -> usize {
-        self.addrs.len()
+        self.len
     }
-    pub fn iter(&self) -> FreeListIter<'_, SocketAddr, MAX_SERVERS_PER_CONNECT> {
-        FreeListIter {
-            free_list: &self.addrs,
-            index: 0,
-        }
+    pub fn as_slice(&self) -> &[SocketAddr] {
+        &self.addrs[..self.len]
     }
-}
-
-impl core::ops::Index<usize> for AddressList {
-    type Output = SocketAddr;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        self.addrs.get(index).expect("index out of bounds")
+    pub fn iter(&self) -> impl Iterator<Item = (usize, SocketAddr)> + '_ {
+        self.as_slice().iter().copied().enumerate()
     }
 }
 
@@ -106,7 +97,7 @@ impl Bytes for AddressList {
             return Err(InvalidTokenError::AddressListLength(len));
         }
 
-        let mut addrs = FreeList::new();
+        let mut addresses = Self::empty();
 
         for _ in 0..len {
             let addr_type = reader.read_u8()?;
@@ -125,10 +116,11 @@ impl Bytes for AddressList {
                 }
                 t => return Err(InvalidTokenError::InvalidIpAddressType(t)),
             };
-            addrs.insert(addr);
+            addresses.addrs[addresses.len] = addr;
+            addresses.len += 1;
         }
 
-        Ok(Self { addrs })
+        Ok(addresses)
     }
 }
 
@@ -372,11 +364,12 @@ impl<A: utils::ToSocketAddrs> ConnectTokenBuilder<A> {
     /// Sets the **internal** server addresses in the private data of the token. <br>
     /// If this field is not set, the **public** server addresses provided when creating the builder will be used instead.
     ///
-    /// The **internal** server addresses list is used by the server to determine if the client is connecting to the same server that issued the token.
-    /// The client will always use the **public** server addresses list to connect to the server, never the **internal** ones.
+    /// The server compares these **internal** addresses against its explicitly configured
+    /// expected authorization addresses. The client exposes the **public** addresses for
+    /// application-managed routing; netcode does not select or configure the transport.
     ///
-    /// This is useful for when you bind your server to a local address that is not accessible from the internet,
-    /// but you want to provide a public address that is accessible to the client.
+    /// This is useful when the server authorizes an internal socket address but clients
+    /// dial a public socket address, hostname, or URL.
     pub fn internal_addresses(mut self, internal_addresses: A) -> Result<Self, Error> {
         self.internal_server_addresses = Some(AddressList::new(internal_addresses)?);
         Ok(self)

@@ -38,8 +38,11 @@
  The server should run as a part of the game loop, process incoming packets and send updates to the clients.
 
  To create a server:
-  * Provide the server's current `LocalAddr` when receiving packets so it can be checked against
-    private connect tokens. The high-level [`NetcodeServer`] does this automatically.
+  * Explicitly configure the socket addresses accepted for private connect-token authorization.
+    The high-level server uses [`server_plugin::NetcodeConfig::expected_addresses`];
+    the low-level server uses [`ServerConfig::expected_addresses`]. Empty lists fail closed.
+    For port-zero binds, call [`NetcodeServer::set_expected_addresses`] with the transport's
+    observed socket address before connecting clients.
   * Provide the protocol id - a `u64` that uniquely identifies your app.
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
@@ -54,6 +57,13 @@ send updates to the server, and maintain a stable connection.
 To create a client:
  * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
  * Optionally provide a [`ClientConfig`](client::ClientConfig) - a struct that allows you to customize the client's behavior.
+
+The transport destination is configured separately using its native configuration (socket
+address, hostname, or URL). Netcode never resolves or compares dial URLs/hostnames to token
+addresses. [`NetcodeClient::token_server_addresses`] exposes all public token socket addresses;
+it does not configure routing. To fail over, the application creates a new link with a new
+transport destination and starts a new handshake. Netcode does not silently retry on a link
+that still targets the previous server.
 */
 #![no_std]
 

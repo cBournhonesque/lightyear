@@ -41,7 +41,7 @@ use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked, Unlinked};
 use lightyear_p2p::{DialContext, DialPeer, Lobby};
 use tracing::{debug, warn};
 
-use aeronet_io::connection::{LocalAddr, PeerAddr};
+use crate::{WebTransportLocalAddr, WebTransportPeerAddr};
 
 use crate::client::WebTransportClientIo;
 use crate::endpoint::{WebTransportEndpoint, WebTransportEndpointPlugin};
@@ -147,7 +147,7 @@ fn on_endpoint_added(
 /// The endpoint's bound address, which is this peer's identity.
 fn local_id(
     endpoint: Entity,
-    addresses: &Query<&LocalAddr, With<WebTransportEndpoint>>,
+    addresses: &Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
 ) -> Option<PeerId> {
     addresses
         .get(endpoint)
@@ -162,7 +162,7 @@ fn local_id(
 fn on_dial(
     trigger: On<DialPeer>,
     endpoints: Query<Entity, With<WebTransportEndpoint>>,
-    addresses: Query<&LocalAddr, With<WebTransportEndpoint>>,
+    addresses: Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
     existing: Query<
         (
             Entity,
@@ -248,13 +248,8 @@ fn on_dial(
             Client,
             LocalId(local_id),
             RemoteId(peer),
-            PeerAddr(address),
             Link::default(),
-            WebTransportClientIo {
-                certificate_digest,
-                // Derived from `PeerAddr` as `https://<addr>`.
-                target: None,
-            },
+            WebTransportClientIo::from_addr(address, certificate_digest),
         ))
         .id();
     commands.trigger(Connect { entity: link });
@@ -304,40 +299,51 @@ fn on_accepted_identity(
 ///
 /// Only links owned by a [`WebTransportEndpoint`] are touched, so a server's sessions are left alone.
 fn on_accepted_link(
-    trigger: On<Add, PeerAddr>,
-    links: Query<(&LinkOf, &PeerAddr)>,
-    addresses: Query<&LocalAddr, With<WebTransportEndpoint>>,
+    trigger: On<Add, (WebTransportPeerAddr, WebTransportLocalAddr, LinkOf, Linked)>,
+    links: Query<(Entity, &LinkOf, &WebTransportPeerAddr), Without<P2P>>,
+    addresses: Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
     endpoints: Query<(), With<LobbyEndpoint>>,
     mut commands: Commands,
 ) {
-    let entity = trigger.entity;
-    let Ok((link_of, peer_addr)) = links.get(entity) else {
-        // Not an endpoint child: a dialed client session, which `on_dial` already annotated.
-        return;
+    let mut annotate = |(entity, link_of, peer_addr): (Entity, &LinkOf, &WebTransportPeerAddr)| {
+        if !endpoints.contains(link_of.endpoint) {
+            return;
+        }
+        let Some(local_id) = local_id(link_of.endpoint, &addresses) else {
+            return;
+        };
+        debug!(remote = %peer_addr.0, "lobby endpoint accepted a peer");
+        commands.entity(entity).insert((
+            P2P::default(),
+            Client,
+            LocalId(local_id),
+            RemoteId(PeerId::Raw(peer_addr.0)),
+            lightyear_p2p::ProvisionalPeerId,
+        ));
     };
-    if !endpoints.contains(link_of.endpoint) {
-        return;
+    if addresses.contains(trigger.entity) {
+        for link in &links {
+            if link.1.endpoint == trigger.entity {
+                annotate(link);
+            }
+        }
+    } else if let Ok(link) = links.get(trigger.entity) {
+        annotate(link);
     }
-    let Some(local_id) = local_id(link_of.endpoint, &addresses) else {
-        return;
-    };
-
-    debug!(remote = %peer_addr.0, "lobby endpoint accepted a peer");
-    commands.entity(entity).insert((
-        P2P::default(),
-        Client,
-        LocalId(local_id),
-        RemoteId(PeerId::Raw(peer_addr.0)),
-        lightyear_p2p::ProvisionalPeerId,
-    ));
 }
 
 /// Admits a `P2P` link only once both its lobby identities and transport are ready.
 fn on_link_linked(
-    trigger: On<Add, (Linked, LocalId, RemoteId, P2P)>,
+    trigger: On<Add, (Linked, LocalId, RemoteId, P2P, WebTransportPeerAddr)>,
     query: Query<
         (&LocalId, &RemoteId),
-        (With<Linked>, With<P2P>, With<Client>, Without<Connected>),
+        (
+            With<Linked>,
+            With<P2P>,
+            With<Client>,
+            With<WebTransportPeerAddr>,
+            Without<Connected>,
+        ),
     >,
     mut commands: Commands,
 ) {

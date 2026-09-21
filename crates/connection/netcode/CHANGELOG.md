@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Require explicit server `expected_addresses` for connect-token authorization. Empty
+  configurations reject requests; use `set_expected_addresses` after port-zero binds.
+- Decouple netcode from transport addresses and remove its Aeronet dependency. Clients
+  expose `token_server_addresses()` without configuring transport routing or implicit
+  failover; applications establish a new link when trying another destination.
+
 ## v0.21.0 (2025-07-03)
 
 <csr-id-5dc2e81f8c2b1171df33703d73e38a49e7b4695d/>

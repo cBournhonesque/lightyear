@@ -23,6 +23,16 @@ pub mod endpoint;
 pub mod lobby;
 
 use alloc::string::String;
+use bevy_ecs::prelude::Component;
+use core::net::SocketAddr;
+
+/// Observed local socket address, published after the native transport binds or connects.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebSocketLocalAddr(pub SocketAddr);
+
+/// Observed remote socket address of a native WebSocket session.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebSocketPeerAddr(pub SocketAddr);
 
 /// Errors produced while creating WebSocket client or server transport entities.
 #[derive(thiserror::Error, Debug)]
@@ -30,17 +40,11 @@ pub enum WebSocketError {
     /// The configured certificate hash string is invalid.
     #[error("the certificate hash `{0}` is invalid")]
     Certificate(String),
-    /// A [`PeerAddr`](aeronet_io::connection::PeerAddr) component was required but missing.
-    #[error("PeerAddr is required to start the WebSocketClientIo link")]
-    PeerAddrMissing,
-    /// A [`LocalAddr`](aeronet_io::connection::LocalAddr) component was required but missing.
-    #[error("LocalAddr is required to start the WebSocketEndpoint")]
-    LocalAddrMissing,
 }
 
 /// Re-exports commonly needed by applications configuring WebSocket transport.
 pub mod prelude {
-    pub use crate::WebSocketError;
+    pub use crate::{WebSocketError, WebSocketLocalAddr, WebSocketPeerAddr};
     pub use aeronet_websocket::*;
 
     /// Client-side WebSocket prelude.

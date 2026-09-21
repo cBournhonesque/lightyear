@@ -234,9 +234,6 @@ lightyear_tools = { workspace = true, optional = true }
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 
-# io
-aeronet_io.workspace = true
-
 # utils
 thiserror.workspace = true
 serde.workspace = true

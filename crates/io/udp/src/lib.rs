@@ -15,9 +15,8 @@
 #![allow(clippy::std_instead_of_core)]
 
 use std::io::ErrorKind;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 
-use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bytes::BufMut;
@@ -54,7 +53,7 @@ pub mod server;
 
 /// Re-exports commonly needed by applications and transport setup code.
 pub mod prelude {
-    pub use crate::UdpIo;
+    pub use crate::{UdpIo, UdpLocalAddr, UdpPeerAddr};
 
     /// UDP endpoint prelude: the transport's socket and per-peer link fan-out.
     ///
@@ -69,6 +68,7 @@ pub mod prelude {
     /// Available with the `server` feature.
     #[cfg(feature = "server")]
     pub mod server {
+        pub use crate::endpoint::UdpEndpoint;
         pub use crate::server::ServerUdpIo;
     }
 }
@@ -88,32 +88,50 @@ fn recv_buffer_pool() -> BufferPool {
     pool
 }
 
+/// The local address reported by a bound UDP socket, including its assigned port.
+///
+/// This is observed state, not bind configuration. Read it after [`LinkStart`] to obtain the
+/// actual address when the transport was configured with port `0`.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UdpLocalAddr(pub SocketAddr);
+
+/// The remote socket address used to route packets on a UDP link.
+///
+/// Single-peer sockets publish their configured target when started. Endpoint children receive
+/// the datagram source address or the address supplied by the caller when dialing.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UdpPeerAddr(pub SocketAddr);
+
 /// Single-peer UDP socket transport component.
 ///
-/// Insert this on the entity that owns the Lightyear [`Link`] for a UDP peer. A [`LocalAddr`] must
-/// be present before [`LinkStart`] is triggered so the plugin can bind the socket, and [`PeerAddr`]
-/// must be present while linked so outgoing packets know their destination.
+/// Insert this on the entity that owns the Lightyear [`Link`] for a UDP peer. Supply the bind and
+/// peer addresses with [`UdpIo::new`]. On [`LinkStart`], the plugin binds the socket and publishes
+/// [`UdpLocalAddr`] and [`UdpPeerAddr`] without changing the requested configuration.
 ///
 /// For an endpoint that many peers connect to, use [`endpoint::UdpEndpoint`] instead of one `UdpIo` per
 /// remote address.
 #[derive(Component)]
 #[require(Link)]
-// TODO: add LocalAddr using Construct
 pub struct UdpIo {
+    /// Requested local bind address. Port `0` lets the OS choose a port.
+    pub bind_addr: SocketAddr,
+    /// Remote socket address to use when starting the link.
+    pub peer_addr: SocketAddr,
     socket: Option<UdpSocket>,
     recv_buffers: BufferPool,
 }
 
-impl Default for UdpIo {
-    fn default() -> Self {
+impl UdpIo {
+    /// Creates a single-peer transport with explicit bind and dial configuration.
+    pub fn new(bind: SocketAddr, peer: SocketAddr) -> Self {
         Self {
+            bind_addr: bind,
+            peer_addr: peer,
             socket: None,
             recv_buffers: recv_buffer_pool(),
         }
     }
-}
 
-impl UdpIo {
     /// Returns receive-buffer pool misses for allocation regression tests.
     #[cfg(feature = "test_utils")]
     pub fn recv_buffer_pool_misses(&self) -> usize {
@@ -121,23 +139,15 @@ impl UdpIo {
     }
 }
 
-/// Errors produced while starting UDP transport entities.
-#[derive(thiserror::Error, Debug)]
-pub enum UdpError {
-    /// The entity did not have a [`LocalAddr`] when [`LinkStart`] was processed.
-    #[error("LocalAddr is required to start the UdpIo link")]
-    LocalAddrMissing,
-}
-
 /// Bevy plugin that integrates single-peer UDP sockets with Lightyear links.
 ///
 /// The plugin installs:
-/// - a [`LinkStart`] observer that binds [`UdpIo`] to [`LocalAddr`] and marks the entity
-///   [`Linked`];
+/// - a [`LinkStart`] observer that binds [`UdpIo`] to its requested address and publishes
+///   [`UdpLocalAddr`], [`UdpPeerAddr`], and [`Linked`];
 /// - an [`Unlink`] observer that closes the socket;
 /// - a receive system in [`LinkReceiveSystems::BufferToLink`] that pushes datagrams into
 ///   [`Link::recv`];
-/// - a send system in [`LinkSystems::Send`] that drains [`Link::send`] to [`PeerAddr`].
+/// - a send system in [`LinkSystems::Send`] that drains [`Link::send`] to [`UdpPeerAddr`].
 ///
 /// Debug connections are admitted automatically from the bound socket and peer address.
 /// Explicit connection backends retain control of authentication and admission.
@@ -146,28 +156,27 @@ pub struct UdpPlugin;
 impl UdpPlugin {
     fn link(
         trigger: On<LinkStart>,
-        mut query: Query<
-            (&mut UdpIo, Option<&mut LocalAddr>, Option<&PeerAddr>),
-            (Without<Linking>, Without<Linked>),
-        >,
+        mut query: Query<&mut UdpIo, (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
         trace!("In LinkStart::UDP trigger");
-        if let Ok((mut udp_io, local_addr, peer_addr)) = query.get_mut(trigger.entity) {
-            let mut local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?;
-            let socket = UdpSocket::bind(local_addr.0)?;
-            local_addr.0 = socket.local_addr()?;
-            info!("UDP socket bound to {}", local_addr.0);
+        if let Ok(mut udp_io) = query.get_mut(trigger.entity) {
+            let socket = UdpSocket::bind(udp_io.bind_addr)?;
+            let local_addr = socket.local_addr()?;
+            info!("UDP socket bound to {}", local_addr);
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
             let entity = trigger.entity;
-            let local = LocalId(PeerId::Raw(local_addr.0));
-            let remote = peer_addr.map(|addr| RemoteId(PeerId::Raw(addr.0)));
+            let peer_addr = udp_io.peer_addr;
+            let local = LocalId(PeerId::Raw(local_addr));
+            let remote = RemoteId(PeerId::Raw(peer_addr));
             commands.queue(move |world: &mut World| {
-                world.entity_mut(entity).insert(Linked);
-                if let Some(remote) = remote {
-                    apply_default_ids(world, entity, local, remote);
-                }
+                world.entity_mut(entity).insert((
+                    UdpLocalAddr(local_addr),
+                    UdpPeerAddr(peer_addr),
+                    Linked,
+                ));
+                apply_default_ids(world, entity, local, remote);
             });
         }
         Ok(())
@@ -180,7 +189,7 @@ impl UdpPlugin {
         }
     }
 
-    fn send(mut query: Query<(&mut Link, &mut UdpIo, &PeerAddr), With<Linked>>) {
+    fn send(mut query: Query<(&mut Link, &mut UdpIo, &UdpPeerAddr), With<Linked>>) {
         adaptive_for_each_mut!(query).for_each(|(mut link, mut udp_io, remote_addr)| {
             link.send.drain().for_each(|payload| {
                 // B/s
@@ -283,14 +292,12 @@ mod tests {
             .world_mut()
             .spawn((
                 Client,
-                UdpIo::default(),
-                LocalAddr("127.0.0.1:0".parse().unwrap()),
-                PeerAddr(peer.local_addr().unwrap()),
+                UdpIo::new("127.0.0.1:0".parse().unwrap(), peer.local_addr().unwrap()),
             ))
             .id();
         app.world_mut().trigger(Connect { entity });
         app.update();
-        let local = app.world().get::<LocalAddr>(entity).unwrap().0;
+        let local = app.world().get::<UdpLocalAddr>(entity).unwrap().0;
         assert_ne!(local.port(), 0);
         assert_eq!(
             app.world().get::<LocalId>(entity),
@@ -301,6 +308,18 @@ mod tests {
             Some(&RemoteId(PeerId::Server))
         );
         assert!(app.world().get::<Connected>(entity).is_some());
+        app.world_mut()
+            .get_mut::<Link>(entity)
+            .unwrap()
+            .send
+            .push(bytes::Bytes::from_static(b"hello"));
+        app.update();
+        peer.set_read_timeout(Some(core::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut packet = [0; MTU];
+        let (len, source) = peer.recv_from(&mut packet).unwrap();
+        assert_eq!(&packet[..len], b"hello");
+        assert_eq!(source, local);
         app.world_mut().trigger(Disconnect { entity });
         app.update();
         assert!(app.world().get::<Connected>(entity).is_none());
@@ -327,10 +346,9 @@ mod tests {
         app.add_plugins(UdpPlugin);
         let spawn = |world: &mut World| {
             world
-                .spawn((
-                    UdpIo::default(),
-                    LocalAddr("127.0.0.1:0".parse().unwrap()),
-                    PeerAddr(peer.local_addr().unwrap()),
+                .spawn(UdpIo::new(
+                    "127.0.0.1:0".parse().unwrap(),
+                    peer.local_addr().unwrap(),
                 ))
                 .id()
         };
