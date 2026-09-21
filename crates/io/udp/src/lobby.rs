@@ -1,72 +1,30 @@
-//! Glue between [`lightyear_p2p::Lobby`] and UDP links.
+//! UDP routing glue for [`lightyear_p2p::Lobby`].
 //!
-//! The lobby discovers peers and emits [`DialPeer`](lightyear_p2p::DialPeer), but never says *where*
-//! a peer is: that is the transport's business. For UDP this module answers it with one rule — **a
-//! peer's address is its identity**.
+//! A peer owns one [`UdpEndpoint`] socket. Child links route through that socket, while the
+//! endpoint's resolved `LocalId` is inherited by every child. The default identity comes from
+//! the first bound address; an explicit endpoint identity is preserved.
 //!
-//! # Why an endpoint
+//! Add this plugin alongside `LobbyPlugin` and the normal P2P messaging/session plugins.
+//! Spawn `UdpEndpoint::new(bind)` and optionally configure its `LocalId` before adding the IO.
+//! Port-zero binds publish [`crate::UdpLocalAddr`]. Use [`dial_context`] when seeding chosen IDs:
+//! socket routing belongs in discovery context, not in the peer alias.
 //!
-//! A [`PeerId::Raw`](lightyear_core::id::PeerId::Raw) is a [`SocketAddr`](core::net::SocketAddr), so
-//! the announce that carries peer identities carries their addresses too, and dialing a peer is
-//! sending to that address. Nothing else has to be supplied: the application never maps peers to
-//! addresses.
-//!
-//! That only holds if a peer has exactly *one* address that everyone can reach, which is what
-//! [`UdpEndpoint`](crate::endpoint::UdpEndpoint) provides. It owns a single socket and fans out to one child [`Link`] per remote
-//! address, so:
-//!
-//! - every peer reaches this one at the same address, whether it dialed us or we dialed it;
-//! - the source address of an inbound datagram identifies the sender, so a peer that dialed us needs
-//!   no introduction;
-//! - seeding is one-way: whoever is dialed learns the dialer from the datagram and can reply on the
-//!   link it already has.
-//!
-//! # What the application supplies
-//!
-//! Only two things, neither of them per-peer:
-//!
-//! 1. **Where to bind**, by spawning an [`UdpEndpoint`](crate::endpoint::UdpEndpoint) with
-//!    [`UdpEndpoint::new`]. Bind port `0` to let the OS choose; the endpoint publishes
-//!    [`UdpLocalAddr`](crate::UdpLocalAddr) with the address it actually got.
-//! 2. **The seeds**, by handing the lobby the `PeerId::Raw` of the peers it should dial first. Every
-//!    other peer is discovered through announces and dialed with no configuration at all.
-//!
-//! ```no_run
-//! # use core::net::{Ipv4Addr, SocketAddr};
-//! # use lightyear_udp::endpoint::UdpEndpoint;
-//! # use lightyear_udp::lobby::UdpLobbyPlugin;
-//! # use bevy_app::App;
-//! fn setup(app: &mut App) {
-//!     app.add_plugins(UdpLobbyPlugin);
-//!     // Give the peer a socket. Any address the peers can reach will do.
-//!     let local = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-//!     app.world_mut()
-//!         .spawn(UdpEndpoint::new(local));
-//! }
-//! ```
-//!
-//! # Liveness
-//!
-//! UDP has no handshake, so a Link is [`Linked`] and `Connected` from the moment it is dialed: that
-//! means the socket is usable, not that the peer is listening. Readiness has to be judged from
-//! traffic the peer sends back — the examples gate on ping samples for this reason — rather than
-//! from a Link merely existing.
-//!
-//! # Foreign peers
-//!
-//! A peer that reaches this endpoint but belongs to another lobby is recorded by the lobby as
-//! foreign and never added to the roster. Its [`Link`] still exists, and a Link carrying [`P2P`](lightyear_connection::p2p::P2P)
-//! counts towards the start barrier, so an application that starts a session while a foreign peer is
-//! attached should unlink it first.
+//! A UDP link becomes [`Linked`] immediately, but a lobby link is admitted only after receiving
+//! the peer's existing identity announcement on the reliable P2P channel. No new raw handshake
+//! or identity timer is introduced; non-lobby default UDP admission is unchanged.
+//! Unanswered peers cannot join a deterministic session. Foreign-lobby peers remain separate
+//! from lobby membership even when their connection identity is resolved.
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use lightyear_core::id::PeerId;
 use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked};
-use lightyear_p2p::DialPeer;
+use lightyear_p2p::{
+    DialContext, DialPeer, Lobby, begin_peer_resolution, resolve_endpoint_identity,
+};
 use tracing::{debug, warn};
 
-use crate::UdpPeerAddr;
+use crate::{UdpLocalAddr, UdpPeerAddr};
 
 use crate::endpoint::{UdpEndpoint, UdpEndpointPlugin, UdpLinkOfIO};
 
@@ -77,6 +35,48 @@ pub struct UdpLobbyPlugin;
 #[derive(Component, Default)]
 pub(crate) struct UdpLobbyEndpoint;
 
+/// Dial intent, not an admitted remote identity.
+#[derive(Component)]
+pub(crate) struct UdpExpectedPeer(pub PeerId);
+
+/// Encodes a UDP target independently of its routing alias.
+pub fn dial_context(address: core::net::SocketAddr) -> DialContext {
+    let mut bytes = Vec::with_capacity(32);
+    bytes.extend_from_slice(b"UDP\x01");
+    match address {
+        core::net::SocketAddr::V4(address) => {
+            bytes.push(4);
+            bytes.extend_from_slice(&address.ip().octets());
+            bytes.extend_from_slice(&address.port().to_be_bytes());
+        }
+        core::net::SocketAddr::V6(address) => {
+            bytes.push(6);
+            bytes.extend_from_slice(&address.ip().octets());
+            bytes.extend_from_slice(&address.port().to_be_bytes());
+            bytes.extend_from_slice(&address.flowinfo().to_be_bytes());
+            bytes.extend_from_slice(&address.scope_id().to_be_bytes());
+        }
+    }
+    DialContext::from(bytes)
+}
+
+fn context_address(context: &[u8]) -> Option<core::net::SocketAddr> {
+    let bytes = context.strip_prefix(b"UDP\x01")?;
+    match (bytes.first().copied()?, bytes.len()) {
+        (4, 7) => Some(core::net::SocketAddr::new(
+            core::net::Ipv4Addr::from(<[u8; 4]>::try_from(&bytes[1..5]).ok()?).into(),
+            u16::from_be_bytes(bytes[5..7].try_into().ok()?),
+        )),
+        (6, 27) => Some(core::net::SocketAddr::V6(core::net::SocketAddrV6::new(
+            core::net::Ipv6Addr::from(<[u8; 16]>::try_from(&bytes[1..17]).ok()?),
+            u16::from_be_bytes(bytes[17..19].try_into().ok()?),
+            u32::from_be_bytes(bytes[19..23].try_into().ok()?),
+            u32::from_be_bytes(bytes[23..27].try_into().ok()?),
+        ))),
+        _ => None,
+    }
+}
+
 impl Plugin for UdpLobbyPlugin {
     fn build(&self, app: &mut App) {
         app.register_required_components::<UdpEndpoint, UdpLobbyEndpoint>();
@@ -84,6 +84,7 @@ impl Plugin for UdpLobbyPlugin {
             app.add_plugins(UdpEndpointPlugin);
         }
         app.add_observer(on_endpoint_added);
+        app.add_observer(on_endpoint_bound);
         app.add_observer(on_dial);
     }
 }
@@ -95,11 +96,38 @@ fn on_endpoint_added(trigger: On<Add, UdpEndpoint>, mut commands: Commands) {
     });
 }
 
+fn on_endpoint_bound(trigger: On<Add, UdpLocalAddr>, mut commands: Commands) {
+    let endpoint = trigger.entity;
+    commands.queue(move |world: &mut World| {
+        if world.get::<UdpLobbyEndpoint>(endpoint).is_none() {
+            return;
+        }
+        let Some(address) = world.get::<UdpLocalAddr>(endpoint).map(|address| address.0) else {
+            return;
+        };
+        if resolve_endpoint_identity(world, endpoint, PeerId::Raw(address)).is_none() {
+            return;
+        }
+        world
+            .resource_mut::<Lobby>()
+            .set_dial_context(dial_context(address));
+        let children: Vec<_> = world
+            .query_filtered::<(Entity, &LinkOf), With<UdpLinkOfIO>>()
+            .iter(world)
+            .filter_map(|(entity, link)| (link.endpoint == endpoint).then_some(entity))
+            .collect();
+        for entity in children {
+            let expected = world
+                .get::<UdpExpectedPeer>(entity)
+                .map(|expected| expected.0);
+            begin_peer_resolution(world, entity, endpoint, expected);
+        }
+    });
+}
 /// Opens a Link to the peer the lobby asked for.
 ///
-/// The peer's address is its identity, so nothing else is needed to reach it. The link is registered
-/// with the endpoint so that the peer's reply is delivered to it instead of spawning a second link
-/// for the same address.
+/// The native address comes from discovery context. Register the child before a response can
+/// arrive, so replies use this pending link rather than creating a duplicate.
 fn on_dial(
     trigger: On<DialPeer>,
     endpoints: Query<Entity, With<UdpEndpoint>>,
@@ -108,11 +136,17 @@ fn on_dial(
     mut commands: Commands,
 ) {
     let peer = trigger.peer;
-    let PeerId::Raw(address) = peer else {
-        warn!(
-            ?peer,
-            "a UDP peer must be identified by PeerId::Raw(address); this peer cannot be dialed"
-        );
+    let address = if trigger.context.is_empty() {
+        // Socket-ID bootstrap convenience, until the opaque identity cutover.
+        match peer {
+            PeerId::Raw(address) => Some(address),
+            _ => None,
+        }
+    } else {
+        context_address(&trigger.context)
+    };
+    let Some(address) = address else {
+        warn!(?peer, "UDP discovery needs a valid UDP dial context");
         return;
     };
 
@@ -139,6 +173,7 @@ fn on_dial(
 
     let link = commands
         .spawn((
+            UdpExpectedPeer(peer),
             LinkOf { endpoint },
             Link::default(),
             // The endpoint's socket is already bound, so the link can send immediately.

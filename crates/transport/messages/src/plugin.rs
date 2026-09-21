@@ -232,6 +232,7 @@ impl Plugin for MessagePlugin {
                 });
             }),
             ParamBuilder,
+            ParamBuilder,
             // RepliconMapParam: replicon's shared entity map when the feature is on
             ParamBuilder,
         )
@@ -1118,6 +1119,337 @@ mod tests {
                 .unwrap()
                 .receive_messages
                 .is_empty()
+        );
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct Gameplay(u8);
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct ControlSnapshot(Vec<u8>);
+
+    struct OrderedControlChannel;
+
+    fn forbidden_deserialize<'de, D: serde::Deserializer<'de>>(_: D) -> Result<u8, D::Error> {
+        panic!("preadmission payload reached typed deserialization");
+    }
+
+    #[derive(Event, Serialize, Deserialize)]
+    struct Forbidden(#[serde(deserialize_with = "forbidden_deserialize")] u8);
+
+    fn preadmission_app(event: bool) -> App {
+        let mut app = App::new();
+        app.add_plugins(CorePlugins {
+            tick_duration: core::time::Duration::from_millis(10),
+        });
+        app.add_plugins(TestTransportPlugin);
+        app.add_channel::<OrderedControlChannel>(ChannelSettings {
+            mode: lightyear_transport::prelude::ChannelMode::OrderedReliable(Default::default()),
+            ..Default::default()
+        });
+        app.add_channel::<TimelineChannel>(
+            ChannelSettings::default().on_timeline::<TestTimeline>(),
+        );
+        app.init_resource::<lightyear_connection::network_topology::NetworkingMetadata>();
+        app.register_message::<M>();
+        app.register_message::<Gameplay>();
+        app.register_message::<ControlSnapshot>();
+        app.register_event::<E>();
+        if event {
+            app.register_event::<Forbidden>();
+        } else {
+            app.register_message::<Forbidden>();
+        }
+        app.init_resource::<EventCount>();
+        app.add_observer(count_event);
+        app.add_plugins(MessagePlugin);
+        app.finish();
+        app
+    }
+
+    fn pending_link(app: &mut App, policy: crate::PreadmissionMessage) -> Entity {
+        let registry = app.world().resource::<ChannelRegistry>();
+        let mut transport = Transport::default();
+        transport.add_channel_send_from_registry::<TestChannel>(registry);
+        transport.add_channel_receive_from_registry::<TestChannel>(registry);
+        transport.add_channel_send_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_receive_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_send_from_registry::<OrderedControlChannel>(registry);
+        transport.add_channel_receive_from_registry::<OrderedControlChannel>(registry);
+        app.world_mut()
+            .spawn((
+                Link::default(),
+                Linked,
+                transport,
+                MessageManager::default(),
+                policy,
+            ))
+            .id()
+    }
+
+    fn queue_message<M: crate::Message, C: lightyear_transport::channel::Channel>(
+        app: &mut App,
+        entity: Entity,
+        message: &M,
+    ) {
+        let mut writer = lightyear_serde::writer::Writer::default();
+        let local = lightyear_serde::entity_map::SendEntityMap::default();
+        app.world()
+            .resource::<MessageRegistry>()
+            .serialize(
+                message,
+                &mut writer,
+                &lightyear_serde::entity_map::SendMapView {
+                    shared: None,
+                    local: &local,
+                },
+            )
+            .unwrap();
+        app.world()
+            .get::<Transport>(entity)
+            .unwrap()
+            .send_erased(ChannelKind::of::<C>(), writer.take_written(), 1.0)
+            .unwrap();
+    }
+
+    fn inject_message<M: crate::Message, C: lightyear_transport::channel::Channel>(
+        app: &mut App,
+        entity: Entity,
+        message: &M,
+    ) {
+        queue_message::<M, C>(app, entity, message);
+        app.world_mut().run_schedule(PostUpdate);
+        loopback_link_payload(app, entity);
+        app.world_mut().run_schedule(PreUpdate);
+    }
+
+    #[test]
+    fn preadmission_delivers_control_without_identity_and_preserves_other_sender_queues() {
+        let mut app = preadmission_app(false);
+        let entity = pending_link(&mut app, crate::PreadmissionMessage::new::<M>(64));
+        let mut control = MessageSender::<M>::default();
+        control.send::<TestChannel>(M(7));
+        let mut gameplay = MessageSender::<Gameplay>::default();
+        gameplay.send::<TestChannel>(Gameplay(9));
+        let mut event = EventSender::<E>::default();
+        event.trigger::<TestChannel>(E(11));
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((control, gameplay, event));
+        app.world_mut().run_schedule(PostUpdate);
+        loopback_link_payload(&mut app, entity);
+        app.world_mut().run_schedule(PreUpdate);
+        assert_eq!(
+            app.world_mut()
+                .get_mut::<MessageReceiver<M>>(entity)
+                .unwrap()
+                .receive()
+                .collect::<Vec<_>>(),
+            vec![M(7)],
+        );
+        let link = app.world().entity(entity);
+        assert!(!link.contains::<Connected>());
+        assert!(!link.contains::<RemoteId>());
+        assert!(!link.contains::<lightyear_core::id::LocalId>());
+        assert!(!link.contains::<MessageReceiver<Gameplay>>());
+        assert_eq!(app.world().resource::<EventCount>().0, 0);
+
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((RemoteId(PeerId::Local(1)), Connected));
+        app.world_mut().run_schedule(PostUpdate);
+        loopback_link_payload(&mut app, entity);
+        app.world_mut().run_schedule(PreUpdate);
+        assert_eq!(
+            app.world_mut()
+                .get_mut::<MessageReceiver<Gameplay>>(entity)
+                .unwrap()
+                .receive()
+                .collect::<Vec<_>>(),
+            vec![Gameplay(9)],
+        );
+        assert_eq!(app.world().resource::<EventCount>().0, 1);
+    }
+
+    #[test]
+    fn preadmission_rejects_unrelated_types_and_events_before_deserialization() {
+        for event in [false, true] {
+            let mut app = preadmission_app(event);
+            let entity = pending_link(&mut app, crate::PreadmissionMessage::new::<M>(64));
+            inject_message::<_, TestChannel>(&mut app, entity, &Forbidden(3));
+            assert!(
+                !app.world()
+                    .entity(entity)
+                    .contains::<MessageReceiver<Forbidden>>()
+            );
+            assert!(
+                !app.world()
+                    .entity(entity)
+                    .contains::<PendingTimelineEvents<Forbidden>>()
+            );
+            if event {
+                // Even naming an event as the policy's type must not enable event decoding.
+                app.world_mut()
+                    .entity_mut(entity)
+                    .insert(crate::PreadmissionMessage::new::<Forbidden>(64));
+                inject_message::<_, TestChannel>(&mut app, entity, &Forbidden(4));
+            }
+        }
+    }
+
+    #[test]
+    fn preadmission_rejects_timeline_and_oversized_input_before_deserialization() {
+        let mut app = preadmission_app(false);
+        let entity = pending_link(&mut app, crate::PreadmissionMessage::new::<Forbidden>(64));
+        inject_message::<_, TimelineChannel>(&mut app, entity, &Forbidden(3));
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<MessageReceiver<Forbidden>>()
+        );
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::PreadmissionMessage::new::<Forbidden>(0));
+        inject_message::<_, TestChannel>(&mut app, entity, &Forbidden(3));
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<MessageReceiver<Forbidden>>()
+        );
+    }
+
+    #[test]
+    fn preadmission_rejects_oversized_output_and_timeline_sends() {
+        let mut app = preadmission_app(false);
+        let entity = pending_link(&mut app, crate::PreadmissionMessage::new::<M>(1));
+        let mut control = MessageSender::<M>::default();
+        control.send::<TestChannel>(M(1024));
+        app.world_mut().entity_mut(entity).insert(control);
+        app.world_mut().run_schedule(PostUpdate);
+        assert_eq!(app.world().get::<Link>(entity).unwrap().send.len(), 0);
+
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::PreadmissionMessage::new::<M>(64));
+        app.world_mut()
+            .get_mut::<MessageSender<M>>(entity)
+            .unwrap()
+            .send::<TimelineChannel>(M(1));
+        app.world_mut().run_schedule(PostUpdate);
+        assert_eq!(app.world().get::<Link>(entity).unwrap().send.len(), 0);
+        // Rejection must not contaminate the next serialized control message.
+        app.world_mut()
+            .get_mut::<MessageSender<M>>(entity)
+            .unwrap()
+            .send::<TestChannel>(M(2));
+        app.world_mut().run_schedule(PostUpdate);
+        loopback_link_payload(&mut app, entity);
+        app.world_mut().run_schedule(PreUpdate);
+        assert_eq!(
+            app.world_mut()
+                .get_mut::<MessageReceiver<M>>(entity)
+                .unwrap()
+                .receive()
+                .collect::<Vec<_>>(),
+            vec![M(2)],
+        );
+    }
+
+    #[test]
+    fn preadmission_requires_policy_linked_and_no_disconnection() {
+        for disabled in 0..4 {
+            let mut app = preadmission_app(false);
+            let entity = pending_link(&mut app, crate::PreadmissionMessage::new::<M>(64));
+            let mut control = MessageSender::<M>::default();
+            control.send::<TestChannel>(M(1));
+            app.world_mut().entity_mut(entity).insert(control);
+            // Queue incoming bytes while the path is enabled, but do not decode yet.
+            app.world_mut().run_schedule(PostUpdate);
+            loopback_link_payload(&mut app, entity);
+            match disabled {
+                0 => {
+                    app.world_mut()
+                        .entity_mut(entity)
+                        .remove::<crate::PreadmissionMessage>();
+                }
+                1 => {
+                    app.world_mut().entity_mut(entity).remove::<Linked>();
+                }
+                2 => {
+                    app.world_mut()
+                        .entity_mut(entity)
+                        .insert(Disconnected::default());
+                }
+                _ => {
+                    app.world_mut()
+                        .entity_mut(entity)
+                        .insert(lightyear_connection::client::Disconnecting);
+                }
+            }
+            app.world_mut()
+                .get_mut::<MessageSender<M>>(entity)
+                .unwrap()
+                .send::<TestChannel>(M(2));
+            app.world_mut().run_schedule(PreUpdate);
+            app.world_mut().run_schedule(PostUpdate);
+            assert!(!app.world().entity(entity).contains::<MessageReceiver<M>>());
+            // Transport acknowledgements may still be emitted. Re-enable receive without running
+            // send: the control queued while disabled must not already be on the wire.
+            {
+                let mut link = app.world_mut().get_mut::<Link>(entity).unwrap();
+                while let Some(payload) = link.send.pop() {
+                    link.recv.push_raw(recv_payload_from_bytes(payload));
+                }
+            }
+            app.world_mut()
+                .entity_mut(entity)
+                .remove::<(Disconnected, lightyear_connection::client::Disconnecting)>()
+                .insert((Linked, crate::PreadmissionMessage::new::<M>(64)));
+            for _ in 0..2 {
+                app.world_mut().run_schedule(PreUpdate);
+                if let Some(mut receiver) = app.world_mut().get_mut::<MessageReceiver<M>>(entity) {
+                    assert!(!receiver.receive().any(|message| message == M(2)));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn preadmission_retains_later_ordered_snapshot_until_admission() {
+        let mut app = preadmission_app(false);
+        let entity = pending_link(
+            &mut app,
+            crate::PreadmissionMessage::new::<ControlSnapshot>(16),
+        );
+        // A remote may already have admitted us and send its full snapshot directly
+        // after its own small identity announcement, even in the same packet.
+        queue_message::<_, OrderedControlChannel>(&mut app, entity, &ControlSnapshot(vec![1]));
+        queue_message::<_, OrderedControlChannel>(&mut app, entity, &ControlSnapshot(vec![2; 64]));
+        app.world_mut().run_schedule(PostUpdate);
+        loopback_link_payload(&mut app, entity);
+        app.world_mut().run_schedule(PreUpdate);
+        assert_eq!(
+            app.world_mut()
+                .get_mut::<MessageReceiver<ControlSnapshot>>(entity)
+                .unwrap()
+                .receive()
+                .collect::<Vec<_>>(),
+            vec![ControlSnapshot(vec![1])],
+        );
+
+        // Admission occurs after the receive phase and lifts the preadmission cap.
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((RemoteId(PeerId::Local(1)), Connected))
+            .remove::<crate::PreadmissionMessage>();
+        app.world_mut().run_schedule(PreUpdate);
+        assert_eq!(
+            app.world_mut()
+                .get_mut::<MessageReceiver<ControlSnapshot>>(entity)
+                .unwrap()
+                .receive()
+                .collect::<Vec<_>>(),
+            vec![ControlSnapshot(vec![2; 64])],
         );
     }
 }

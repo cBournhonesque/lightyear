@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- Add opt-in, size-bounded pre-admission delivery for one ordinary control-message type on a
+  linked connection. Remote events and timeline messages still require admission.
+- Retain later ordered control messages until the first pending announcement can complete
+  admission; unrelated outgoing messages remain queued.
+
 ## v0.21.0 (2025-07-03)
 
 ### Bug Fixes

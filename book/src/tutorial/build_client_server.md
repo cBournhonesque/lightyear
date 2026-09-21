@@ -57,6 +57,28 @@ For netcode, a preinserted `LocalId` is an expectation, not an override of the t
 authentication can validate it before the handshake. Opaque tokens keep that ID encrypted, so their
 expected ID is checked after authentication but before `Connected`.
 
+### P2P discovery admission
+
+A lobby endpoint resolves one self-ID before admitting child links. To choose it, insert `LocalId`
+before starting the native endpoint; every child inherits that identity. Conflicting endpoint or
+child requests fail instead of silently choosing another ID.
+
+UDP, WebSocket, and WebTransport lobby links exchange their existing reliable `LobbyAnnounce`
+before becoming `Connected`. While pending, a link exposes neither public ID nor a routing-map
+entry. Only the bounded, own-only announcement is allowed through the typed-message layer;
+ordinary application messages wait for admission. Accepted stream source ports never become
+provisional public identities. Bare default connections without lobby discovery add no handshake.
+
+Publish `Lobby::local()` together with `Lobby::local_dial_context()` in an invite, and seed the
+receiver with `Lobby::add_bootstrap_with_context`. The context contains native dialing facts,
+including the WebTransport certificate digest, independently of the chosen routing alias. Treat
+it as transport-owned bytes, not as stable identity material or proof of an account.
+
+An admitted link cannot announce a different sender ID. Duplicate claims are rejected, and
+third-party discovery cannot replace an established direct binding. Rejection does not guarantee
+that all peers choose the same claimant: `P2PStart` still requires admitted candidates and the
+existing shared-roster agreement barrier before gameplay.
+
 
 ## Client
 

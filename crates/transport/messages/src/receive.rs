@@ -2,14 +2,14 @@ use crate::MessageManager;
 use crate::plugin::{MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
 use crate::replicon_map::RepliconMapParam;
-use crate::{Message, MessageNetId};
+use crate::{Message, MessageConnectionFilter, MessageNetId, PreadmissionMessage};
 use alloc::vec::Vec;
 use bevy_ecs::{
     change_detection::MutUntyped,
     component::Component,
     entity::Entity,
     event::Event,
-    query::{Has, With},
+    query::Has,
     system::{ParallelCommands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
@@ -481,12 +481,23 @@ impl MessagePlugin {
         target_timeline: Option<TimelineKind>,
         entity_map: &ReceiveMapView,
         commands: &ParallelCommands,
-        remote_peer_id: PeerId,
+        remote_peer_id: Option<PeerId>,
+        preadmission: Option<&PreadmissionMessage>,
     ) -> Result<(), MessageError> {
         trace!(
             "Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}",
             remote_peer_id
         );
+        if let Some(policy) = preadmission {
+            if bytes.len() > policy.max_bytes {
+                return Err(MessageError::PreadmissionTooLarge {
+                    limit: policy.max_bytes,
+                });
+            }
+            if target_timeline.is_some() {
+                return Err(MessageError::PreadmissionDenied);
+            }
+        }
         let mut reader = Reader::from(bytes);
         // we receive the message NetId, and then deserialize the message
         let message_net_id = MessageNetId::from_bytes(&mut reader)?;
@@ -530,6 +541,12 @@ impl MessagePlugin {
             "received message bytes"
         );
         let metadata = registry.metadata(message_kind)?;
+        if let Some(policy) = preadmission
+            && (policy.kind != *message_kind
+                || !matches!(&metadata.mode, MessageModeMetadata::Message { .. }))
+        {
+            return Err(MessageError::PreadmissionDenied);
+        }
         let serialize_fns = &metadata.serialize_fns;
         match &metadata.mode {
             MessageModeMetadata::Message {
@@ -559,6 +576,7 @@ impl MessagePlugin {
             MessageModeMetadata::Trigger {
                 receive: metadata, ..
             } => {
+                let remote_peer_id = remote_peer_id.ok_or(MessageError::MissingRemoteIdentity)?;
                 let mut entity_mut = receiver_query.get_mut(entity).unwrap();
                 let receiver = entity_mut.get_mut_by_id(metadata.component_id);
                 // SAFETY: when present, the receiver corresponds to this event's pending component.
@@ -596,11 +614,13 @@ impl MessagePlugin {
                 Entity,
                 &MessageManager,
                 &mut Transport,
-                &RemoteId,
+                Option<&RemoteId>,
                 Option<&mut HostClient>,
                 Has<Client>,
+                Has<Connected>,
+                Option<&PreadmissionMessage>,
             ),
-            With<Connected>,
+            MessageConnectionFilter,
         >,
         // List of MessageReceiver<M> components present on that entity.
         receiver_query: Query<FilteredEntityMut>,
@@ -616,7 +636,9 @@ impl MessagePlugin {
         let replicon = &replicon;
         let transport_query = adaptive_for_each_mut!(transport_query);
         transport_query.for_each(
-            |(entity, message_manager, mut transport, remote_peer_id, mut host_client, is_client)| {
+            |(entity, message_manager, mut transport, remote_peer_id, mut host_client, is_client, connected, policy)| {
+                let preadmission = if connected { None } else { policy };
+                let remote_peer_id = if connected { remote_peer_id.map(|id| id.0) } else { None };
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut receiver_query = unsafe { receiver_query.reborrow_unsafe() };
                 // enable split borrows
@@ -653,15 +675,24 @@ impl MessagePlugin {
                             target_timeline,
                             &view,
                             &commands,
-                            remote_peer_id.0,
+                            remote_peer_id,
+                            preadmission,
                         ) {
                             host_client.buffer.extend(buffered);
                             error!("Error receiving messages: {error:?}");
                             break;
                         }
+                        if preadmission.is_some() {
+                            host_client.buffer.extend(buffered);
+                            break;
+                        }
                     }
                 } else {
+                    let mut preadmission_delivered = false;
                     transport.channel_receives_mut().try_for_each(|channel_receive| {
+                            if preadmission_delivered {
+                                return Ok(());
+                            }
                             let channel_kind = channel_receive.channel_kind();
                             let channel_name = channel_registry.get_name_from_kind(&channel_kind);
                             while let Some((tick, bytes, message_id)) =
@@ -683,8 +714,15 @@ impl MessagePlugin {
                                     target_timeline,
                                     &view,
                                     &commands,
-                                    remote_peer_id.0,
+                                    remote_peer_id,
+                                    preadmission,
                                 )?;
+                                if preadmission.is_some() {
+                                    // Give admission a chance to process the announcement before
+                                    // decoding any later messages already queued by the remote.
+                                    preadmission_delivered = true;
+                                    break;
+                                }
                             }
                             Ok::<_, MessageError>(())
                         })
@@ -697,26 +735,39 @@ impl MessagePlugin {
 
     /// Clear all the message receivers to prevent messages from accumulating
     pub fn clear(
-        manager_query: Query<(Entity, &MessageManager), With<Connected>>,
+        manager_query: Query<
+            (
+                Entity,
+                &MessageManager,
+                Has<Connected>,
+                Option<&PreadmissionMessage>,
+            ),
+            MessageConnectionFilter,
+        >,
         mut receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
     ) {
-        manager_query.iter().for_each(|(entity, manager)| {
-            manager
-                .receive_messages
-                .iter()
-                .for_each(|(kind, component_id)| {
-                    let mut entity_mut = receiver_query.get_mut(entity).unwrap();
-                    let receiver = entity_mut.get_mut_by_id(*component_id).unwrap();
-                    let metadata = registry.metadata(kind).unwrap();
-                    let MessageModeMetadata::Message { receive, .. } = &metadata.mode else {
-                        unreachable!("receive_messages only contains regular messages");
-                    };
-                    let clear_fn = receive.message_clear_fn;
-                    // SAFETY: we know that we are calling the function for the correct component_id
-                    unsafe { clear_fn(receiver) };
-                })
-        });
+        manager_query
+            .iter()
+            .for_each(|(entity, manager, connected, policy)| {
+                manager
+                    .receive_messages
+                    .iter()
+                    .for_each(|(kind, component_id)| {
+                        if !connected && policy.is_none_or(|policy| policy.kind != *kind) {
+                            return;
+                        }
+                        let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+                        let receiver = entity_mut.get_mut_by_id(*component_id).unwrap();
+                        let metadata = registry.metadata(kind).unwrap();
+                        let MessageModeMetadata::Message { receive, .. } = &metadata.mode else {
+                            unreachable!("receive_messages only contains regular messages");
+                        };
+                        let clear_fn = receive.message_clear_fn;
+                        // SAFETY: we know that we are calling the function for the correct component_id
+                        unsafe { clear_fn(receiver) };
+                    })
+            });
     }
 }
 

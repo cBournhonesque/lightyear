@@ -3,13 +3,9 @@
 //! The UDP tests prove the lobby is transport-agnostic; this one proves the WebTransport glue dials.
 //! What differs is worth stating, because it is what the glue exists for:
 //!
-//! - WebTransport authenticates the endpoint with a certificate, so a peer must additionally
-//!   publish the hash of its own. That is what the announce carries, and what the glue turns into
-//!   the client's expected digest.
-//! - A stream transport cannot tell who dialed it: the accepted session reports the ephemeral port
-//!   the peer connected from, not the endpoint it listens on. The announce names its sender, and the
-//!   lobby re-keys the Link to it — without that the two peers would disagree on the roster.
-//! - The default connection backend admits the link once transport facts are available.
+//! - Native socket and certificate digest travel in dial context independently of routing aliases.
+//! - Accepted native sessions report ephemeral source ports. Those are never admitted identities:
+//!   the bounded first announcement resolves the sender before Connected.
 
 use super::stepper::{
     Stepper, TestTransport, explicit_retry_reconnects_members, lobby_id, next_base_port, peer_id,
@@ -18,6 +14,11 @@ use lightyear::p2p::LobbyIdPolicy;
 use lightyear::prelude::*;
 use lightyear::webtransport::client::WebTransportClientIo;
 use test_log::test;
+
+#[test]
+fn chosen_webtransport_identities_are_final_at_connection_admission() {
+    super::stepper::chosen_identity_admission(TestTransport::WebTransport);
+}
 
 #[test]
 fn two_peers_discover_each_other_over_webtransport_and_start_a_session() {
@@ -41,8 +42,7 @@ fn two_peers_discover_each_other_over_webtransport_and_start_a_session() {
         let second = stepper.peers[1].lobby();
         assert_eq!(first.id(), Some(lobby_id()));
         assert_eq!(second.id(), Some(lobby_id()));
-        // Both sides call the *endpoint* address of the peer their peer id, even though the acceptor
-        // only ever saw the dialer's ephemeral port. That agreement is what the re-key buys.
+        // Admission resolves the endpoint alias before any observer can see an ephemeral source.
         assert_eq!(
             first.roster(),
             vec![peer_id(base_port, 0), peer_id(base_port, 1)]

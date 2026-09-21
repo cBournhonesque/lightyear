@@ -3,12 +3,13 @@ use crate::registry::MessageKind;
 use crate::registry::MessageRegistry;
 use crate::send::Priority;
 use crate::{Message, MessageManager};
-use bevy_ecs::query::QueryFilter;
+use bevy_ecs::query::{QueryFilter, With};
 use bevy_ecs::{
     entity::EntitySet,
     error::{BevyError, Result},
     system::{Local, Query, Res, SystemParam},
 };
+use lightyear_connection::client::Connected;
 use lightyear_serde::entity_map::{SendEntityMap, SendMapView};
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::Channel;
@@ -17,9 +18,13 @@ use lightyear_transport::prelude::Transport;
 /// SystemParam to help:
 /// 1) sending a message to multiple remote peers at the same time
 /// 2) send a message without needing to clone it
+///
+/// Targets must be admitted. Preadmission control traffic uses the single-type
+/// [`crate::PreadmissionMessage`] policy and [`crate::send::MessageSender`] instead.
 #[derive(SystemParam)]
 pub struct MultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
-    pub(crate) query: Query<'w, 's, (&'static MessageManager, &'static Transport), F>,
+    pub(crate) query:
+        Query<'w, 's, (&'static MessageManager, &'static Transport), (With<Connected>, F)>,
     pub(crate) registry: Res<'w, MessageRegistry>,
     // TODO: should we let users provide their own Writer?
     pub(crate) writer: Local<'s, Writer>,

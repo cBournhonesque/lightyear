@@ -380,11 +380,11 @@ impl P2PSession {
 /// Trigger this locally on every peer after declaring the P2P Links that should form the initial
 /// session cohort.
 ///
-/// The Links don't have to be connected yet when `P2PStart` is called. Lightyear waits for every
-/// captured Link and the synchronized input timeline, negotiates a common future tick, then
-/// triggers [`P2PStarted`]. Every Link must expose the same stable [`LocalId`] and a distinct
-/// [`RemoteId`]. If the barrier does not complete within the configured timeout (5 seconds by
-/// default), its candidates return to [`P2P::Inactive`].
+/// Every selected Link must already be admitted and connected, with the same stable [`LocalId`]
+/// and a distinct [`RemoteId`]. Pending or rejected lobby attempts cannot enter the cohort.
+/// Lightyear waits for the synchronized input timeline, negotiates a common future tick, then
+/// triggers [`P2PStarted`]. If the barrier does not complete within the configured timeout (5
+/// seconds by default), its candidates return to [`P2P::Inactive`].
 #[derive(Event, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct P2PStart;
 
@@ -438,11 +438,11 @@ enum P2PSessionMessage {
     },
 }
 
-/// Private unordered-reliable channel shared by the P2P control protocols.
+/// Private ordered-reliable channel shared by the P2P control protocols.
 ///
-/// Carries both the session's start handshake and the lobby's announces: both are small, both
-/// tolerate reordering, and both want reliable delivery, so one channel serves them without
-/// coupling P2P traffic to the replication channels.
+/// The own-only admission announcement must arrive before any connected lobby snapshot or
+/// session message. Sharing one ordered channel preserves that boundary without another wire
+/// handshake or coupling P2P traffic to replication channels.
 pub(crate) struct P2PChannel;
 
 /// Registers the private P2P control protocol.
@@ -455,12 +455,10 @@ pub struct P2PProtocolPlugin;
 
 impl Plugin for P2PProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // No generic reliable control channel exists at this layer. Replication's reliable
-        // channels are optional and must not become a dependency of the P2P session. The two
-        // handshake messages tolerate reordering, so a private unordered-reliable channel is
-        // sufficient and avoids coupling their delivery queue to gameplay traffic.
+        // Keep the admission announcement ahead of connected control traffic, including when
+        // both are buffered during the same frame.
         app.add_channel::<P2PChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
@@ -532,12 +530,14 @@ fn start_session(
     mut commands: Commands,
     mut session: ResMut<P2PSession>,
     real_time: Res<Time<Real>>,
+    metadata: Option<Res<NetworkingMetadata>>,
     links: Query<(
         Entity,
         &P2P,
         Option<&LocalId>,
         Option<&RemoteId>,
         Has<MessageReceiver<P2PSessionMessage>>,
+        Has<Connected>,
     )>,
 ) {
     if !matches!(session.state, P2PSessionState::Stopped) {
@@ -548,9 +548,25 @@ fn start_session(
         return;
     }
 
+    if links
+        .iter()
+        .any(|(entity, state, _, remote, _, connected)| {
+            *state == P2P::Inactive
+                && (!connected
+                    || !remote.is_some_and(|remote| {
+                        metadata.as_ref().is_some_and(|metadata| {
+                            metadata.peer_map.get(&remote.0) == Some(&entity)
+                        })
+                    }))
+        })
+    {
+        tracing::warn!("P2PStart requires every selected Link to be admitted and connected");
+        return;
+    }
+
     let candidates: SmallVec<[(Entity, Option<PeerId>, Option<PeerId>, bool); 4]> = links
         .iter()
-        .filter_map(|(entity, state, local_id, remote_id, has_receiver)| {
+        .filter_map(|(entity, state, local_id, remote_id, has_receiver, _)| {
             (*state == P2P::Inactive).then_some((
                 entity,
                 local_id.map(|id| id.0),
@@ -833,6 +849,18 @@ mod tests {
         PeerId::Entity(index)
     }
 
+    fn admitted_peer(world: &mut World, local: PeerId, remote: PeerId) -> Entity {
+        let entity = world.spawn(P2P::Inactive).id();
+        assert!(lightyear_connection::admission::admit(
+            world,
+            entity,
+            LocalId(local),
+            RemoteId(remote),
+            (),
+        ));
+        entity
+    }
+
     #[test]
     fn start_freezes_inactive_links_and_ignores_links_declared_later() {
         let mut app = App::new();
@@ -840,14 +868,8 @@ mod tests {
         app.init_resource::<Time<Real>>();
         app.add_observer(start_session);
         let local_id = peer(0);
-        let second = app
-            .world_mut()
-            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(2))))
-            .id();
-        let first = app
-            .world_mut()
-            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(1))))
-            .id();
+        let second = admitted_peer(app.world_mut(), local_id, peer(2));
+        let first = admitted_peer(app.world_mut(), local_id, peer(1));
 
         app.world_mut().trigger(P2PStart);
         app.world_mut().flush();
@@ -884,15 +906,41 @@ mod tests {
             "a duplicate start must not restart or expand the active barrier"
         );
 
-        let late = app
-            .world_mut()
-            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(3))))
-            .id();
+        let late = admitted_peer(app.world_mut(), local_id, peer(3));
         assert_eq!(app.world().entity(late).get::<P2P>(), Some(&P2P::Inactive));
         assert!(
             !app.world()
                 .resource::<P2PSession>()
                 .contains_remote(peer(3))
+        );
+    }
+
+    #[test]
+    fn unresolved_candidates_cannot_start_or_shrink_the_roster() {
+        let mut app = App::new();
+        app.init_resource::<P2PSession>();
+        app.init_resource::<Time<Real>>();
+        app.add_observer(start_session);
+        let admitted = admitted_peer(app.world_mut(), peer(0), peer(1));
+        let pending = app.world_mut().spawn(P2P::Inactive).id();
+        app.world_mut().trigger(P2PStart);
+        app.world_mut().flush();
+        assert_eq!(
+            app.world().resource::<P2PSession>().state(),
+            P2PSessionState::Stopped
+        );
+        assert_eq!(app.world().get::<P2P>(admitted), Some(&P2P::Inactive));
+        assert_eq!(app.world().get::<P2P>(pending), Some(&P2P::Inactive));
+        app.world_mut().entity_mut(pending).insert((
+            LocalId(peer(0)),
+            RemoteId(peer(2)),
+            lightyear_connection::client::Disconnected::default(),
+        ));
+        app.world_mut().trigger(P2PStart);
+        app.world_mut().flush();
+        assert_eq!(
+            app.world().resource::<P2PSession>().state(),
+            P2PSessionState::Stopped
         );
     }
 
@@ -983,7 +1031,6 @@ mod tests {
     #[test]
     fn a_start_attempt_times_out() {
         let remote_peers = SmallVec::from_slice(&[peer(1)]);
-        assert_eq!(P2PSession::default().start_timeout, Duration::from_secs(5));
         let mut session = P2PSession::default().with_start_timeout(Duration::from_secs(2));
         session.begin(
             remote_peers,

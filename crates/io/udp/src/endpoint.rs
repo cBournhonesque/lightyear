@@ -151,6 +151,11 @@ impl UdpEndpointPlugin {
                 world
                     .entity_mut(entity)
                     .insert(lightyear_connection::p2p::P2P::default());
+                let expected = world
+                    .get::<crate::lobby::UdpExpectedPeer>(entity)
+                    .map(|expected| expected.0);
+                lightyear_p2p::begin_peer_resolution(world, entity, endpoint, expected);
+                return;
             }
             apply_default_ids(world, entity, local, remote);
         });
@@ -461,37 +466,6 @@ mod tests {
                 .resource::<NetworkingMetadata>()
                 .peer_map
                 .is_empty()
-        );
-    }
-
-    #[cfg(feature = "lobby")]
-    #[test]
-    fn lobby_child_has_p2p_identity_before_admission() {
-        use lightyear_connection::client::Connected;
-        use lightyear_connection::p2p::P2P;
-        let mut app = App::new();
-        app.add_plugins(crate::lobby::UdpLobbyPlugin);
-        let endpoint = app
-            .world_mut()
-            .spawn(UdpEndpoint::new("127.0.0.1:0".parse().unwrap()))
-            .id();
-        let address = app.world().get::<UdpLocalAddr>(endpoint).unwrap().0;
-        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        peer.send_to(b"hello", address).unwrap();
-        app.update();
-        let child = app
-            .world_mut()
-            .query_filtered::<Entity, With<P2P>>()
-            .single(app.world())
-            .unwrap();
-        assert!(app.world().get::<Connected>(child).is_some());
-        assert_eq!(
-            app.world().get::<LocalId>(child),
-            Some(&LocalId(PeerId::Raw(address)))
-        );
-        assert_eq!(
-            app.world().get::<RemoteId>(child),
-            Some(&RemoteId(PeerId::Raw(peer.local_addr().unwrap())))
         );
     }
 

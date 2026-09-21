@@ -12,13 +12,13 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = ["lightyear_transport/std"]
 client = ["lightyear_connection/client"]
-server = ["lightyear_link", "lightyear_connection/server"]
+server = ["lightyear_connection/server"]
 test_utils = []
 metrics = ["dep:metrics"]
 replicon = ["dep:bevy_replicon"]
 
 [dependencies]
-lightyear_link = { workspace = true, optional = true }
+lightyear_link.workspace = true
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 lightyear_core.workspace = true

@@ -4,10 +4,8 @@
 //! other transports drive is driven here by UDP's glue, through the same [`DialPeer`] event and the
 //! same scope — Links carrying [`P2P`]. Nothing in `lightyear_p2p` knows about UDP.
 //!
-//! What is specific to UDP is that a peer's address *is* its identity: every peer binds one endpoint
-//! socket, announces carry `PeerId::Raw`, and dialing a discovered peer needs no configuration. The
-//! tests that matter most here are the ones where a peer is reached without the application ever
-//! being told where it is.
+//! Native addresses live in dial context; an endpoint can choose an independent routing alias.
+//! A UDP route is only Linked until the peer's announcement resolves its identity.
 
 use super::stepper::{Stepper, TestTransport, lobby_id, next_base_port, peer_id};
 use lightyear::p2p::{LobbyId, LobbyIdPolicy};
@@ -16,6 +14,10 @@ use test_log::test;
 
 fn other_lobby_id() -> LobbyId {
     LobbyId::from_bytes([9; 32])
+}
+#[test]
+fn chosen_udp_identities_are_final_at_connection_admission() {
+    super::stepper::chosen_identity_admission(TestTransport::Udp);
 }
 
 #[test]
@@ -33,13 +35,12 @@ fn two_peers_discover_each_other_over_udp_and_start_a_session() {
     // receives, so a UDP pair does not need a dial in each direction.
     stepper.bootstrap(base_port, 0, &[1]);
 
-    // Nothing is connected yet: the dialed peer is wanted, but the roster is empty because the local
-    // id is only learned from a connected Link.
+    // The endpoint knows its own identity before any remote link is admitted.
     assert_eq!(
         stepper.peers[0].lobby().waiting().collect::<Vec<_>>(),
         vec![peer_id(base_port, 1)]
     );
-    assert!(stepper.peers[0].lobby().roster().is_empty());
+    assert_eq!(stepper.peers[0].lobby().roster(), [peer_id(base_port, 0)]);
 
     stepper.start_session_when_ready(&[0, 1]);
     stepper.wait_for_session(&[0, 1]);
@@ -228,23 +229,20 @@ fn an_unreachable_peer_stays_unconfirmed_and_is_retried() {
         0,
         "nothing replied, so the peer was never confirmed"
     );
-    // The peer has a Link — UDP has no handshake, so dialing creates a usable one — but nothing has
-    // confirmed anyone is there, which is the difference between a Link and a member.
-    assert!(stepper.peers[0].lobby().is_connected(peer_id(base_port, 9)));
+    // A native UDP route is not proof of a remote peer identity.
+    assert!(!stepper.peers[0].lobby().is_connected(peer_id(base_port, 9)));
     assert!(!stepper.peers[0].lobby().is_member(peer_id(base_port, 9)));
 
-    assert_eq!(
-        stepper.retry_failed(0),
-        1,
-        "the peer that was never confirmed is the one re-armed"
-    );
-    assert_eq!(
-        stepper.retry_failed(0),
-        0,
-        "an already re-armed peer is not counted twice"
-    );
+    assert_eq!(stepper.peers[0].connected_links(), 0);
+    stepper.peers[0]
+        .app
+        .world_mut()
+        .trigger(lightyear::p2p::P2PStart);
+    stepper.retry_failed(0);
 
     // Retrying does not conjure the peer: it stays unconfirmed while nothing is there.
     stepper.step(50);
     assert_eq!(stepper.peers[0].lobby().members().count(), 0);
+    assert_eq!(stepper.peers[0].connected_links(), 0);
+    assert!(!stepper.peers[0].in_session());
 }

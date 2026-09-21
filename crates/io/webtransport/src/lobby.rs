@@ -1,55 +1,33 @@
 //! Glue between [`lightyear_p2p::Lobby`] and WebTransport links.
 //!
-//! The lobby discovers peers and emits [`DialPeer`](lightyear_p2p::DialPeer); this module turns that
-//! into an Aeronet WebTransport client session, and annotates the sessions peers open towards us so
-//! the lobby can see them.
-//!
-//! # What a peer needs to be dialed
-//!
-//! More than for WebSocket, because WebTransport authenticates the endpoint with a certificate and a
-//! client must know the hash of that certificate in advance. The hash is not derivable from the
-//! address, so it travels in the announce as this endpoint's dial context — see
-//! [`Lobby::set_dial_context`](lightyear_p2p::Lobby::set_dial_context). Each peer publishes its own, taken from its TLS identity, and relays
-//! the ones it learned, so a peer introduced by a third party can still be dialed.
-//!
-//! # Why the identity has to be announced
-//!
-//! A datagram transport identifies a peer by the address its packets come from. A stream transport
-//! cannot: dialing happens from an ephemeral local port, so the endpoint that accepted the session
-//! sees `127.0.0.1:52795` rather than the endpoint the peer listens on, and has no way to know who
-//! dialed it.
-//!
-//! The announce fixes this by naming its sender. Accepted Links opt into one address-based identity
-//! correction with [`ProvisionalPeerId`](lightyear_p2p::ProvisionalPeerId); dialed Links keep their
-//! configured identity. The lobby updates both the Link and the peer lookup, and rejects occupied
-//! identities. This is collision prevention, not authentication or proof of endpoint ownership.
-//!
-//! # Both directions of a session
-//!
-//! Dialing and being dialed produce different entities, and both are annotated here so a session
-//! counts them the same. The lobby's dial tie-break decides which side dials, so a conforming pair
-//! only ever produces one.
-//!
-//!
-use bevy_app::{App, Plugin, PostUpdate};
+//! Dial contexts carry a socket target and certificate hash independently of the peer's alias.
+//! Both dialed and accepted links exchange the existing lobby self-announcement before admission;
+//! an accepted session's ephemeral address is never a public peer identity. The announcement
+//! rejects identity conflicts; it does not authenticate the association between an alias and a
+//! transport certificate.
+
+use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
+use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_connection::client::{Client, Connect, Connected, Disconnected};
 use lightyear_connection::p2p::P2P;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked, Unlinked};
-use lightyear_p2p::{DialContext, DialPeer, Lobby};
+use lightyear_p2p::{
+    DialContext, DialPeer, Lobby, PendingLobbyPeer, begin_peer_resolution,
+    resolve_endpoint_identity,
+};
 use tracing::{debug, warn};
-
-use crate::{WebTransportLocalAddr, WebTransportPeerAddr};
 
 use crate::client::WebTransportClientIo;
 use crate::endpoint::{WebTransportEndpoint, WebTransportEndpointPlugin};
+use crate::{WebTransportLocalAddr, WebTransportPeerAddr};
 
-/// Dials WebTransport Links for a [`Lobby`] through a [`WebTransportEndpoint`].
+/// Dials WebTransport links for a [`Lobby`] through a [`WebTransportEndpoint`].
 ///
-/// No configuration: the endpoint's own identity supplies what peers need to dial us, and they
-/// supply what we need to dial them.
+/// The endpoint publishes its bound socket and certificate hash so chosen non-socket aliases
+/// can be discovered and dialed as well.
 #[derive(Default)]
 pub struct WebTransportLobbyPlugin;
 
@@ -64,24 +42,64 @@ impl Plugin for WebTransportLobbyPlugin {
         if !app.is_plugin_added::<crate::client::WebTransportClientPlugin>() {
             app.add_plugins(crate::client::WebTransportClientPlugin);
         }
-        app.init_resource::<PublishedDigest>();
-        app.add_systems(PostUpdate, publish_digest);
         app.add_observer(on_endpoint_added);
+        app.add_observer(on_endpoint_ready);
         app.add_observer(on_dial);
         app.add_observer(on_accepted_link);
-        app.add_observer(on_link_linked);
         app.add_observer(on_accepted_identity);
     }
 }
 
-/// The digest we last published, so the endpoint's certificate is hashed once rather than per frame.
-#[derive(Resource, Default)]
-struct PublishedDigest(Option<String>);
-
-/// Lowercase hex, which is the encoding [`WebTransportClientIo::certificate_digest`] parses.
+/// Encodes a WebTransport socket and SHA-256 certificate hash independently of its peer alias.
 ///
-/// Written out rather than pulled from a crate: it is one loop, and it has to match the client's
-/// parser exactly.
+/// The versioned `WT` domain contains address family, network-order address and port, IPv6
+/// flow info and scope ID when applicable, then the 32-byte hash. Its maximum size is 62 bytes.
+pub fn dial_context(address: SocketAddr, certificate_digest: &[u8; 32]) -> DialContext {
+    let mut bytes = Vec::with_capacity(62);
+    bytes.extend_from_slice(b"WT\x01");
+    match address {
+        SocketAddr::V4(address) => {
+            bytes.push(4);
+            bytes.extend_from_slice(&address.ip().octets());
+            bytes.extend_from_slice(&address.port().to_be_bytes());
+        }
+        SocketAddr::V6(address) => {
+            bytes.push(6);
+            bytes.extend_from_slice(&address.ip().octets());
+            bytes.extend_from_slice(&address.port().to_be_bytes());
+            bytes.extend_from_slice(&address.flowinfo().to_be_bytes());
+            bytes.extend_from_slice(&address.scope_id().to_be_bytes());
+        }
+    }
+    bytes.extend_from_slice(certificate_digest);
+    DialContext::from(bytes)
+}
+
+fn decode_context(bytes: &[u8]) -> Option<(SocketAddr, &[u8])> {
+    if bytes.get(..3)? != b"WT\x01" {
+        return None;
+    }
+    match (bytes.get(3)?, bytes.len()) {
+        (4, 42) => Some((
+            SocketAddr::from((
+                Ipv4Addr::from(<[u8; 4]>::try_from(&bytes[4..8]).ok()?),
+                u16::from_be_bytes(bytes[8..10].try_into().ok()?),
+            )),
+            &bytes[10..],
+        )),
+        (6, 62) => Some((
+            SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from(<[u8; 16]>::try_from(&bytes[4..20]).ok()?),
+                u16::from_be_bytes(bytes[20..22].try_into().ok()?),
+                u32::from_be_bytes(bytes[22..26].try_into().ok()?),
+                u32::from_be_bytes(bytes[26..30].try_into().ok()?),
+            )),
+            &bytes[30..],
+        )),
+        _ => None,
+    }
+}
+
 fn to_hex(bytes: &[u8]) -> String {
     use core::fmt::Write;
     let mut hex = String::with_capacity(bytes.len() * 2);
@@ -91,45 +109,14 @@ fn to_hex(bytes: &[u8]) -> String {
     hex
 }
 
-/// The hash a peer must expect in order to accept a connection to this endpoint.
-fn digest_of(endpoint: &WebTransportEndpoint) -> String {
-    let chain = endpoint.certificate.certificate_chain();
-    let Some(certificate) = chain.as_slice().first() else {
-        return String::new();
-    };
-    to_hex(certificate.hash().as_ref())
-}
-
-/// Tells the lobby how to dial us, so every announce we send carries our certificate hash.
-///
-/// Until this has run, an announce we send is only half useful: a peer can accept our dial but not
-/// start one back.
-fn publish_digest(
-    mut published: ResMut<PublishedDigest>,
-    endpoints: Query<&WebTransportEndpoint>,
-    mut lobby: ResMut<Lobby>,
-) {
-    if published.0.is_some() {
-        return;
-    }
-    let Ok(endpoint) = endpoints.single() else {
-        return;
-    };
-    let digest = digest_of(endpoint);
-    published.0 = Some(digest.clone());
-    debug!(%digest, "publishing this endpoint's certificate hash so peers can dial us");
-    lobby.set_dial_context(DialContext::from(digest));
-}
-
 /// Endpoint whose accepted links must finish lobby identity setup before admission.
 #[derive(Component)]
 pub(crate) struct LobbyEndpoint;
 
-/// Opens the endpoint's socket as soon as the endpoint exists.
-///
-/// A transport opens on [`LinkStart`], which for a server comes from `Start`. A P2P peer has no
-/// server to start, so the glue asks for it directly; without this the endpoint never listens and
-/// every dial connects to nothing.
+/// Cache the hash until the endpoint's native address changes, rather than hashing per frame.
+#[derive(Component)]
+struct PublishedContext(SocketAddr);
+
 fn on_endpoint_added(
     trigger: On<Add, WebTransportEndpoint>,
     servers: Query<(), With<lightyear_link::server::Server>>,
@@ -144,118 +131,119 @@ fn on_endpoint_added(
     });
 }
 
-/// The endpoint's bound address, which is this peer's identity.
-fn local_id(
-    endpoint: Entity,
-    addresses: &Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
-) -> Option<PeerId> {
-    addresses
-        .get(endpoint)
-        .ok()
-        .map(|local| PeerId::Raw(local.0))
+/// Resolves identity once; a later address update changes only the dial context.
+fn prepare_endpoint(world: &mut World, endpoint: Entity) -> Option<PeerId> {
+    let address = world.get::<WebTransportLocalAddr>(endpoint)?.0;
+    let candidate = world
+        .get::<LocalId>(endpoint)
+        .map_or(PeerId::Raw(address), |local| local.0);
+    let local = resolve_endpoint_identity(world, endpoint, candidate)?;
+    if world
+        .get::<PublishedContext>(endpoint)
+        .is_none_or(|published| published.0 != address)
+    {
+        let endpoint_io = world.get::<WebTransportEndpoint>(endpoint)?;
+        let chain = endpoint_io.certificate.certificate_chain();
+        let certificate = chain.as_slice().first()?;
+        let hash = certificate.hash();
+        let digest: &[u8; 32] = hash.as_ref().try_into().ok()?;
+        let context = dial_context(address, digest);
+        world.resource_mut::<Lobby>().set_dial_context(context);
+        world.entity_mut(endpoint).insert(PublishedContext(address));
+    }
+    Some(local)
 }
 
-/// Opens a client session to the peer the lobby asked for.
-///
-/// Live and pending Links retain their identity reservation. A retry replaces only obsolete
-/// WebTransport-owned Links for this peer, keeping the endpoint and its certificate alive.
+fn on_endpoint_ready(
+    trigger: On<Insert, (WebTransportLocalAddr, LobbyEndpoint)>,
+    endpoints: Query<(), (With<WebTransportEndpoint>, With<LobbyEndpoint>)>,
+    mut commands: Commands,
+) {
+    if endpoints.contains(trigger.entity) {
+        let endpoint = trigger.entity;
+        commands.queue(move |world: &mut World| {
+            prepare_endpoint(world, endpoint);
+        });
+    }
+}
+
 fn on_dial(
     trigger: On<DialPeer>,
-    endpoints: Query<Entity, With<WebTransportEndpoint>>,
-    addresses: Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
-    existing: Query<
-        (
-            Entity,
-            &RemoteId,
-            Has<Disconnected>,
-            Has<Unlinked>,
-            Has<WebTransportClientIo>,
-            Option<&LinkOf>,
-        ),
-        (With<P2P>, With<Client>),
-    >,
+    endpoints: Query<Entity, (With<WebTransportEndpoint>, With<LobbyEndpoint>)>,
     mut commands: Commands,
 ) {
     let peer = trigger.peer;
-    let PeerId::Raw(address) = peer else {
+    let target = if trigger.context.is_empty() {
+        match peer {
+            // Bootstrap without a hash retains the client's configured native TLS policy.
+            PeerId::Raw(address) => Some((address, String::new())),
+            _ => None,
+        }
+    } else {
+        decode_context(&trigger.context).map(|(address, digest)| (address, to_hex(digest)))
+    };
+    let Some((address, certificate_digest)) = target else {
         warn!(
             ?peer,
-            "a WebTransport peer must be identified by PeerId::Raw(address); this peer cannot be dialed"
+            "no usable WebTransport dial context or bootstrap socket"
         );
         return;
     };
     let Ok(endpoint) = endpoints.single() else {
         warn!(
             ?peer,
-            "no WebTransportEndpoint exists, so no Link can be dialed; spawn a WebTransportEndpoint"
+            "a single lobby WebTransportEndpoint is required to dial"
         );
         return;
     };
-    let Some(local_id) = local_id(endpoint, &addresses) else {
-        warn!(?peer, "the WebTransportEndpoint has no bound address yet");
-        return;
-    };
-    // Match the lobby's identity reservation: a pending Link owns its id, but a disconnected
-    // or unlinked entity must not suppress application-controlled recovery.
-    if existing
-        .iter()
-        .any(|(_, remote, disconnected, unlinked, _, _)| {
-            remote.0 == peer && !disconnected && !unlinked
-        })
-    {
-        debug!(
-            ?peer,
-            "a Link to this peer already exists; not dialing again"
-        );
-        return;
-    }
-    for (entity, remote, disconnected, unlinked, dialed, link_of) in &existing {
-        if remote.0 == peer
-            && (disconnected || unlinked)
-            && (dialed || link_of.is_some_and(|link| link.endpoint == endpoint))
+    commands.queue(move |world: &mut World| {
+        if prepare_endpoint(world, endpoint).is_none() {
+            return;
+        }
+        let mut existing = world.query_filtered::<(
+            Entity,
+            Option<&RemoteId>,
+            Option<&PendingLobbyPeer>,
+            Has<Disconnected>,
+            Has<Unlinked>,
+            Has<WebTransportClientIo>,
+            Option<&LinkOf>,
+        ), (With<P2P>, With<Client>)>();
+        let mut obsolete = Vec::new();
+        for (entity, remote, pending, disconnected, unlinked, dialed, owner) in existing.iter(world)
         {
-            // LinkOf removal preserves the listening endpoint; AeronetLink's linked-spawn
-            // relationship disposes of any remaining session owned by this obsolete Link.
-            commands.entity(entity).despawn();
+            if remote
+                .map(|remote| remote.0)
+                .or_else(|| pending.and_then(PendingLobbyPeer::expected_remote))
+                != Some(peer)
+            {
+                continue;
+            }
+            if !disconnected && !unlinked {
+                return;
+            }
+            if dialed || owner.is_some_and(|owner| owner.endpoint == endpoint) {
+                obsolete.push(entity);
+            }
         }
-    }
-
-    // `WebTransportClientIo` parses the digest as hex, so the peer's context is passed through as
-    // text. A peer that published none cannot be authenticated, and the client is told to expect
-    // nothing rather than being handed a malformed hash.
-    let certificate_digest = match core::str::from_utf8(&trigger.context) {
-        Ok(digest) if !digest.is_empty() => digest.to_string(),
-        Ok(_) => {
-            warn!(
-                ?peer,
-                "the peer published no certificate hash, so the connection cannot be authenticated"
-            );
-            String::new()
+        for entity in obsolete {
+            world.despawn(entity);
         }
-        Err(_) => {
-            warn!(
-                ?peer,
-                "the peer's dial context is not text, so its certificate hash is unusable"
-            );
-            String::new()
+        debug!(?peer, %address, "lobby dialed a WebTransport peer");
+        // Install P2P before any transport callback can invoke default C/S admission.
+        let link = world.spawn((P2P::default(), Client, Link::default())).id();
+        if !begin_peer_resolution(world, link, endpoint, Some(peer)) {
+            world.despawn(link);
+            return;
         }
-    };
-
-    debug!(?peer, %address, %certificate_digest, "lobby dialed a WebTransport peer");
-    let link = commands
-        .spawn((
-            P2P::default(),
-            Client,
-            LocalId(local_id),
-            RemoteId(peer),
-            Link::default(),
-            WebTransportClientIo::from_addr(address, certificate_digest),
-        ))
-        .id();
-    commands.trigger(Connect { entity: link });
+        world
+            .entity_mut(link)
+            .insert(WebTransportClientIo::from_addr(address, certificate_digest));
+        world.trigger(Connect { entity: link });
+    });
 }
 
-/// Retires obsolete transport-owned Links when an inbound replacement settles its identity.
+/// Retires obsolete transport-owned links after an inbound replacement is admitted.
 fn on_accepted_identity(
     trigger: On<Insert, (RemoteId, Connected)>,
     accepted: Query<(&RemoteId, &LinkOf), (With<P2P>, With<Connected>)>,
@@ -291,66 +279,187 @@ fn on_accepted_identity(
     }
 }
 
-/// Annotates the session a peer opened towards our endpoint.
-///
-/// The `RemoteId` is provisional: it is the address the session was observed from, which for a
-/// stream transport is the peer's ephemeral port rather than its identity. The announce the peer
-/// sends over this session carries the real one, and the lobby re-keys the Link to it.
-///
-/// Only links owned by a [`WebTransportEndpoint`] are touched, so a server's sessions are left alone.
+fn prepare_accepted(world: &mut World, entity: Entity, endpoint: Entity) {
+    if world.get::<Connected>(entity).is_some() {
+        return;
+    }
+    // Mark ownership even when the peer address or endpoint bind callback is delayed.
+    world.entity_mut(entity).insert((P2P::default(), Client));
+    if world.get::<Linked>(entity).is_none()
+        || world.get::<WebTransportPeerAddr>(entity).is_none()
+        || prepare_endpoint(world, endpoint).is_none()
+    {
+        return;
+    }
+    begin_peer_resolution(world, entity, endpoint, None);
+}
+
 fn on_accepted_link(
-    trigger: On<Add, (WebTransportPeerAddr, WebTransportLocalAddr, LinkOf, Linked)>,
-    links: Query<(Entity, &LinkOf, &WebTransportPeerAddr), Without<P2P>>,
-    addresses: Query<&WebTransportLocalAddr, With<WebTransportEndpoint>>,
+    trigger: On<
+        Add,
+        (
+            WebTransportPeerAddr,
+            WebTransportLocalAddr,
+            LinkOf,
+            Linked,
+            LobbyEndpoint,
+        ),
+    >,
+    links: Query<(Entity, &LinkOf)>,
     endpoints: Query<(), With<LobbyEndpoint>>,
     mut commands: Commands,
 ) {
-    let mut annotate = |(entity, link_of, peer_addr): (Entity, &LinkOf, &WebTransportPeerAddr)| {
-        if !endpoints.contains(link_of.endpoint) {
-            return;
-        }
-        let Some(local_id) = local_id(link_of.endpoint, &addresses) else {
-            return;
-        };
-        debug!(remote = %peer_addr.0, "lobby endpoint accepted a peer");
-        commands.entity(entity).insert((
-            P2P::default(),
-            Client,
-            LocalId(local_id),
-            RemoteId(PeerId::Raw(peer_addr.0)),
-            lightyear_p2p::ProvisionalPeerId,
-        ));
+    let mut prepare = |entity, endpoint| {
+        commands.queue(move |world: &mut World| prepare_accepted(world, entity, endpoint));
     };
-    if addresses.contains(trigger.entity) {
-        for link in &links {
-            if link.1.endpoint == trigger.entity {
-                annotate(link);
+    if endpoints.contains(trigger.entity) {
+        for (entity, owner) in &links {
+            if owner.endpoint == trigger.entity {
+                prepare(entity, owner.endpoint);
             }
         }
-    } else if let Ok(link) = links.get(trigger.entity) {
-        annotate(link);
+    } else if let Ok((entity, owner)) = links.get(trigger.entity) {
+        if endpoints.contains(owner.endpoint) {
+            prepare(entity, owner.endpoint);
+        }
     }
 }
 
-/// Admits a `P2P` link only once both its lobby identities and transport are ready.
-fn on_link_linked(
-    trigger: On<Add, (Linked, LocalId, RemoteId, P2P, WebTransportPeerAddr)>,
-    query: Query<
-        (&LocalId, &RemoteId),
-        (
-            With<Linked>,
-            With<P2P>,
-            With<Client>,
-            With<WebTransportPeerAddr>,
-            Without<Connected>,
-        ),
-    >,
-    mut commands: Commands,
-) {
-    if let Ok((&local, &remote)) = query.get(trigger.entity) {
-        let entity = trigger.entity;
-        commands.queue(move |world: &mut World| {
-            lightyear_connection::admission::apply_default_ids(world, entity, local, remote);
-        });
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_connection::network_topology::NetworkingMetadata;
+    use lightyear_p2p::LobbyPlugin;
+
+    #[cfg(feature = "self-signed")]
+    #[test]
+    fn repeated_opted_out_dials_leave_no_orphan_links() {
+        use lightyear_connection::admission::NoDefaultConnection;
+
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+        app.add_plugins(LobbyPlugin::default());
+        app.add_observer(on_dial);
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 4100));
+        let endpoint = app
+            .world_mut()
+            .spawn((
+                WebTransportEndpoint {
+                    bind_addr: address,
+                    certificate: aeronet_webtransport::wtransport::Identity::self_signed([
+                        "localhost",
+                    ])
+                    .unwrap(),
+                },
+                WebTransportLocalAddr(address),
+                LobbyEndpoint,
+                LocalId(PeerId::Local(91)),
+                NoDefaultConnection,
+            ))
+            .id();
+        let dial = DialPeer {
+            peer: PeerId::Local(92),
+            context: dial_context(SocketAddr::from((Ipv4Addr::LOCALHOST, 4101)), &[37; 32]),
+        };
+        for _ in 0..3 {
+            app.world_mut().trigger(dial.clone());
+            app.world_mut().flush();
+            let world = app.world_mut();
+            assert_eq!(
+                world
+                    .query_filtered::<Entity, (With<Link>, Without<WebTransportEndpoint>)>()
+                    .iter(world)
+                    .count(),
+                0
+            );
+        }
+        app.world_mut()
+            .entity_mut(endpoint)
+            .remove::<NoDefaultConnection>();
+        app.world_mut().trigger(dial);
+        app.world_mut().flush();
+        let world = app.world_mut();
+        let mut pending = world.query::<(&PendingLobbyPeer, &WebTransportClientIo)>();
+        let (pending, _) = pending.single(world).unwrap();
+        assert_eq!(pending.expected_remote(), Some(PeerId::Local(92)));
+    }
+
+    #[test]
+    fn socket_context_preserves_certificate_and_ipv6_scope_and_rejects_truncation() {
+        let address = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 4100, 7, 9));
+        let digest = [37; 32];
+        let context = dial_context(address, &digest);
+        assert_eq!(decode_context(&context), Some((address, digest.as_slice())));
+        assert!(context.len() <= lightyear_p2p::MAX_DIAL_CONTEXT);
+        for end in 0..context.len() {
+            assert!(decode_context(&context[..end]).is_none());
+        }
+        let mut invalid = context.to_vec();
+        invalid[0] = b'S';
+        assert!(decode_context(&invalid).is_none());
+        invalid[0] = b'W';
+        invalid.push(0);
+        assert!(decode_context(&invalid).is_none());
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 4101));
+        assert_eq!(
+            decode_context(&dial_context(address, &digest)),
+            Some((address, digest.as_slice())),
+        );
+    }
+
+    #[cfg(feature = "self-signed")]
+    #[test]
+    fn accepted_link_waits_for_endpoint_facts_without_publishing_ephemeral_ids() {
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+        app.add_plugins(LobbyPlugin::default());
+        app.add_observer(on_endpoint_ready);
+        app.add_observer(on_accepted_link);
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 4100));
+        let alias = PeerId::Netcode(91);
+        let endpoint = app
+            .world_mut()
+            .spawn((
+                WebTransportEndpoint {
+                    bind_addr: address,
+                    certificate: aeronet_webtransport::wtransport::Identity::self_signed([
+                        "localhost",
+                    ])
+                    .unwrap(),
+                },
+                LobbyEndpoint,
+                LocalId(alias),
+            ))
+            .id();
+        let link = app
+            .world_mut()
+            .spawn((LinkOf { endpoint }, Link::default(), Linked))
+            .id();
+        assert!(app.world().get::<P2P>(link).is_some());
+        app.world_mut()
+            .entity_mut(link)
+            .insert(WebTransportPeerAddr(SocketAddr::from((
+                Ipv4Addr::LOCALHOST,
+                53000,
+            ))));
+        assert!(app.world().get::<PendingLobbyPeer>(link).is_none());
+        assert!(app.world().get::<RemoteId>(link).is_none());
+        app.world_mut()
+            .entity_mut(endpoint)
+            .insert(WebTransportLocalAddr(address));
+        assert!(app.world().get::<PendingLobbyPeer>(link).is_some());
+        assert!(app.world().get::<Connected>(link).is_none());
+        assert!(app.world().get::<RemoteId>(link).is_none());
+        assert!(app.world().get::<LocalId>(link).is_none());
+        assert_eq!(app.world().get::<LocalId>(endpoint), Some(&LocalId(alias)));
+        assert_eq!(app.world().resource::<Lobby>().local(), Some(alias));
+        let changed = SocketAddr::from((Ipv4Addr::LOCALHOST, 4102));
+        app.world_mut()
+            .entity_mut(endpoint)
+            .insert(WebTransportLocalAddr(changed));
+        assert_eq!(app.world().resource::<Lobby>().local(), Some(alias));
+        assert_eq!(app.world().get::<LocalId>(endpoint), Some(&LocalId(alias)));
+        assert!(app.world().get::<PendingLobbyPeer>(link).is_some());
+        assert!(app.world().get::<RemoteId>(link).is_none());
     }
 }

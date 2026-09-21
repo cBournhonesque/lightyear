@@ -3,7 +3,7 @@ use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 use crate::registry::MessageMetricHandles;
 use crate::registry::{MessageError, MessageKind, MessageModeMetadata, MessageRegistry};
 use crate::replicon_map::RepliconMapParam;
-use crate::{Message, MessageManager, MessageNetId};
+use crate::{Message, MessageConnectionFilter, MessageManager, MessageNetId, PreadmissionMessage};
 use alloc::vec::Vec;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::{
@@ -79,6 +79,7 @@ pub(crate) type SendMessageFn = unsafe fn(
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &SendMapView,
+    preadmission: Option<(&PreadmissionMessage, &ChannelRegistry)>,
     #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
 ) -> Result<(), MessageError>;
 
@@ -125,6 +126,7 @@ impl<M: Message> MessageSender<M> {
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &SendMapView,
+        preadmission: Option<(&PreadmissionMessage, &ChannelRegistry)>,
         #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
@@ -135,6 +137,13 @@ impl<M: Message> MessageSender<M> {
             .send
             .drain(..)
             .try_for_each(|(message, channel_kind, channel_name, priority)| {
+                if preadmission.is_some_and(|(_, channels)| {
+                    channels
+                        .settings(channel_kind)
+                        .is_some_and(|settings| settings.timeline.is_some())
+                }) {
+                    return Err(MessageError::PreadmissionDenied);
+                }
                 // we write the message NetId, and then serialize the message
                 net_id.to_bytes(&mut sender.writer)?;
                 // SAFETY: the message has been checked to be of type `M`.
@@ -146,6 +155,13 @@ impl<M: Message> MessageSender<M> {
                     )?
                 };
                 let bytes = sender.writer.take_written();
+                if let Some((policy, _)) = preadmission
+                    && bytes.len() > policy.max_bytes
+                {
+                    return Err(MessageError::PreadmissionTooLarge {
+                        limit: policy.max_bytes,
+                    });
+                }
                 #[cfg(feature = "metrics")]
                 metric_handles.record_send::<M>(bytes.len());
                 trace!(
@@ -281,12 +297,20 @@ impl MessagePlugin {
     /// Serialize them into bytes that are buffered in a [`Transport`]
     pub fn send(
         mut transport_query: Query<
-            (Entity, &Transport, &MessageManager, Has<Client>),
-            (With<Connected>, Without<HostClient>),
+            (
+                Entity,
+                &Transport,
+                &MessageManager,
+                Has<Client>,
+                Has<Connected>,
+                Option<&PreadmissionMessage>,
+            ),
+            (MessageConnectionFilter, Without<HostClient>),
         >,
         // MessageSender<M> present on that entity
         message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
+        channel_registry: Res<ChannelRegistry>,
         replicon: RepliconMapParam,
     ) {
         // Each outer query item accesses senders on a different entity, so workers can safely
@@ -294,7 +318,12 @@ impl MessagePlugin {
         let message_sender_query = &message_sender_query;
         let replicon = &replicon;
         adaptive_for_each_mut!(transport_query).for_each(
-            |(entity, transport, message_manager, is_client)| {
+            |(entity, transport, message_manager, is_client, connected, policy)| {
+                let preadmission = if connected {
+                    None
+                } else {
+                    policy.map(|policy| (policy, &*channel_registry))
+                };
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
                 let view = SendMapView {
@@ -306,6 +335,9 @@ impl MessagePlugin {
                     .send_messages
                     .iter()
                     .try_for_each(|(message_kind, sender_id)| {
+                        if preadmission.is_some_and(|(policy, _)| policy.kind != *message_kind) {
+                            return Ok(());
+                        }
                         let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
                         let message_sender = entity_mut
                             .get_mut_by_id(*sender_id)
@@ -333,6 +365,7 @@ impl MessagePlugin {
                                 transport,
                                 serialize_fns,
                                 &view,
+                                preadmission,
                                 #[cfg(feature = "metrics")]
                                 metric_handles,
                             )?;
@@ -341,6 +374,10 @@ impl MessagePlugin {
                     })
                     .inspect_err(|e| error!("error sending message: {e:?}"))
                     .ok();
+
+                if !connected {
+                    return;
+                }
 
                 message_manager
                     .send_triggers

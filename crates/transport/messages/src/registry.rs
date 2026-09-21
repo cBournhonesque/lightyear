@@ -68,6 +68,12 @@ pub enum MessageError {
     },
     #[error("timeline receiver reached its pending payload limit of {limit}")]
     PendingTimelineOverflow { limit: usize },
+    #[error("message is not allowed before connection admission")]
+    PreadmissionDenied,
+    #[error("preadmission message exceeds its serialized byte limit of {limit}")]
+    PreadmissionTooLarge { limit: usize },
+    #[error("remote events require an admitted remote identity")]
+    MissingRemoteIdentity,
     #[error(transparent)]
     TransportError(#[from] lightyear_transport::error::TransportError),
 }

@@ -61,7 +61,7 @@ pub mod prelude {
     pub use crate::send::MessageSender;
     pub use crate::send_trigger::EventSender;
     pub use crate::trigger::AppTriggerExt;
-    pub use crate::{Message, MessageManager};
+    pub use crate::{Message, MessageManager, PreadmissionMessage};
     pub use lightyear_core::timeline::TimelineKind;
 
     #[cfg(feature = "server")]
@@ -83,6 +83,42 @@ impl<T: Send + Sync + 'static> Message for T {}
 // wrapping_id!(MessageId);
 // TODO: this conflicts with the MessageId from lightyear_transport! find a different name
 pub type MessageNetId = NetId;
+
+/// Permits one registered ordinary message type on a linked connection before admission.
+///
+/// No remote identity is needed for this restricted path. Events and timeline
+/// delivery remain admission-only. The byte limit includes the serialized message
+/// identifier and applies in both directions. Removing this component disables
+/// preadmission processing; it has no effect once the connection is admitted.
+///
+/// At most one control message is delivered per receive pass, allowing admission
+/// to run before decoding later messages queued on an ordered channel.
+#[derive(Component)]
+#[component(immutable)]
+pub struct PreadmissionMessage {
+    kind: MessageKind,
+    max_bytes: usize,
+}
+
+impl PreadmissionMessage {
+    pub fn new<M: Message>(max_bytes: usize) -> Self {
+        Self {
+            kind: MessageKind::of::<M>(),
+            max_bytes,
+        }
+    }
+}
+
+/// Preserve the admitted path while narrowly enabling linked pending peers.
+type MessageConnectionFilter = bevy_ecs::query::Or<(
+    bevy_ecs::query::With<lightyear_connection::client::Connected>,
+    (
+        bevy_ecs::query::With<PreadmissionMessage>,
+        bevy_ecs::query::With<lightyear_link::Linked>,
+        bevy_ecs::query::Without<lightyear_connection::client::Disconnected>,
+        bevy_ecs::query::Without<lightyear_connection::client::Disconnecting>,
+    ),
+)>;
 
 /// Manages sending and receiving messages for an entity.
 ///

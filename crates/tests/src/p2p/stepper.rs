@@ -69,7 +69,13 @@ pub(crate) struct LobbyPeer {
 }
 
 impl LobbyPeer {
-    fn new(slot: u8, base_port: u16, policy: LobbyIdPolicy, transport: TestTransport) -> Self {
+    fn new(
+        slot: u8,
+        base_port: u16,
+        policy: LobbyIdPolicy,
+        transport: TestTransport,
+        id: Option<PeerId>,
+    ) -> Self {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -88,7 +94,11 @@ impl LobbyPeer {
         });
         app.add_plugins(LobbyPlugin::new(policy));
 
-        // The one thing the application supplies: this peer's own address.
+        let endpoint = app.world_mut().spawn_empty().id();
+        if let Some(id) = id {
+            app.world_mut().entity_mut(endpoint).insert(LocalId(id));
+        }
+        // Identity and native addressing are separate inputs.
         let local = peer_addr(base_port, slot);
         match transport {
             TestTransport::Udp => {
@@ -96,7 +106,9 @@ impl LobbyPeer {
                 use lightyear_udp::lobby::UdpLobbyPlugin;
 
                 app.add_plugins(UdpLobbyPlugin);
-                app.world_mut().spawn(UdpEndpoint::new(local));
+                app.world_mut()
+                    .entity_mut(endpoint)
+                    .insert(UdpEndpoint::new(local));
             }
             #[cfg(feature = "p2p_websocket")]
             TestTransport::WebSocket => {
@@ -110,11 +122,13 @@ impl LobbyPeer {
                     ClientConfig::builder().with_no_cert_validation(),
                     WebSocketScheme::Plain,
                 ));
-                app.world_mut().spawn((WebSocketEndpoint {
-                    config: ServerConfig::builder()
-                        .with_bind_address(local)
-                        .with_no_encryption(),
-                },));
+                app.world_mut()
+                    .entity_mut(endpoint)
+                    .insert((WebSocketEndpoint {
+                        config: ServerConfig::builder()
+                            .with_bind_address(local)
+                            .with_no_encryption(),
+                    },));
             }
             #[cfg(feature = "p2p_webtransport")]
             TestTransport::WebTransport => {
@@ -127,10 +141,12 @@ impl LobbyPeer {
                 app.add_plugins(WebTransportLobbyPlugin);
                 let certificate = Identity::self_signed(["localhost", "127.0.0.1", "::1"])
                     .expect("self-signed identity should be valid");
-                app.world_mut().spawn(WebTransportEndpoint {
-                    certificate,
-                    bind_addr: local,
-                });
+                app.world_mut()
+                    .entity_mut(endpoint)
+                    .insert(WebTransportEndpoint {
+                        certificate,
+                        bind_addr: local,
+                    });
             }
         }
 
@@ -181,7 +197,9 @@ impl Stepper {
             peers: policies
                 .into_iter()
                 .enumerate()
-                .map(|(slot, policy)| LobbyPeer::new(slot as u8, base_port, policy, transport))
+                .map(|(slot, policy)| {
+                    LobbyPeer::new(slot as u8, base_port, policy, transport, None)
+                })
                 .collect(),
             transport,
             now: Instant::now(),
@@ -257,6 +275,57 @@ impl Stepper {
                 .iter()
                 .all(|slot| stepper.peers[*slot as usize].in_session())
         });
+    }
+}
+
+/// Proves that the first Connected observer sees chosen identities, not socket placeholders.
+pub(crate) fn chosen_identity_admission(transport: TestTransport) {
+    let base_port = next_base_port();
+    let ids = [PeerId::Local(41), PeerId::Local(73)];
+    let mut stepper = Stepper {
+        peers: [
+            LobbyIdPolicy::Pinned(Some(lobby_id())),
+            LobbyIdPolicy::Adopt,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(slot, policy)| {
+            LobbyPeer::new(slot as u8, base_port, policy, transport, Some(ids[slot]))
+        })
+        .collect(),
+        transport,
+        now: Instant::now(),
+    };
+    for (slot, peer) in stepper.peers.iter_mut().enumerate() {
+        peer.app.add_observer(
+            move |event: On<Add, Connected>,
+                  links: Query<(&LocalId, &RemoteId), With<P2P>>,
+                  metadata: Res<NetworkingMetadata>| {
+                let Ok((local, remote)) = links.get(event.entity) else {
+                    return;
+                };
+                assert_eq!(local.0, ids[slot]);
+                assert_eq!(remote.0, ids[1 - slot]);
+                assert_eq!(metadata.peer_map.get(&remote.0), Some(&event.entity));
+            },
+        );
+    }
+    stepper.wait_until(|stepper| {
+        stepper.peers.iter().enumerate().all(|(slot, peer)| {
+            peer.lobby().local() == Some(ids[slot]) && !peer.lobby().local_dial_context().is_empty()
+        })
+    });
+    let context = stepper.peers[1].lobby().local_dial_context().clone();
+    stepper.peers[0]
+        .app
+        .world_mut()
+        .resource_mut::<Lobby>()
+        .add_bootstrap_with_context([(ids[1], context)]);
+    stepper.start_session_when_ready(&[0, 1]);
+    stepper.wait_for_session(&[0, 1]);
+    for peer in &mut stepper.peers {
+        assert_eq!(peer.lobby().roster(), ids);
+        assert_eq!(peer.connected_links(), 1);
     }
 }
 

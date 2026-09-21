@@ -9,11 +9,11 @@
 //!
 //! # Discovery
 //!
-//! Peers exchange [`LobbyAnnounce`]s over Links they already have, on the same
-//! [`P2PChannel`](crate::session::P2PChannel) the session handshake uses. Each announce is a full
-//! snapshot of everything the sender knows, so the protocol is idempotent and order-free.
-//! A peer unions what it receives and emits [`DialPeer`] to establish a [`Link`] to peers it
-//! isn't connected to yet.
+//! Peers exchange [`LobbyAnnounce`]s on the reliable [`P2PChannel`](crate::session::P2PChannel)
+//! the session handshake uses. Default dynamic Links first exchange a bounded own-only announce
+//! before admission; no provisional peer ID is published. Connected announces are full snapshots
+//! of everything the sender knows. The lobby unions them and emits [`DialPeer`] to establish a
+//! [`Link`] to peers it is not connected to yet.
 //!
 //! # Membership
 //!
@@ -28,18 +28,25 @@
 //!
 use alloc::collections::BTreeMap;
 use alloc::collections::btree_map::Entry;
+use alloc::string::String;
 use alloc::vec::Vec;
-use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bytes::Bytes;
-use lightyear_connection::client::{Connected, Disconnected};
+#[cfg(test)]
+use lightyear_connection::admission::NoDefaultConnection;
+use lightyear_connection::admission::{admit, is_default_connection, reject};
+use lightyear_connection::client::{Connected, Disconnect, Disconnected};
 use lightyear_connection::direction::NetworkDirection;
+#[cfg(test)]
 use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_connection::p2p::P2P;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::prelude::{Link, Unlinked};
+use lightyear_link::prelude::{LinkOf, Unlinked};
 use lightyear_messages::plugin::MessageSystems;
-use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
+use lightyear_messages::prelude::{
+    AppMessageExt, MessageReceiver, MessageSender, PreadmissionMessage,
+};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use tracing::{debug, trace, warn};
@@ -116,20 +123,17 @@ pub type DialContext = Bytes;
 /// key is a clean failure that `Lobby::retry` can recover from.
 pub const MAX_DIAL_CONTEXT: usize = 64;
 
-/// Sent on every connected peer Link to describe the sender's lobby and the peers it knows.
+/// Describes the sender's lobby and dialing context, and after admission the peers it knows.
 ///
-/// A full snapshot, not a delta, which is what makes the protocol idempotent and order-free.
+/// The first announcement contains only the sender. Connected announcements are full snapshots.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LobbyAnnounce {
     /// The sender's lobby, or `None` if it has not settled on one.
     pub lobby: Option<LobbyId>,
     /// Who sent this.
     ///
-    /// A receiver can usually infer this from the Link it arrived on, and for a datagram transport
-    /// that is exact: the peer's identity *is* the address its datagrams come from. A stream
-    /// transport cannot do that — an accepted session reports the ephemeral port the peer dialed
-    /// from, not the endpoint it listens on — so the sender names itself and the receiver re-keys
-    /// the Link. See [`Lobby::rename_peer`].
+    /// Before admission this establishes the final remote identity. Once connected it must agree
+    /// with the Link's immutable [`RemoteId`]; a different sender is rejected, never renamed.
     pub from: PeerId,
     /// Every peer the sender knows how to dial, **including itself**, with how to dial it.
     ///
@@ -202,6 +206,8 @@ struct PeerInfo {
     dialed: bool,
     /// How to dial this peer.
     context: DialContext,
+    /// A direct announcement owns this context, including an explicitly empty context.
+    direct_context: bool,
     /// Whether we are obliged to dial this peer even if the tie-break says the other side should.
     ///
     /// True for a peer the application named: a bootstrap seed, or one re-armed with
@@ -219,6 +225,7 @@ impl PeerInfo {
             linked: false,
             dialed: false,
             context: DialContext::new(),
+            direct_context: false,
             dial_explicitly: false,
         }
     }
@@ -237,25 +244,153 @@ impl PeerInfo {
     }
 }
 
-/// Allows an accepted address-based stream Link to learn its endpoint identity once.
+/// A lobby Link whose remote identity has not yet been admitted.
 ///
-/// Only the accepting transport inserts this marker: dialed Links and transports with stable
-/// identities must not opt in. The first accepted announce must name a [`PeerId::Raw`], as must
-/// the provisional [`RemoteId`]. Once accepted, subsequent announces must name that same identity.
-///
-/// This prevents identity collisions, not impersonation: an unowned endpoint address is still
-/// self-reported, without authentication or proof that the sender controls it. A claim is rejected
-/// in its entirety if another live Link (including a pending dial) owns the id.
-/// Remembered peers with no live Link may reconnect under their previous identity.
-/// If two Links claim an unowned id in one frame, the first processed claim wins; processing order
-/// is unspecified. Rejected Links retain their provisional identity and are not automatically
-/// disconnected or removed from the session's candidate set.
-#[derive(Component)]
-pub struct ProvisionalPeerId;
+/// No public Link IDs or connectivity are published until its bounded own-only announcement is
+/// accepted. Transport glue starts this exchange with [`begin_peer_resolution`].
+#[derive(Component, Clone, Copy)]
+#[component(immutable)]
+pub struct PendingLobbyPeer {
+    endpoint: Entity,
+    local: PeerId,
+    expected: Option<PeerId>,
+}
 
-struct LinkIdentity {
-    peer: PeerId,
-    provisional: bool,
+impl PendingLobbyPeer {
+    /// The dial target whose identity must match the first remote announcement.
+    pub fn expected_remote(&self) -> Option<PeerId> {
+        self.expected
+    }
+}
+
+#[derive(Component)]
+#[component(immutable)]
+struct EndpointLobbyIdentity(PeerId);
+
+#[derive(Component)]
+struct RejectedLobbyPeer;
+
+/// Freeze one self-ID for a lobby endpoint, preserving an explicitly requested [`LocalId`].
+///
+/// `candidate` is the transport's native fallback, not a replacement for a chosen identity.
+/// All endpoints participating in this lobby must agree; inconsistent requests close the endpoint.
+pub fn resolve_endpoint_identity(
+    world: &mut World,
+    endpoint: Entity,
+    candidate: PeerId,
+) -> Option<PeerId> {
+    if world.get_entity(endpoint).is_err() || !world.contains_resource::<Lobby>() {
+        return None;
+    }
+    let local = world.get::<LocalId>(endpoint).map_or(candidate, |id| id.0);
+    if world
+        .get::<EndpointLobbyIdentity>(endpoint)
+        .is_some_and(|id| id.0 != local)
+        || world
+            .resource::<Lobby>()
+            .local
+            .is_some_and(|id| id != local)
+    {
+        reject(
+            world,
+            endpoint,
+            String::from("Conflicting lobby endpoint self-ID"),
+        );
+        return None;
+    }
+    world.resource_mut::<Lobby>().mark_local(local);
+    world
+        .entity_mut(endpoint)
+        .insert((LocalId(local), EndpointLobbyIdentity(local)));
+    Some(local)
+}
+
+/// Begin the ordinary reliable lobby announcement exchange before default admission.
+///
+/// Call only once the endpoint's native identity and dialing context are ready. A dialed peer
+/// supplies `expected`; an incoming Link supplies `None`. Link-level requests must agree with
+/// the endpoint and dial target. Repeated calls do not resend or reopen an admitted/rejected Link.
+pub fn begin_peer_resolution(
+    world: &mut World,
+    entity: Entity,
+    endpoint: Entity,
+    expected: Option<PeerId>,
+) -> bool {
+    if world.get_entity(entity).is_err()
+        || !world.contains_resource::<Lobby>()
+        || world.get::<Connected>(entity).is_some()
+        || world.get::<RejectedLobbyPeer>(entity).is_some()
+        || world.get::<Disconnected>(entity).is_some()
+        || world.get::<Unlinked>(entity).is_some()
+    {
+        return false;
+    }
+    if !is_default_connection(world, entity) || !is_default_connection(world, endpoint) {
+        return false;
+    }
+    let Some(local) = world.get::<EndpointLobbyIdentity>(endpoint).map(|id| id.0) else {
+        reject_lobby_peer(world, entity, "Lobby endpoint identity is unresolved");
+        return false;
+    };
+    if world.get::<LocalId>(endpoint).map(|id| id.0) != Some(local)
+        || world.get_resource::<Lobby>().and_then(Lobby::local) != Some(local)
+        || world
+            .get::<LinkOf>(entity)
+            .is_some_and(|link| link.endpoint != endpoint)
+        || world.get::<LocalId>(entity).is_some_and(|id| id.0 != local)
+        || world
+            .get::<RemoteId>(entity)
+            .is_some_and(|id| Some(id.0) != expected)
+        || expected == Some(local)
+    {
+        reject_lobby_peer(world, entity, "Conflicting lobby Link identity request");
+        return false;
+    }
+    if let Some(pending) = world.get::<PendingLobbyPeer>(entity) {
+        if pending.endpoint == endpoint && pending.local == local && pending.expected == expected {
+            return true;
+        }
+        reject_lobby_peer(
+            world,
+            entity,
+            "Cannot change a pending lobby identity request",
+        );
+        return false;
+    }
+    let lobby = world.resource::<Lobby>();
+    let mut known = SmallVec::new();
+    known.push((local, lobby.dial_context.clone()));
+    let announce = LobbyAnnounce {
+        lobby: lobby.id,
+        from: local,
+        known,
+    };
+    // Always queue our own announcement before receiving theirs. Admission may happen in the
+    // same frame, but removing the preadmission gate must not discard this reliable response.
+    let mut sender = MessageSender::<LobbyAnnounce>::default();
+    sender.send::<P2PChannel>(announce);
+    world
+        .entity_mut(entity)
+        .remove::<(LocalId, RemoteId)>()
+        .insert((
+            PendingLobbyPeer {
+                endpoint,
+                local,
+                expected,
+            },
+            PreadmissionMessage::new::<LobbyAnnounce>(256),
+            sender,
+            MessageReceiver::<LobbyAnnounce>::default(),
+        ));
+    true
+}
+
+fn reject_lobby_peer(world: &mut World, entity: Entity, reason: &str) {
+    world
+        .entity_mut(entity)
+        .remove::<(PendingLobbyPeer, PreadmissionMessage)>()
+        .insert(RejectedLobbyPeer);
+    reject(world, entity, String::from(reason));
 }
 
 /// Peer discovery for a P2P application.
@@ -269,7 +404,7 @@ pub struct Lobby {
     adopting: bool,
     /// Our lobby.
     id: Option<LobbyId>,
-    /// The local peer's id, read from any Link's [`LocalId`].
+    /// The local peer's frozen endpoint identity, inherited by its child links.
     local: Option<PeerId>,
     /// Peers we have learned of, and what we know about them.
     ///
@@ -318,11 +453,17 @@ impl Lobby {
     /// The transport's lobby glue owns the encoding; the lobby only carries it. Marks the lobby
     /// dirty, because peers that already have our previous context need the new one.
     pub fn set_dial_context(&mut self, context: DialContext) {
+        let context = bounded_context(context);
         if self.dial_context == context {
             return;
         }
         self.dial_context = context;
         self.dirty = true;
+    }
+
+    /// The transport-owned context to include alongside our self-ID in an invite.
+    pub fn local_dial_context(&self) -> &DialContext {
+        &self.dial_context
     }
 
     /// How to dial `peer`, as last announced. Empty when nobody has said.
@@ -522,14 +663,14 @@ impl Lobby {
     /// Our id can also reach us inside a remote announce — a peer that knows us lists us — before
     /// any Link has told us which id is ours. Settling it here drops any such trace of ourselves,
     /// so we are never advertised, dialed, or counted as a member.
-    fn mark_local(&mut self, local: PeerId) {
-        if self.local == Some(local) {
-            return;
+    fn mark_local(&mut self, local: PeerId) -> bool {
+        if let Some(current) = self.local {
+            return current == local;
         }
         self.local = Some(local);
-        if self.peers.remove(&local).is_some() {
-            self.dirty = true;
-        }
+        self.dirty = true;
+        self.peers.remove(&local);
+        true
     }
 
     /// Records that the Link to `peer` is up.
@@ -575,49 +716,6 @@ impl Lobby {
         }
     }
 
-    /// Moves everything we know about `old` to `new`, returning whether there was anything to move.
-    ///
-    /// A stream transport reports the ephemeral source address of an accepted session, so the first
-    /// announce to arrive on it is the only thing that can say which peer is actually there. This is
-    /// what carries that correction through: the link keeps its identity, and so do the membership
-    /// and dial state gathered under it.
-    ///
-    /// Returns `false` for an unknown `old`, the local peer, or a linked `new`.
-    /// Remembered peers without a live Link may be merged, including disconnected members.
-    /// Callers must also reject ownership by an existing Link, including pending dials.
-    pub fn rename_peer(&mut self, old: PeerId, new: PeerId) -> bool {
-        if old == new
-            || self.local == Some(new)
-            || self.peers.get(&new).is_some_and(|info| info.linked)
-        {
-            return false;
-        }
-        let Some(info) = self.peers.remove(&old) else {
-            return false;
-        };
-        match self.peers.entry(new) {
-            // Keep whatever the known entry already has: it may have been learned from an announce
-            // and so carry a context this provisional entry lacks.
-            Entry::Occupied(mut slot) => {
-                let existing = slot.get_mut();
-                existing.linked |= info.linked;
-                existing.dialed |= info.dialed;
-                existing.dial_explicitly |= info.dial_explicitly;
-                if existing.context.is_empty() {
-                    existing.context = info.context;
-                }
-                if existing.state == PeerState::Wanted && info.state != PeerState::Wanted {
-                    existing.state = info.state;
-                }
-            }
-            Entry::Vacant(slot) => {
-                slot.insert(info);
-            }
-        }
-        self.dirty = true;
-        true
-    }
-
     /// Records a peer we have heard of but not verified, and how to dial it.
     ///
     /// A context we already hold is never overwritten by an empty one: the peer that introduced two
@@ -629,7 +727,7 @@ impl Lobby {
         match self.peers.entry(peer) {
             Entry::Occupied(mut slot) => {
                 let info = slot.get_mut();
-                if info.context.is_empty() && !context.is_empty() {
+                if !info.direct_context && info.context.is_empty() && !context.is_empty() {
                     info.context = context;
                 }
             }
@@ -711,9 +809,21 @@ impl Lobby {
             debug!(?from, "peer joined the lobby");
         }
         self.set_state(from, PeerState::Member);
-        // The sender is in `known` like any other peer, so its own context arrives here too.
         for (peer, context) in announce.known {
-            self.learn(peer, bounded_context(context));
+            if peer == from {
+                let context = bounded_context(context);
+                let info = self
+                    .peers
+                    .get_mut(&from)
+                    .expect("sender membership was recorded");
+                if info.context != context {
+                    info.context = context;
+                    self.dirty = true;
+                }
+                info.direct_context = true;
+            } else {
+                self.learn(peer, bounded_context(context));
+            }
         }
     }
 
@@ -836,117 +946,117 @@ impl Plugin for LobbyPlugin {
 
         app.add_observer(on_link_connected);
         app.add_observer(on_link_disconnected);
+        app.add_observer(on_pending_disconnect);
+        app.add_observer(on_pending_disconnected);
+        app.add_observer(on_pending_unlinked);
         app.add_systems(
-            PreUpdate,
-            drain_announcements.after(MessageSystems::Receive),
+            PostUpdate,
+            // Flush our own pending announcement before admission exposes any other messages.
+            // No timer or acknowledgement is needed: the existing ordered channel owns delivery.
+            (drain_announcements, announce_changes, dial_new_peers)
+                .chain()
+                .after(MessageSystems::Send),
         );
-        app.add_systems(PostUpdate, (announce_changes, dial_new_peers));
     }
 }
 
-/// Unions every announce received this frame.
-fn drain_announcements(
-    mut commands: Commands,
-    mut lobby: ResMut<Lobby>,
-    owners: Query<(Entity, &RemoteId), (With<Link>, Without<Disconnected>, Without<Unlinked>)>,
-    mut links: Query<
-        (
-            Entity,
-            &RemoteId,
-            Has<ProvisionalPeerId>,
-            &mut MessageReceiver<LobbyAnnounce>,
-        ),
-        (With<P2P>, With<Connected>),
-    >,
-) {
-    if !links
-        .iter()
-        .any(|(_, _, _, receiver)| receiver.has_messages())
+/// Drain ordinary messages first, then admit synchronously so two claims cannot reserve one ID.
+fn drain_announcements(world: &mut World) {
+    let mut query =
+        world.query_filtered::<(Entity, &mut MessageReceiver<LobbyAnnounce>), With<P2P>>();
+    let mut incoming = Vec::new();
+    for (entity, mut receiver) in query.iter_mut(world) {
+        incoming.extend(receiver.receive().map(|message| (entity, message)));
+    }
+    for (entity, message) in incoming {
+        accept_link_announce(world, entity, message);
+    }
+}
+
+fn accept_link_announce(world: &mut World, entity: Entity, message: LobbyAnnounce) {
+    if world.get::<RejectedLobbyPeer>(entity).is_some()
+        || world.get::<Disconnected>(entity).is_some()
+        || world.get::<Unlinked>(entity).is_some()
     {
         return;
     }
-    // Reserve identities synchronously: component replacements are deferred, so inspecting only
-    // RemoteId would let two accepted Links claim the same endpoint in one frame.
-    let mut owners: SmallVec<[(PeerId, Entity); 5]> =
-        owners.iter().map(|(entity, id)| (id.0, entity)).collect();
-    for (entity, remote_id, provisional, mut receiver) in &mut links {
-        let mut identity = LinkIdentity {
-            peer: remote_id.0,
-            provisional,
-        };
-        for message in receiver.receive() {
-            lobby.accept_link_announce(entity, &mut identity, message, &mut owners, &mut commands);
+    let from = message.from;
+    if let Some(pending) = world.get::<PendingLobbyPeer>(entity).copied() {
+        if pending.expected.is_some_and(|expected| expected != from)
+            || from == pending.local
+            || world.get::<LocalId>(pending.endpoint).map(|id| id.0) != Some(pending.local)
+            || world.resource::<Lobby>().local != Some(pending.local)
+            || message.known.len() != 1
+            || message.known[0].0 != from
+            || message.known[0].1.len() > MAX_DIAL_CONTEXT
+        {
+            reject_lobby_peer(world, entity, "Invalid preadmission lobby announcement");
+            return;
         }
+        if !admit(world, entity, LocalId(pending.local), RemoteId(from), ()) {
+            world
+                .entity_mut(entity)
+                .remove::<(PendingLobbyPeer, PreadmissionMessage)>()
+                .insert(RejectedLobbyPeer);
+            return;
+        }
+        world
+            .entity_mut(entity)
+            .remove::<(PendingLobbyPeer, PreadmissionMessage)>();
+    } else if world.get::<Connected>(entity).is_none() {
+        return;
+    } else if world.get::<RemoteId>(entity).map(|id| id.0) != Some(from) {
+        reject_lobby_peer(
+            world,
+            entity,
+            "Cannot change an admitted lobby peer identity",
+        );
+        return;
+    }
+    world.resource_mut::<Lobby>().accept_announce(from, message);
+}
+
+fn clear_pending(world: &mut World, entity: Entity) {
+    if world.get::<PendingLobbyPeer>(entity).is_some() {
+        world
+            .entity_mut(entity)
+            .remove::<(PendingLobbyPeer, PreadmissionMessage)>()
+            .insert(RejectedLobbyPeer);
     }
 }
 
-impl Lobby {
-    fn accept_link_announce(
-        &mut self,
-        entity: Entity,
-        identity: &mut LinkIdentity,
-        message: LobbyAnnounce,
-        owners: &mut SmallVec<[(PeerId, Entity); 5]>,
-        commands: &mut Commands,
-    ) {
-        let from = message.from;
-        if self.local == Some(from)
-            || owners
-                .iter()
-                .any(|(peer, owner)| *peer == from && *owner != entity)
-        {
-            warn!(?entity, ?from, "rejecting an occupied lobby identity");
-            return;
-        }
-        if from != identity.peer {
-            if !identity.provisional
-                || !matches!((identity.peer, from), (PeerId::Raw(_), PeerId::Raw(_)))
-                || !self.rename_peer(identity.peer, from)
-            {
-                warn!(?entity, ?from, "rejecting a lobby identity change");
-                return;
-            }
-            let old = identity.peer;
-            debug!(
-                ?old,
-                ?from,
-                "re-keying an accepted Link to its advertised endpoint"
-            );
-            owners.retain(|(peer, owner)| *peer != old || *owner != entity);
-            owners.push((from, entity));
-            identity.peer = from;
-            // Connected's hook only registers the original id. Replace that lookup alongside the
-            // immutable component, without re-inserting Connected or touching another Link's key.
-            commands.queue(move |world: &mut World| {
-                world.entity_mut(entity).insert(RemoteId(from));
-                if let Some(mut metadata) = world.get_resource_mut::<NetworkingMetadata>() {
-                    if metadata.peer_map.get(&old) == Some(&entity) {
-                        metadata.peer_map.remove(&old);
-                    }
-                    metadata.peer_map.insert(from, entity);
-                }
-            });
-        } else if identity.provisional && !matches!(from, PeerId::Raw(_)) {
-            return;
-        }
-        if identity.provisional {
-            identity.provisional = false;
-            commands.entity(entity).remove::<ProvisionalPeerId>();
-        }
-        self.accept_announce(from, message);
-    }
+fn on_pending_disconnect(trigger: On<Disconnect>, mut commands: Commands) {
+    let entity = trigger.entity;
+    commands.queue(move |world: &mut World| clear_pending(world, entity));
+}
+
+fn on_pending_disconnected(trigger: On<Add, Disconnected>, mut commands: Commands) {
+    let entity = trigger.entity;
+    commands.queue(move |world: &mut World| clear_pending(world, entity));
+}
+
+fn on_pending_unlinked(trigger: On<Add, Unlinked>, mut commands: Commands) {
+    let entity = trigger.entity;
+    commands.queue(move |world: &mut World| clear_pending(world, entity));
 }
 
 /// Records a Link coming up: the peer is linked, and we now know our own id.
 fn on_link_connected(
     trigger: On<Add, Connected>,
+    mut commands: Commands,
     links: Query<(&RemoteId, &LocalId), With<P2P>>,
     mut lobby: ResMut<Lobby>,
 ) {
     let Ok((remote_id, local_id)) = links.get(trigger.entity) else {
         return;
     };
-    lobby.mark_local(local_id.0);
+    if !lobby.mark_local(local_id.0) {
+        let entity = trigger.entity;
+        commands.queue(move |world: &mut World| {
+            reject_lobby_peer(world, entity, "Connected Link conflicts with lobby self-ID");
+        });
+        return;
+    }
     lobby.mark_linked(remote_id.0);
 }
 
@@ -1021,297 +1131,354 @@ fn dial_new_peers(mut commands: Commands, mut lobby: ResMut<Lobby>) {
 mod tests {
     use super::*;
     use alloc::vec;
-    use bevy_ecs::world::CommandQueue;
-    use core::net::{Ipv4Addr, SocketAddr};
-
-    fn raw_peer(port: u16) -> PeerId {
-        PeerId::Raw(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port))
-    }
-
-    fn accepted_link(world: &mut World, lobby: &mut Lobby, id: PeerId) -> Entity {
-        lobby.mark_linked(id);
-        world
-            .spawn((
-                Link::default(),
-                P2P::default(),
-                RemoteId(id),
-                ProvisionalPeerId,
-                Connected,
-            ))
-            .id()
-    }
-
-    // Exercise the receive path with the same command deferral as one drain_announcements call.
-    // Receiver buffers are private to the message crate; real decoding is covered by stream tests.
-    fn receive_frame(
-        world: &mut World,
-        lobby: &mut Lobby,
-        incoming: impl IntoIterator<Item = (Entity, Vec<LobbyAnnounce>)>,
-    ) {
-        let mut owners: SmallVec<[(PeerId, Entity); 5]> = world
-            .query_filtered::<(Entity, &RemoteId), (With<Link>, Without<Disconnected>, Without<Unlinked>)>()
-            .iter(world)
-            .map(|(entity, id)| (id.0, entity))
-            .collect();
-        let mut queue = CommandQueue::default();
-        {
-            let mut commands = Commands::new(&mut queue, world);
-            for (entity, messages) in incoming {
-                let mut identity = LinkIdentity {
-                    peer: world.get::<RemoteId>(entity).unwrap().0,
-                    provisional: world.get::<ProvisionalPeerId>(entity).is_some(),
-                };
-                for message in messages {
-                    lobby.accept_link_announce(
-                        entity,
-                        &mut identity,
-                        message,
-                        &mut owners,
-                        &mut commands,
-                    );
-                }
-            }
-        }
-        queue.apply(world);
-    }
-
-    #[test]
-    fn accepted_identity_rekeys_lookup_once_and_preserves_wanted_context() {
-        let mut world = World::new();
-        world.init_resource::<NetworkingMetadata>();
-        let mut lobby = pinned();
-        lobby.mark_local(raw_peer(1));
-        lobby.add_bootstrap_with_context([(raw_peer(2), Bytes::from_static(b"endpoint-key"))]);
-        let link = accepted_link(&mut world, &mut lobby, raw_peer(50));
-        let message = announce_from(raw_peer(2), b"", &[]);
-        receive_frame(
-            &mut world,
-            &mut lobby,
-            [(
-                link,
-                vec![
-                    message.clone(),
-                    message,
-                    announce_from(raw_peer(3), b"forged", &[raw_peer(4)]),
-                ],
-            )],
-        );
-        assert!(lobby.is_member(raw_peer(2)));
-        assert!(lobby.is_connected(raw_peer(2)));
-        assert_eq!(lobby.dial_context(raw_peer(2)).as_ref(), b"endpoint-key");
-        assert_eq!(lobby.roster(), vec![raw_peer(1), raw_peer(2)]);
-        assert_eq!(world.get::<RemoteId>(link), Some(&RemoteId(raw_peer(2))));
-        let metadata = world.resource::<NetworkingMetadata>();
-        assert_eq!(metadata.peer_map.get(&raw_peer(2)), Some(&link));
-        assert!(!metadata.peer_map.contains_key(&raw_peer(50)));
-        assert!(!lobby.peers.contains_key(&raw_peer(3)));
-        assert!(!lobby.peers.contains_key(&raw_peer(4)));
-
-        lobby.dirty = false;
-        receive_frame(
-            &mut world,
-            &mut lobby,
-            [(
-                link,
-                vec![
-                    announce_from(raw_peer(3), b"forged", &[raw_peer(4)]),
-                    announce_from(raw_peer(2), b"", &[]),
-                ],
-            )],
-        );
-        assert!(!lobby.dirty, "an idempotent announce is not new membership");
-        assert_eq!(lobby.roster(), vec![raw_peer(1), raw_peer(2)]);
-        assert_eq!(world.get::<RemoteId>(link), Some(&RemoteId(raw_peer(2))));
-    }
-
-    #[test]
-    fn competing_link_cannot_poison_member_foreign_or_pending_identity() {
-        for state in [PeerState::Member, PeerState::Foreign, PeerState::Wanted] {
-            let mut world = World::new();
-            world.init_resource::<NetworkingMetadata>();
-            let mut lobby = pinned();
-            lobby.mark_local(raw_peer(1));
-            lobby.add_bootstrap_with_context([(raw_peer(2), Bytes::from_static(b"victim-key"))]);
-            let victim = world
-                .spawn((Link::default(), P2P::default(), RemoteId(raw_peer(2))))
-                .id();
-            if state != PeerState::Wanted {
-                world.entity_mut(victim).insert(Connected);
-                lobby.mark_linked(raw_peer(2));
-                lobby.set_state(raw_peer(2), state);
-            }
-            let attacker = accepted_link(&mut world, &mut lobby, raw_peer(50));
-            let roster = lobby.roster();
-            let metadata = world.resource::<NetworkingMetadata>().peer_map.clone();
-            lobby.dirty = false;
-            let mut forged = announce_from(raw_peer(2), b"attacker-key", &[raw_peer(3)]);
-            // Either direction of a membership flip must be rejected.
-            if state == PeerState::Member {
-                forged.lobby = Some(other_id());
-            }
-            receive_frame(
-                &mut world,
-                &mut lobby,
-                [(attacker, vec![forged.clone(), forged])],
-            );
-            assert_eq!(world.get::<RemoteId>(victim), Some(&RemoteId(raw_peer(2))));
-            assert_eq!(
-                world.get::<RemoteId>(attacker),
-                Some(&RemoteId(raw_peer(50)))
-            );
-            assert_eq!(world.resource::<NetworkingMetadata>().peer_map, metadata);
-            assert_eq!(lobby.peers[&raw_peer(2)].state, state);
-            assert_eq!(lobby.dial_context(raw_peer(2)).as_ref(), b"victim-key");
-            assert_eq!(lobby.roster(), roster);
-            assert!(!lobby.peers.contains_key(&raw_peer(3)));
-            assert!(!lobby.dirty);
-        }
-    }
-
-    #[test]
-    fn a_disconnected_member_can_reclaim_its_identity() {
-        let mut world = World::new();
-        world.init_resource::<NetworkingMetadata>();
-        let mut lobby = pinned();
-        lobby.mark_local(raw_peer(1));
-        let previous = accepted_link(&mut world, &mut lobby, raw_peer(2));
-        lobby.set_state(raw_peer(2), PeerState::Member);
-        world.entity_mut(previous).insert(Disconnected::default());
-        world.flush();
-        lobby.mark_unlinked(raw_peer(2));
-        let replacement = accepted_link(&mut world, &mut lobby, raw_peer(50));
-        receive_frame(
-            &mut world,
-            &mut lobby,
-            [(replacement, vec![announce_from(raw_peer(2), b"", &[])])],
-        );
-        assert_eq!(
-            world.get::<RemoteId>(replacement),
-            Some(&RemoteId(raw_peer(2)))
-        );
-        assert_eq!(
-            world
-                .resource::<NetworkingMetadata>()
-                .peer_map
-                .get(&raw_peer(2)),
-            Some(&replacement)
-        );
-        assert!(lobby.is_member(raw_peer(2)));
-        assert!(lobby.is_connected(raw_peer(2)));
-        assert!(
-            !world
-                .resource::<NetworkingMetadata>()
-                .peer_map
-                .contains_key(&raw_peer(50))
-        );
-    }
-
-    #[test]
-    fn an_obsolete_link_disconnect_does_not_disconnect_its_replacement() {
+    fn admission_app() -> (App, Entity) {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
+        app.insert_resource(pinned());
+        app.add_observer(on_link_connected);
         app.add_observer(on_link_disconnected);
-        let mut lobby = pinned();
-        lobby.mark_local(raw_peer(1));
-        let obsolete = accepted_link(app.world_mut(), &mut lobby, raw_peer(2));
-        lobby.set_state(raw_peer(2), PeerState::Member);
-        let replacement = accepted_link(app.world_mut(), &mut lobby, raw_peer(2));
-        app.insert_resource(lobby);
+        app.add_observer(on_pending_disconnected);
+        app.add_observer(on_pending_unlinked);
+        app.add_observer(on_pending_disconnect);
+        let endpoint = app.world_mut().spawn(LocalId(peer(0))).id();
+        assert_eq!(
+            resolve_endpoint_identity(app.world_mut(), endpoint, peer(9)),
+            Some(peer(0))
+        );
+        (app, endpoint)
+    }
 
+    fn pending_link(world: &mut World, endpoint: Entity, expected: Option<PeerId>) -> Entity {
+        let entity = world.spawn((P2P::Inactive, LinkOf { endpoint })).id();
+        assert!(begin_peer_resolution(world, entity, endpoint, expected));
+        entity
+    }
+
+    #[test]
+    fn pending_links_publish_only_final_identity_at_admission() {
+        let (mut app, endpoint) = admission_app();
+        let entity = pending_link(app.world_mut(), endpoint, Some(peer(1)));
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<LocalId>(entity).is_none());
+        assert!(app.world().get::<RemoteId>(entity).is_none());
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
+        assert!(
+            app.world()
+                .resource::<Lobby>()
+                .connected_members()
+                .next()
+                .is_none()
+        );
+        accept_link_announce(
+            app.world_mut(),
+            entity,
+            announce_from(peer(1), b"direct", &[]),
+        );
+        assert!(app.world().get::<Connected>(entity).is_some());
+        assert_eq!(app.world().get::<LocalId>(entity), Some(&LocalId(peer(0))));
+        assert_eq!(
+            app.world().get::<RemoteId>(entity),
+            Some(&RemoteId(peer(1)))
+        );
+        assert_eq!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .get(&peer(1)),
+            Some(&entity)
+        );
+        assert_eq!(
+            app.world().resource::<Lobby>().roster(),
+            vec![peer(0), peer(1)]
+        );
+        assert!(!begin_peer_resolution(
+            app.world_mut(),
+            entity,
+            endpoint,
+            Some(peer(2))
+        ));
+        assert_eq!(
+            app.world().get::<RemoteId>(entity),
+            Some(&RemoteId(peer(1)))
+        );
+    }
+
+    #[test]
+    fn colliding_pending_announcements_leave_incumbent_untouched() {
+        let (mut app, endpoint) = admission_app();
+        let first = pending_link(app.world_mut(), endpoint, None);
+        let second = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(
+            app.world_mut(),
+            first,
+            announce_from(peer(1), b"incumbent", &[]),
+        );
+        accept_link_announce(
+            app.world_mut(),
+            second,
+            announce_from(peer(1), b"attacker", &[]),
+        );
+        assert!(app.world().get::<Connected>(first).is_some());
+        assert!(app.world().get::<Connected>(second).is_none());
+        assert!(app.world().get::<Disconnected>(second).is_some());
+        assert!(app.world().get::<RemoteId>(second).is_none());
+        assert_eq!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .get(&peer(1)),
+            Some(&first)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Lobby>()
+                .dial_context(peer(1))
+                .as_ref(),
+            b"incumbent"
+        );
+    }
+
+    #[test]
+    fn invalid_first_announcements_cannot_publish_membership() {
+        for message in [
+            announce_from(peer(2), b"", &[]),
+            announce_from(peer(0), b"", &[]),
+            announce_from(peer(1), b"", &[peer(2)]),
+            announce_from(peer(1), &[0; MAX_DIAL_CONTEXT + 1], &[]),
+        ] {
+            let (mut app, endpoint) = admission_app();
+            let entity = pending_link(app.world_mut(), endpoint, Some(peer(1)));
+            accept_link_announce(app.world_mut(), entity, message);
+            assert!(app.world().get::<Connected>(entity).is_none());
+            assert!(app.world().get::<Disconnected>(entity).is_some());
+            assert!(
+                app.world()
+                    .resource::<NetworkingMetadata>()
+                    .peer_map
+                    .is_empty()
+            );
+            assert_eq!(app.world().resource::<Lobby>().roster(), vec![peer(0)]);
+            assert!(!begin_peer_resolution(
+                app.world_mut(),
+                entity,
+                endpoint,
+                Some(peer(1))
+            ));
+        }
+    }
+
+    #[test]
+    fn later_announcements_cannot_rename_an_admitted_identity() {
+        let (mut app, endpoint) = admission_app();
+        let entity = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(
+            app.world_mut(),
+            entity,
+            announce_from(peer(1), b"original", &[]),
+        );
+        accept_link_announce(
+            app.world_mut(),
+            entity,
+            announce_from(peer(2), b"forged", &[peer(3)]),
+        );
+        assert_eq!(
+            app.world().get::<RemoteId>(entity),
+            Some(&RemoteId(peer(1)))
+        );
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert!(
+            !app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .contains_key(&peer(2))
+        );
+        assert!(!app.world().resource::<Lobby>().peers.contains_key(&peer(2)));
+        assert!(!app.world().resource::<Lobby>().peers.contains_key(&peer(3)));
+    }
+
+    #[test]
+    fn endpoint_and_child_requests_cannot_split_the_local_identity() {
+        let (mut app, endpoint) = admission_app();
+        let conflicting = app
+            .world_mut()
+            .spawn((P2P::Inactive, LinkOf { endpoint }, LocalId(peer(2))))
+            .id();
+        assert!(!begin_peer_resolution(
+            app.world_mut(),
+            conflicting,
+            endpoint,
+            None
+        ));
+        assert!(app.world().get::<Disconnected>(conflicting).is_some());
+        let wrong_remote = app
+            .world_mut()
+            .spawn((P2P::Inactive, LinkOf { endpoint }, RemoteId(peer(3))))
+            .id();
+        assert!(!begin_peer_resolution(
+            app.world_mut(),
+            wrong_remote,
+            endpoint,
+            Some(peer(1))
+        ));
+        let valid = app
+            .world_mut()
+            .spawn((
+                P2P::Inactive,
+                LinkOf { endpoint },
+                LocalId(peer(0)),
+                RemoteId(peer(1)),
+            ))
+            .id();
+        assert!(begin_peer_resolution(
+            app.world_mut(),
+            valid,
+            endpoint,
+            Some(peer(1))
+        ));
+        assert!(app.world().get::<LocalId>(valid).is_none());
+        let other_endpoint = app.world_mut().spawn(LocalId(peer(2))).id();
+        assert_eq!(
+            resolve_endpoint_identity(app.world_mut(), other_endpoint, peer(2)),
+            None
+        );
+        assert_eq!(app.world().resource::<Lobby>().local(), Some(peer(0)));
+        app.world_mut()
+            .entity_mut(endpoint)
+            .insert(LocalId(peer(3)));
+        accept_link_announce(app.world_mut(), valid, announce_from(peer(1), b"", &[]));
+        assert!(app.world().get::<Connected>(valid).is_none());
+        assert!(app.world().get::<Disconnected>(valid).is_some());
+    }
+
+    #[test]
+    fn resolution_respects_optout_and_missing_lobby_configuration() {
+        let mut world = World::new();
+        let endpoint = world.spawn_empty().id();
+        let entity = world.spawn((P2P::Inactive, LinkOf { endpoint })).id();
+        assert_eq!(
+            resolve_endpoint_identity(&mut world, endpoint, peer(0)),
+            None
+        );
+        assert!(!begin_peer_resolution(&mut world, entity, endpoint, None));
+        assert!(world.get::<Connected>(entity).is_none());
+        world.insert_resource(pinned());
+        assert_eq!(
+            resolve_endpoint_identity(&mut world, endpoint, peer(0)),
+            Some(peer(0))
+        );
+        world.entity_mut(endpoint).insert(NoDefaultConnection);
+        assert!(!begin_peer_resolution(&mut world, entity, endpoint, None));
+        assert!(world.get::<PendingLobbyPeer>(entity).is_none());
+        world.entity_mut(endpoint).remove::<NoDefaultConnection>();
+        assert!(begin_peer_resolution(&mut world, entity, endpoint, None));
+        assert!(begin_peer_resolution(&mut world, entity, endpoint, None));
+        accept_link_announce(&mut world, entity, announce_from(peer(1), b"", &[]));
+        assert_eq!(world.get::<RemoteId>(entity), Some(&RemoteId(peer(1))));
+    }
+
+    #[test]
+    fn stopped_pending_attempts_do_not_publish_false_connectivity() {
+        let (mut app, endpoint) = admission_app();
+        let entity = pending_link(app.world_mut(), endpoint, None);
+        app.world_mut().trigger(Disconnect { entity });
+        app.world_mut().flush();
+        accept_link_announce(app.world_mut(), entity, announce_from(peer(1), b"", &[]));
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
+        assert!(!app.world().resource::<Lobby>().is_connected(peer(1)));
+        assert!(!begin_peer_resolution(
+            app.world_mut(),
+            entity,
+            endpoint,
+            None
+        ));
+    }
+
+    #[test]
+    fn obsolete_disconnect_cannot_remove_replacement_binding() {
+        let (mut app, endpoint) = admission_app();
+        let obsolete = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(app.world_mut(), obsolete, announce_from(peer(1), b"", &[]));
+        app.world_mut().entity_mut(obsolete).remove::<Connected>();
+        let replacement = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(
+            app.world_mut(),
+            replacement,
+            announce_from(peer(1), b"", &[]),
+        );
         app.world_mut()
             .entity_mut(obsolete)
             .insert(Disconnected::default());
         app.world_mut().flush();
-        let lobby = app.world().resource::<Lobby>();
-        assert!(lobby.is_connected(raw_peer(2)));
-        assert!(lobby.is_member(raw_peer(2)));
         assert_eq!(
-            lobby.connected_members().collect::<Vec<_>>(),
-            vec![raw_peer(2)]
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .get(&peer(1)),
+            Some(&replacement)
         );
-
+        assert!(app.world().resource::<Lobby>().is_connected(peer(1)));
         app.world_mut()
             .entity_mut(replacement)
             .insert(Disconnected::default());
         app.world_mut().flush();
-        let lobby = app.world().resource::<Lobby>();
-        assert!(!lobby.is_connected(raw_peer(2)));
-        assert!(lobby.is_member(raw_peer(2)));
+        assert!(!app.world().resource::<Lobby>().is_connected(peer(1)));
     }
 
     #[test]
-    fn colliding_announces_in_one_frame_reserve_one_identity() {
-        let mut world = World::new();
-        world.init_resource::<NetworkingMetadata>();
-        let mut lobby = pinned();
-        lobby.mark_local(raw_peer(1));
-        let first = accepted_link(&mut world, &mut lobby, raw_peer(50));
-        let second = accepted_link(&mut world, &mut lobby, raw_peer(51));
-        receive_frame(
-            &mut world,
-            &mut lobby,
-            [
-                (first, vec![announce_from(raw_peer(2), b"first", &[])]),
-                (
-                    second,
-                    vec![announce_from(raw_peer(2), b"second", &[raw_peer(3)])],
-                ),
-            ],
+    fn direct_context_updates_do_not_change_identity_or_accept_third_party_overrides() {
+        let (mut app, endpoint) = admission_app();
+        let direct = pending_link(app.world_mut(), endpoint, None);
+        let third_party = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(app.world_mut(), direct, announce_from(peer(1), b"", &[]));
+        accept_link_announce(
+            app.world_mut(),
+            third_party,
+            announce_from(peer(2), b"", &[]),
         );
-        assert_eq!(world.get::<RemoteId>(first), Some(&RemoteId(raw_peer(2))));
-        assert_eq!(world.get::<RemoteId>(second), Some(&RemoteId(raw_peer(51))));
+        let mut forged = announce_from(peer(2), b"", &[]);
+        forged.known.push((peer(1), Bytes::from_static(b"forged")));
+        accept_link_announce(app.world_mut(), third_party, forged);
+        assert!(
+            app.world()
+                .resource::<Lobby>()
+                .dial_context(peer(1))
+                .is_empty()
+        );
+        accept_link_announce(
+            app.world_mut(),
+            direct,
+            announce_from(peer(1), b"updated", &[]),
+        );
         assert_eq!(
-            world
+            app.world()
+                .resource::<Lobby>()
+                .dial_context(peer(1))
+                .as_ref(),
+            b"updated"
+        );
+        assert_eq!(
+            app.world().get::<RemoteId>(direct),
+            Some(&RemoteId(peer(1)))
+        );
+        assert_eq!(
+            app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&raw_peer(2)),
-            Some(&first)
+                .get(&peer(1)),
+            Some(&direct)
         );
-        assert_eq!(lobby.dial_context(raw_peer(2)).as_ref(), b"first");
-        assert_eq!(lobby.roster(), vec![raw_peer(1), raw_peer(2)]);
-        assert!(!lobby.peers.contains_key(&raw_peer(3)));
-        let ids: Vec<_> = world
-            .query_filtered::<&RemoteId, With<P2P>>()
-            .iter(&world)
-            .map(|id| id.0)
-            .collect();
-        assert_ne!(
-            ids[0], ids[1],
-            "the session still sees distinct remote identities"
-        );
-    }
-
-    #[test]
-    fn stable_transport_identities_cannot_be_rewritten_by_an_announce() {
-        for (original, provisional, claimed) in [
-            (raw_peer(2), false, raw_peer(3)),
-            (PeerId::Steam(2), false, PeerId::Steam(3)),
-            (raw_peer(2), true, PeerId::Steam(3)),
-        ] {
-            let mut world = World::new();
-            world.init_resource::<NetworkingMetadata>();
-            let mut lobby = pinned();
-            lobby.mark_local(raw_peer(1));
-            let link = accepted_link(&mut world, &mut lobby, original);
-            if !provisional {
-                world.entity_mut(link).remove::<ProvisionalPeerId>();
-            }
-            receive_frame(
-                &mut world,
-                &mut lobby,
-                [(link, vec![announce_from(claimed, b"forged", &[])])],
-            );
-            assert_eq!(world.get::<RemoteId>(link), Some(&RemoteId(original)));
-            assert_eq!(
-                world
-                    .resource::<NetworkingMetadata>()
-                    .peer_map
-                    .get(&original),
-                Some(&link)
-            );
-            assert!(lobby.members().next().is_none());
-            assert!(!lobby.peers.contains_key(&claimed));
-        }
     }
 
     /// A stand-in peer. The lobby never inspects a `PeerId`, so any variant does; `Entity` is what
@@ -1716,41 +1883,6 @@ mod tests {
         // And it is only reported once: a second call has nothing new to re-arm.
         lobby.mark_dialed(peer(1));
         assert_eq!(lobby.retry_failed(), 1, "a dial that was attempted");
-    }
-
-    #[test]
-    fn a_rename_moves_membership_and_dial_state_to_the_named_id() {
-        // A stream transport reports the ephemeral port an accepted session dialed from, so the
-        // first announce on it is the only thing that can say which peer is really there. Everything
-        // gathered under the provisional id has to survive the correction.
-        let mut lobby = pinned();
-        lobby.mark_local(peer(0));
-        lobby.mark_linked(peer(50));
-        lobby.accept_announce(peer(50), announce(Some(id()), &[]));
-        assert!(lobby.is_member(peer(50)));
-
-        assert!(lobby.rename_peer(peer(50), peer(2)));
-        assert!(!lobby.is_member(peer(50)), "the provisional id is gone");
-        assert!(lobby.is_member(peer(2)), "the named id inherits membership");
-        assert!(lobby.is_connected(peer(2)), "and the Link");
-        assert!(lobby.roster().contains(&peer(2)));
-    }
-
-    #[test]
-    fn a_rename_keeps_a_context_the_named_peer_already_had() {
-        // A peer can be known from an announce — with a context — before its own announce arrives
-        // over the session it opened. The correction must not throw that away.
-        let mut lobby = pinned();
-        lobby.mark_local(peer(0));
-        lobby.add_bootstrap_with_context([(peer(2), Bytes::from_static(b"named-key"))]);
-        lobby.mark_linked(peer(50));
-
-        assert!(lobby.rename_peer(peer(50), peer(2)));
-        assert_eq!(
-            lobby.dial_context(peer(2)).as_ref(),
-            b"named-key",
-            "the key learned from another peer survives the correction"
-        );
     }
 
     #[test]
