@@ -42,7 +42,6 @@ lightyear_deterministic_replication.workspace = true
 leafwing-input-manager.workspace = true
 avian2d = { workspace = true, features = [
   "2d",
-  "f32",
   "parry-f32",
   "parallel",
   "serialize",

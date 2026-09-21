@@ -68,7 +68,7 @@ impl Plugin for ExampleClientPlugin {
 
 /// Arm the settle-in window for timeline switches.
 /// Entities still inside their [`SwitchSettle`] window are skipped entirely by switches
-fn arm_switch_settle(trigger: On<Add, (CharacterMarker, BlockMarker)>, mut commands: Commands) {
+fn arm_switch_settle(trigger: On<Add<(CharacterMarker, BlockMarker)>>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
         .insert(SwitchSettle(Timer::new(
@@ -272,7 +272,7 @@ fn handle_new_character(
 /// recreate the Avian body (and its contacts) every frame, which panics the
 /// solver during rollback replay.
 fn hand_over_to_interpolation(
-    trigger: On<Add, Interpolated>,
+    trigger: On<Add<Interpolated>>,
     bodies: Query<&RigidBody, With<CharacterMarker>>,
     mut commands: Commands,
 ) {
@@ -289,7 +289,7 @@ fn hand_over_to_interpolation(
 
 /// Restore avian simulation when a character switches back to the predicted timeline.
 fn restore_predicted_simulation(
-    trigger: On<Add, Predicted>,
+    trigger: On<Add<Predicted>>,
     bodies: Query<&RigidBody, With<CharacterMarker>>,
     mut commands: Commands,
 ) {
@@ -301,7 +301,7 @@ fn restore_predicted_simulation(
 }
 
 fn handle_controlled_character(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     character_query: Query<(), (With<CharacterMarker>, Without<InputMap<CharacterAction>>)>,
 ) {

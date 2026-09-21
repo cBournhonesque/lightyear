@@ -74,7 +74,7 @@ impl Plugin for ExampleRendererPlugin {
 fn add_frame_interpolation_components(
     // Observe both components because conventional predicted entities receive Position after
     // their marker, while P2P bullets receive DeterministicPredicted after Position.
-    trigger: On<Add, (Position, DeterministicPredicted)>,
+    trigger: On<Add<(Position, DeterministicPredicted)>>,
     q: Query<
         Entity,
         (
@@ -103,7 +103,7 @@ fn init_camera(mut commands: Commands) {
 }
 
 fn add_player_label(
-    trigger: On<Add, Player>,
+    trigger: On<Add<Player>>,
     mut commands: Commands,
     // add the label on both client and server
     q: Query<(Entity, &Player, &Score)>,
@@ -595,7 +595,7 @@ fn emit_bullet_visual_state(
 struct WallVisual;
 
 fn add_wall_visual(
-    trigger: On<Add, Wall>,
+    trigger: On<Add<Wall>>,
     walls: Query<(&Wall, &ColorComponent)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,

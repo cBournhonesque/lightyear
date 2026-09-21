@@ -66,7 +66,7 @@ impl Plugin for ExampleClientPlugin {
 /// Remove all entities when the client disconnect.
 /// Reset the ClientConfig to connect to the dedicated server on the next connection attempt.
 fn on_disconnect(
-    trigger: On<Add, Disconnected>,
+    trigger: On<Add<Disconnected>>,
     local_id: Single<&LocalId>,
     server: Single<Entity, With<Server>>,
     mut commands: Commands,

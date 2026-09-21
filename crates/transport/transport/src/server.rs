@@ -6,7 +6,7 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 
 pub(crate) fn add_sender_channel<C: Channel>(
-    trigger: On<Insert, (Transport, ClientOf)>,
+    trigger: On<Insert<(Transport, ClientOf)>>,
     mut query: Query<&mut Transport, With<ClientOf>>,
     registry: Res<ChannelRegistry>,
 ) {
@@ -16,7 +16,7 @@ pub(crate) fn add_sender_channel<C: Channel>(
 }
 
 pub(crate) fn add_receiver_channel<C: Channel>(
-    trigger: On<Insert, (Transport, ClientOf)>,
+    trigger: On<Insert<(Transport, ClientOf)>>,
     mut query: Query<&mut Transport, With<ClientOf>>,
     registry: Res<ChannelRegistry>,
 ) {

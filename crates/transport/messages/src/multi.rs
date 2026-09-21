@@ -49,6 +49,7 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
             let bytes_len = bytes.len();
             self.query
                 .iter_many_unique(senders)
+                .matched()
                 .try_for_each(|(_, transport)| {
                     #[cfg(feature = "metrics")]
                     metric_handles.record_send::<M>(bytes_len);
@@ -57,6 +58,7 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
         } else {
             self.query
                 .iter_many_unique(senders)
+                .matched()
                 .try_for_each(|(manager, transport)| {
                     // Local-only map: `MultiMessageSender` is a server-side API
                     // without access to the client's shared map.

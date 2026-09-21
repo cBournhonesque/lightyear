@@ -29,7 +29,7 @@ pub struct RawServer;
 impl RawConnectionPlugin {
     /// For RawServers, Linked implies Started
     fn on_server_linked(
-        trigger: On<Add, Linked>,
+        trigger: On<Add<Linked>>,
         query: Query<(), With<RawServer>>,
         mut commands: Commands,
     ) {
@@ -41,7 +41,7 @@ impl RawConnectionPlugin {
 
     /// For RawServers, when a LinkOf gets Linked, it also becomes Connected
     fn on_link_of_linked(
-        trigger: On<Add, Linked>,
+        trigger: On<Add<Linked>>,
         link_of: Query<(&LinkOf, &PeerAddr)>,
         server: Query<(), With<RawServer>>,
         mut commands: Commands,
@@ -76,8 +76,10 @@ impl RawConnectionPlugin {
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
             let unique_slice =
                 unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
-            link_query.iter_many_unique(unique_slice).try_for_each(
-                |(entity, remote_peer_id)| {
+            link_query
+                .iter_many_unique(unique_slice)
+                .matched()
+                .try_for_each(|(entity, remote_peer_id)| {
                     let PeerId::Raw(_) = remote_peer_id.0 else {
                         error!("Client {:?} is not a Netcode client", remote_peer_id);
                         return Err(
@@ -88,8 +90,7 @@ impl RawConnectionPlugin {
                     // Otherwise, insert Disconnecting so Disconnected is added before despawn.
                     commands.entity(entity).try_insert(Disconnecting);
                     Ok(())
-                },
-            )?;
+                })?;
         }
         Ok(())
     }

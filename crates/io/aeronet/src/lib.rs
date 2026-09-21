@@ -65,7 +65,7 @@ pub struct AeronetPlugin;
 impl AeronetPlugin {
     /// Copies [`LocalAddr`] from an Aeronet entity onto its Lightyear [`Link`] entity.
     fn on_local_addr_added(
-        trigger: On<Add, (LocalAddr, AeronetLinkOf)>,
+        trigger: On<Add<(LocalAddr, AeronetLinkOf)>>,
         query: Query<(&AeronetLinkOf, &LocalAddr)>,
         mut commands: Commands,
     ) {
@@ -82,7 +82,7 @@ impl AeronetPlugin {
 
     /// Copies [`PeerAddr`] from an Aeronet entity onto its Lightyear [`Link`] entity.
     fn on_peer_addr_added(
-        trigger: On<Add, (PeerAddr, AeronetLinkOf)>,
+        trigger: On<Add<(PeerAddr, AeronetLinkOf)>>,
         query: Query<(&AeronetLinkOf, &PeerAddr)>,
         mut commands: Commands,
     ) {
@@ -98,7 +98,7 @@ impl AeronetPlugin {
     }
 
     fn on_connecting(
-        trigger: On<Add, (SessionEndpoint, AeronetLinkOf)>,
+        trigger: On<Add<(SessionEndpoint, AeronetLinkOf)>>,
         query: Query<&AeronetLinkOf, With<SessionEndpoint>>,
         linked_query: Query<(), With<Linked>>,
         mut commands: Commands,
@@ -119,7 +119,7 @@ impl AeronetPlugin {
     }
 
     fn on_connected(
-        trigger: On<Add, (Session, AeronetLinkOf)>,
+        trigger: On<Add<(Session, AeronetLinkOf)>>,
         query: Query<&AeronetLinkOf, With<Session>>,
         mut commands: Commands,
     ) {

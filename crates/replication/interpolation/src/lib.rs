@@ -42,13 +42,13 @@
 //! }
 //! ```
 //!
-//! If `C` implements [`Ease`](bevy_math::curve::Ease), the common linear case can
+//! If `C` implements [`Ease`](bevy_curve::Ease), the common linear case can
 //! be registered with [`registry::AppInterpolationExt::linear_interpolate`]:
 //!
 //! ```rust,ignore
 //! # use bevy_app::App;
 //! # use bevy_ecs::prelude::*;
-//! # use bevy_math::{Curve, curve::Ease};
+//! # use bevy_curve::{Curve, Ease};
 //! # use lightyear_interpolation::prelude::*;
 //! # use lightyear_replication::prelude::*;
 //! # use serde::{Deserialize, Serialize};
@@ -57,7 +57,7 @@
 //!
 //! impl Ease for Position {
 //!     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-//!         bevy_math::curve::FunctionCurve::new(bevy_math::curve::Interval::UNIT, move |t| {
+//!         bevy_curve::FunctionCurve::new(bevy_curve::Interval::UNIT, move |t| {
 //!             Position(start.0 + (end.0 - start.0) * t)
 //!         })
 //!     }

@@ -85,7 +85,7 @@ fn player_movement(
 
 /// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
 ) {
     let entity = trigger.entity;
@@ -100,7 +100,7 @@ pub(crate) fn handle_predicted_spawn(
 
 /// Add the local input marker once ownership is known.
 pub(crate) fn handle_controlled_spawn(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     players: Query<(), (With<PlayerId>, Without<InputMarker<Inputs>>)>,
 ) {
@@ -115,7 +115,7 @@ pub(crate) fn handle_controlled_spawn(
 
 /// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, PlayerColor>,
+    trigger: On<Add<PlayerColor>>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {

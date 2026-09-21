@@ -939,7 +939,7 @@ impl Lobby {
 
 /// Records a Link coming up: the peer is linked, and we now know our own id.
 fn on_link_connected(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     links: Query<(&RemoteId, &LocalId), With<P2P>>,
     mut lobby: ResMut<Lobby>,
 ) {
@@ -952,7 +952,7 @@ fn on_link_connected(
 
 /// Records the last live Link to a peer going away, ignoring obsolete replacement entities.
 fn on_link_disconnected(
-    trigger: On<Remove, Connected>,
+    trigger: On<Remove<Connected>>,
     links: Query<&RemoteId, With<P2P>>,
     connected: Query<
         (Entity, &RemoteId),

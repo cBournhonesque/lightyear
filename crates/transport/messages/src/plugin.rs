@@ -70,7 +70,7 @@ impl MessagePlugin {
     /// Typed message receivers and private timeline-event queues are recreated
     /// lazily, so removing them is enough to discard both ready and pending
     /// payloads from the previous connection epoch.
-    fn handle_disconnection(trigger: On<Add, Disconnected>, mut world: DeferredWorld) {
+    fn handle_disconnection(trigger: On<Add<Disconnected>>, mut world: DeferredWorld) {
         let receiver_components = {
             let Some(registry) = world.get_resource::<MessageRegistry>() else {
                 return;

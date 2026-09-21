@@ -449,7 +449,7 @@ fn apply_movement(
 /// Insert `FrameInterpolate` on every
 /// `DeterministicPredicted` entity that has `Position`.
 fn add_frame_interpolation(
-    trigger: On<Add, DeterministicPredicted>,
+    trigger: On<Add<DeterministicPredicted>>,
     query: Query<(), (With<Position>, Without<FrameInterpolate>)>,
     mut commands: Commands,
 ) {

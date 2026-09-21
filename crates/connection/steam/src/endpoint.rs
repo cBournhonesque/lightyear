@@ -83,7 +83,7 @@ impl SteamEndpointPlugin {
 
     /// Steam is both a Link and a Connection, so we add Started when Linked is added
     fn on_linked(
-        trigger: On<Add, Linked>,
+        trigger: On<Add<Linked>>,
         query: Query<(), With<SteamEndpoint>>,
         mut commands: Commands,
     ) {
@@ -114,7 +114,7 @@ impl SteamEndpointPlugin {
 
     // fn on_connecting(
     //     // SteamNetServerClient is added at the same time as SessionEndpoint
-    //     trigger: On<Add, SteamNetServerClient<ClientManager>>,
+    //     trigger: On<Add<SteamNetServerClient<ClientManager>>>,
     //     query: Query<&AeronetLinkOf>,
     //     child_query: Query<(&ChildOf, &SteamNetServerClient<ClientManager>)>,
     //     mut commands: Commands,
@@ -149,7 +149,7 @@ impl SteamEndpointPlugin {
     // }
     //
     // fn on_connection(
-    //     trigger: On<Add, Session>,
+    //     trigger: On<Add<Session>>,
     //     link_of_query: Query<&AeronetLinkOf, With<SteamNetServerClient<ClientManager>>>,
     //     mut commands: Commands,
     // ) {
@@ -165,7 +165,7 @@ impl SteamEndpointPlugin {
     // }
 
     fn on_connection(
-        trigger: On<Add, Session>,
+        trigger: On<Add<Session>>,
         query: Query<&AeronetLinkOf>,
         child_query: Query<(&ChildOf, &SteamNetServerClient)>,
         mut commands: Commands,
