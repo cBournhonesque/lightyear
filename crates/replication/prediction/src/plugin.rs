@@ -90,17 +90,6 @@ impl Plugin for PredictionMarkerPlugin {
     }
 }
 
-/// Initialize resources required by the global prediction pipeline.
-///
-/// `LastConfirmedInput` is deliberately not removed with `PredictionManager`: it also represents
-/// useful global input state for deterministic simulations that do not enable prediction.
-fn initialize_prediction_resources(
-    _trigger: On<Insert, PredictionManager>,
-    mut commands: Commands,
-) {
-    commands.init_resource::<LastConfirmedInput>();
-}
-
 #[deprecated(note = "Use PredictionSystems instead")]
 pub type PredictionSet = PredictionSystems;
 
@@ -235,12 +224,7 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
-        app.add_observer(initialize_prediction_resources);
-        // Observers are not retroactive, so also handle applications that inserted their manager
-        // before adding this plugin.
-        if app.world().contains_resource::<PredictionManager>() {
-            app.init_resource::<LastConfirmedInput>();
-        }
+        app.init_resource::<LastConfirmedInput>();
 
         // Custom entity disabling
         let rollback_disable_id = app
@@ -333,7 +317,7 @@ mod tests {
     use lightyear_core::timeline::Rollback;
 
     #[test]
-    fn prediction_manager_initializes_global_input_frontier() {
+    fn prediction_manager_inserted_after_plugin_preserves_global_input_frontier() {
         let mut app = App::new();
         app.add_plugins(PredictionPlugin);
         let manager = PredictionManager {
@@ -344,7 +328,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!app.world().contains_resource::<LastConfirmedInput>());
+        assert!(app.world().contains_resource::<LastConfirmedInput>());
         app.insert_resource(manager);
         app.world_mut().flush();
 

@@ -123,6 +123,7 @@ impl Plugin for RollbackPlugin {
         // rollback pipeline in those applications too.
         app.init_resource::<NetworkingMetadata>();
         app.init_resource::<StateRollbackMetadata>();
+        app.init_resource::<LastConfirmedInput>();
         // Input-only prediction does not install the replication backend. Empty registries and
         // checkpoint state keep the state-reconciliation branch dormant while allowing the common
         // rollback decision system to operate on remote inputs.
@@ -814,21 +815,25 @@ fn check_rollback(
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
     _input_timeline: SyncedLocalTimeline,
-    mut last_confirmed_input: ResMut<LastConfirmedInput>,
+    last_confirmed_input: Option<ResMut<LastConfirmedInput>>,
     prediction_manager: Option<Res<PredictionManager>>,
 ) {
-    // Reset to u32::MAX so the next `set_if_lower` call always wins and we
-    // compute the true minimum across all remote clients for this frame.
-    last_confirmed_input
-        .tick
-        .0
-        .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
-    last_confirmed_input
-        .received_any_messages
-        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    // Each generic input plugin ANDs its own readiness into this value in PostUpdate. Resetting
-    // once here makes the result independent of input-plugin execution order.
-    last_confirmed_input.received_for_all_clients = true;
+    // Each tracker resets independently: this system runs without input plugins
+    // or a PredictionManager, so either resource may legitimately be absent.
+    if let Some(mut last_confirmed_input) = last_confirmed_input {
+        // Reset to u32::MAX so the next `set_if_lower` call always wins and we
+        // compute the true minimum across all remote clients for this frame.
+        last_confirmed_input
+            .tick
+            .0
+            .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
+        last_confirmed_input
+            .received_any_messages
+            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+        // Each generic input plugin ANDs its own readiness into this value in PostUpdate. Resetting
+        // once here makes the result independent of input-plugin execution order.
+        last_confirmed_input.received_for_all_clients = true;
+    }
     if let Some(prediction_manager) = prediction_manager {
         prediction_manager
             .earliest_mismatch_input
