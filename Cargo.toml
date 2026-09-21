@@ -143,6 +143,8 @@ no_std_io2 = { version = "0.9", features = ["alloc"] }
 postcard = { version = "1.1.3", default-features = false }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
 lz4_flex = { version = "0.14.0", default-features = false, features = [
+  # `compress_prepend_size` is gated on `alloc`; without it the compression helper does not build.
+  "alloc",
   "safe-encode",
   "safe-decode",
   "checked-decode",

@@ -44,17 +44,17 @@
 
 use crate::config::InputConfig;
 use crate::input_buffer::InputBuffer;
-#[cfg(feature = "prediction")]
-use crate::input_message::resolve_prespawned_target;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, PerTargetData, StateMut,
     StateRef,
 };
+#[cfg(feature = "prediction")]
+use crate::input_message::{RemoteInputTarget, resolve_prespawned_target};
 #[cfg(feature = "metrics")]
 use crate::metric_handles::InputMetricHandles;
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystems,
 };
@@ -729,11 +729,18 @@ fn input_history_depth(
 /// - we apply the TickUpdateEvents (from doing sync) during PostUpdate, which might affect the ticks from the InputMessages.
 ///   During this phase, we want to update the tick of the InputMessages that we wrote during FixedPostUpdate.
 #[derive(Debug, Resource)]
-pub(crate) struct MessageBuffer<S>(Vec<InputMessage<S>>);
+pub(crate) struct MessageBuffer<S> {
+    messages: Vec<InputMessage<S>>,
+    /// Local simulation tick of the previous preparation; shifted with the input timeline.
+    last_prepared_tick: Option<Tick>,
+}
 
 impl<A> Default for MessageBuffer<A> {
     fn default() -> Self {
-        Self(vec![])
+        Self {
+            messages: Vec::new(),
+            last_prepared_tick: None,
+        }
     }
 }
 
@@ -813,6 +820,16 @@ fn prepare_input_message<S: ActionStateSequence>(
     .try_into()
     .unwrap();
     num_ticks *= input_config.packet_redundancy as usize;
+    // A rendered frame can simulate more fixed ticks than the redundancy window. Never drop
+    // newly produced input before its first transmission, especially the newcomer's first frame.
+    let unsent_ticks = message_buffer
+        .last_prepared_tick
+        .map_or(crate::input_buffer::INPUT_BUFFER_CAPACITY, |previous| {
+            (current_tick - previous).max(0) as usize
+        });
+    num_ticks = num_ticks
+        .max(unsent_ticks)
+        .min(crate::input_buffer::INPUT_BUFFER_CAPACITY);
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
         if !route.accepts_local_target(controlled_by) {
@@ -877,7 +894,8 @@ fn prepare_input_message<S: ActionStateSequence>(
         message = ?message,
         "prepared input message"
     );
-    message_buffer.0.push(message);
+    message_buffer.messages.push(message);
+    message_buffer.last_prepared_tick = Some(current_tick);
 
     // NOTE: keep the older input values in the InputBuffer! because they might be needed when we rollback for client prediction
 }
@@ -908,6 +926,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
     prespawned: Query<(Entity, &PreSpawned)>,
+    remote_targets: Query<(Entity, &RemoteInputTarget)>,
 ) {
     let route = InputRoute::from_topology(&metadata.mode);
     // Joining peers receive catch-up inputs through their admitted candidate Links;
@@ -958,6 +977,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     &prediction_manager,
                     &mut predicted_query,
                     &prespawned,
+                    &remote_targets,
                     #[cfg(feature = "metrics")]
                     &mut input_metric_handles,
                 );
@@ -977,6 +997,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     &prediction_manager,
                     &mut predicted_query,
                     &prespawned,
+                    &remote_targets,
                     #[cfg(feature = "metrics")]
                     &mut input_metric_handles,
                 );
@@ -1029,6 +1050,7 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
     prespawned: &Query<(Entity, &PreSpawned)>,
+    remote_targets: &Query<(Entity, &RemoteInputTarget)>,
     #[cfg(feature = "metrics")] input_metric_handles: &mut InputMetricHandles<S>,
 ) -> bool {
     let mut received_relevant_input = false;
@@ -1059,11 +1081,13 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
                     None
                 }
                 InputTarget::PreSpawned(hash) => resolve_prespawned_target(
-                    prespawned
+                    remote_targets
                         .iter()
-                        .map(|(entity, pre_spawned)| {
+                        .filter(|(_, target)| p2p_link == Some(target.receiver))
+                        .map(|(entity, target)| (entity, Some(target.hash), Some(target.receiver)))
+                        .chain(prespawned.iter().map(|(entity, pre_spawned)| {
                             (entity, pre_spawned.hash, pre_spawned.receiver)
-                        }),
+                        })),
                     hash,
                     p2p_link,
                 ),
@@ -1360,12 +1384,12 @@ fn send_input_messages<S: ActionStateSequence>(
     // the host-client doesn't need to send input messages since the ActionState is already on the entity
     // unless we want to rebroadcast the HostClient inputs to other clients
     if route.client_send_defers_to_server(input_config.rebroadcast_inputs) {
-        message_buffer.0.clear();
+        message_buffer.messages.clear();
         return;
     }
     trace!(
         "Number of input messages to send: {:?}",
-        message_buffer.0.len()
+        message_buffer.messages.len()
     );
     trace!(
         target: "lightyear_debug::input",
@@ -1373,7 +1397,7 @@ fn send_input_messages<S: ActionStateSequence>(
         schedule = "PostUpdate",
         sample_point = "PostUpdate",
         action = ?DebugName::type_name::<S::Action>(),
-        num_messages = message_buffer.0.len(),
+        num_messages = message_buffer.messages.len(),
         is_host_client,
         "sending buffered input messages"
     );
@@ -1402,7 +1426,7 @@ fn send_input_messages<S: ActionStateSequence>(
             let Ok(mut sender) = senders.get_mut(link) else {
                 return;
             };
-            for mut message in message_buffer.0.drain(..) {
+            for mut message in message_buffer.messages.drain(..) {
                 // if lag compensation is enabled, we send the current delay to the server
                 // (this runs here because the delay is only correct after the SyncSet has run)
                 // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
@@ -1421,10 +1445,10 @@ fn send_input_messages<S: ActionStateSequence>(
             let targets = roster.input_links();
             let Some(links) = unique_p2p_links(&targets) else {
                 error!("cached P2P Link entities must be unique");
-                message_buffer.0.clear();
+                message_buffer.messages.clear();
                 return;
             };
-            for mut message in message_buffer.0.drain(..) {
+            for mut message in message_buffer.messages.drain(..) {
                 #[cfg(feature = "interpolation")]
                 if input_config.lag_compensation {
                     message.interpolation_delay = interpolation_delay;
@@ -1476,8 +1500,11 @@ fn receive_local_timeline_shift<S: ActionStateSequence>(
             );
         }
     }
-    for message in message_buffer.0.iter_mut() {
+    for message in message_buffer.messages.iter_mut() {
         message.end_tick = message.end_tick + delta;
+    }
+    if let Some(tick) = &mut message_buffer.last_prepared_tick {
+        *tick = *tick + delta;
     }
 }
 
@@ -1493,6 +1520,7 @@ fn shift_input_buffer_ticks<S, A>(input_buffer: &mut InputBuffer<S, A>, delta: i
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input_message::resolve_prespawned_target;
     use lightyear_replication::prelude::Lifetime;
 
     #[test]

@@ -120,6 +120,68 @@ fn test_remote_client_replicated_input() {
     );
 }
 
+/// A long activation frame must transmit every newly captured tick, not just redundancy's tail.
+#[test]
+fn a_batched_first_frame_sends_the_players_first_input() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client_app()
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()[&server_entity];
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(InputMarker::<MyInput>::default());
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<ActionState<MyInput>>(client_entity)
+        .unwrap()
+        .0 = MyInput(7);
+    let world = stepper.client_app().world();
+    let first_input_tick = world.resource::<LocalTimeline>().tick()
+        + 1
+        + i32::from(
+            world
+                .resource::<lightyear_sync::prelude::LocalTimelineSync>()
+                .input_delay(),
+        );
+    // Fixed ticks accumulate before PostUpdate prepares the first packet, as in a slow frame.
+    for _ in 0..8 {
+        stepper
+            .client_app()
+            .world_mut()
+            .run_schedule(bevy::app::FixedMain);
+    }
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<NativeBuffer<MyInput>>(client_entity)
+            .unwrap()
+            .get(first_input_tick),
+        Some(&ActionState(MyInput(7)))
+    );
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<NativeBuffer<MyInput>>(server_entity)
+            .unwrap()
+            .get(first_input_tick),
+        Some(&ActionState(MyInput(7)))
+    );
+}
+
 /// Test a remote client's predicted entity sending inputs to the server
 #[test]
 fn test_remote_client_predicted_input() {
