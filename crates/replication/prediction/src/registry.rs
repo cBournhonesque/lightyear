@@ -362,17 +362,21 @@ impl PredictionRegistry {
             .custom_correction = true;
     }
 
+    /// Sets the correction function applied to `C`.
+    ///
+    /// Returns true if there was already a correction function present.
     fn set_correction_fn<C: SyncComponent>(
         &mut self,
         correction: correction::ErasedPostRollbackCorrection,
-    ) {
+    ) -> bool {
         let metadata = self
             .prediction_map
             .get_mut(&ComponentKind::of::<C>())
             .expect(
                 "The component has not been registered for prediction. Did you call `.predict()`?",
             );
-        metadata.correction = Some(correction);
+
+        metadata.correction.replace(correction).is_some()
     }
 
     pub(crate) fn post_rollback_corrections(
@@ -1283,11 +1287,14 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             self.app.world_mut(),
             correction_fn,
         );
-        self.app
+        let replaced = self
+            .app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
             .set_correction_fn::<C>(correction_fn);
-        correction::add_correction_systems::<C, D>(self.app);
+        if !replaced {
+            correction::add_correction_systems::<C, D>(self.app);
+        }
         self
     }
 
