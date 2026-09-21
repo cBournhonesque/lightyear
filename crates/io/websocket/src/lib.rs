@@ -4,6 +4,10 @@
 //! [`Link`](lightyear_link::Link) model through `lightyear_aeronet`. Client support is available
 //! with the `client` feature. Accepting endpoints are available with either `p2p` or `server` on
 //! non-WASM targets; `p2p` does not enable the Lightyear server role.
+//!
+//! Links use the default debug connection backend unless an explicit backend (such as netcode)
+//! owns them or `NoDefaultConnection` disables admission. Native socket addresses supply fallback
+//! routing IDs; they are not authenticated identities or an agreement between peers.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate alloc;

@@ -1,123 +1,90 @@
-use aeronet_io::connection::PeerAddr;
-use aeronet_steam::client::SteamNetClient;
+use aeronet_io::{Session, connection::PeerAddr};
 use aeronet_steam::{
     SessionConfig, SteamworksClient,
-    client::{ConnectTarget, SteamNetClientPlugin},
+    client::{ConnectTarget, SteamNetClient, SteamNetClientPlugin},
 };
 use bevy_app::{App, Plugin};
-use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
-use bevy_ecs::world::DeferredWorld;
-use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::admission::{NoDefaultConnection, admit};
-use lightyear_connection::client::Disconnect;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::{Link, LinkStart, Linked, Linking, Unlink, UnlinkReason};
-use tracing::trace;
+use lightyear_aeronet::AeronetLinkOf;
+use lightyear_link::{Link, LinkStart, Linked, Linking, Unlinked};
 
-pub struct SteamClientPlugin;
+use crate::SteamSessionFacts;
 
-impl Plugin for SteamClientPlugin {
+pub(crate) struct ClientTransportPlugin;
+
+impl Plugin for ClientTransportPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<AeronetPlugin>() {
-            app.add_plugins(AeronetPlugin);
-        }
         app.add_plugins(SteamNetClientPlugin);
         app.add_observer(Self::link);
-        app.add_observer(Self::on_linked);
-        app.add_observer(Self::disconnect);
+        app.add_observer(Self::session);
+        app.add_observer(Self::unlinked);
     }
 }
 
-/// Component to insert on an entity to start a Steam  socket client which
-/// can connect to a dedicated server or another peer.
+/// Native Steam dial configuration for a dedicated server or another peer.
 ///
-/// The [`SteamworksClient`] resource must have been created beforehand.
+/// The [`SteamworksClient`] resource must exist before starting the link. Routing identities are
+/// resolved by the connection backend only after Steam establishes the session.
 #[derive(Debug, Component)]
-#[component(on_add = SteamClientIo::on_add)]
-#[require(Link, NoDefaultConnection)]
+#[require(Link)]
 pub struct SteamClientIo {
     pub target: ConnectTarget,
     pub config: SessionConfig,
 }
 
-impl SteamClientIo {
-    /// When we add the SteamClientIo component, we will also add a LocalId component
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let entity = context.entity;
-        let local_steam_id = world.resource::<SteamworksClient>().0.user().steam_id();
-        world
-            .commands()
-            .entity(entity)
-            .insert(LocalId(PeerId::Steam(local_steam_id.raw())));
-    }
-}
-
-impl SteamClientPlugin {
-    fn link(
-        trigger: On<LinkStart>,
-        query: Query<(Entity, &SteamClientIo), (Without<Linking>, Without<Linked>)>,
-        mut commands: Commands,
-    ) -> Result {
-        if let Ok((entity, client)) = query.get(trigger.entity) {
-            let config = client.config.clone();
-            let target = client.target;
-            trace!(
-                "LinkStart triggered for SteamClientIo on entity {entity:?} with target {target:?}"
-            );
-            commands.queue(move |world: &mut World| -> Result {
-                let mut link_entity_mut = world.entity_mut(entity);
-                match target {
-                    ConnectTarget::Addr(peer_addr) => {
-                        link_entity_mut.insert(PeerAddr(peer_addr));
-
-                        // TODO: we need a RemoteId here. Maybe SteamP2PAddr?
-                        link_entity_mut.insert(RemoteId(PeerId::Server));
-                    }
-                    ConnectTarget::Peer { steam_id, .. } => {
-                        link_entity_mut.insert(RemoteId(PeerId::Steam(steam_id.raw())));
-                    }
-                }
-                let entity_mut =
-                    world.spawn((
-                        AeronetLinkOf(entity),
-                        Name::from("SteamClient")
-                    ));
-                let aeronet_entity = entity_mut.id();
-                trace!("Starting LinkStart for SteamClientIo on entity {entity:?}. Spawning aeronet entity: {aeronet_entity:?}");
-
-                // TODO: also add LocalAddr or LocalId components
-                SteamNetClient::connect(config, target).apply(entity_mut);
-                Ok(())
-            });
-        }
-        Ok(())
-    }
-
-    /// Steam is both a Link and a Connection, so we add Connected when Linked is added
-    fn on_linked(
-        trigger: On<Add, Linked>,
-        query: Query<(&LocalId, &RemoteId), With<SteamClientIo>>,
-        mut commands: Commands,
-    ) {
-        if let Ok((&local, &remote)) = query.get(trigger.entity) {
-            let entity = trigger.entity;
-            commands.queue(move |world: &mut World| {
-                admit(world, entity, local, remote, ());
-            });
-        }
-    }
-
-    /// Steam is both a Link and a Connection, so we trigger Unlink when Disconnect is triggered
-    fn disconnect(
-        trigger: On<Disconnect>,
+impl ClientTransportPlugin {
+    fn unlinked(
+        trigger: On<Add, Unlinked>,
         query: Query<(), With<SteamClientIo>>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.entity).is_ok() {
-            commands.trigger(Unlink {
-                entity: trigger.entity,
-                reason: UnlinkReason::UserRequested(None),
+        if query.contains(trigger.entity) {
+            commands
+                .entity(trigger.entity)
+                .remove::<SteamSessionFacts>();
+        }
+    }
+
+    fn link(
+        trigger: On<LinkStart>,
+        query: Query<&SteamClientIo, (Without<Linking>, Without<Linked>)>,
+        mut commands: Commands,
+    ) {
+        if let Ok(client) = query.get(trigger.entity) {
+            let config = client.config.clone();
+            let target = client.target;
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                if let ConnectTarget::Addr(addr) = target {
+                    world.entity_mut(entity).insert(PeerAddr(addr));
+                }
+                let session = world.spawn((AeronetLinkOf(entity), Name::from("SteamClient")));
+                SteamNetClient::connect(config, target).apply(session);
+            });
+        }
+    }
+
+    fn session(
+        trigger: On<Add, (Session, AeronetLinkOf)>,
+        sessions: Query<&AeronetLinkOf, (With<Session>, With<SteamNetClient>)>,
+        clients: Query<&SteamClientIo>,
+        steam: Option<Res<SteamworksClient>>,
+        mut commands: Commands,
+    ) {
+        if let Ok(link) = sessions.get(trigger.entity)
+            && let Ok(client) = clients.get(link.0)
+        {
+            let steam =
+                steam.expect("SteamworksClient must exist for an established Steam session");
+            let remote = match client.target {
+                ConnectTarget::Peer { steam_id, .. } => Some(steam_id),
+                // Aeronet does not expose outgoing session identity. A socket target is not a
+                // Steam identity; the Steam connection backend uses its C/S role instead.
+                ConnectTarget::Addr(_) => None,
+            };
+            commands.entity(link.0).insert(SteamSessionFacts {
+                local: steam.user().steam_id(),
+                remote,
             });
         }
     }

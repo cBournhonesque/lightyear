@@ -120,16 +120,23 @@ impl AeronetPlugin {
 
     fn on_connected(
         trigger: On<Add, (Session, AeronetLinkOf)>,
-        query: Query<&AeronetLinkOf, With<Session>>,
+        query: Query<(&AeronetLinkOf, Option<&LocalAddr>, Option<&PeerAddr>), With<Session>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link) = query.get(trigger.entity)
+        if let Ok((aeronet_link, local_addr, peer_addr)) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(aeronet_link.0)
         {
             trace!(
                 "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
                 trigger.entity, aeronet_link.0
             );
+            // Connection observers must see native facts before the link becomes usable.
+            if let Some(local_addr) = local_addr {
+                c.insert(LocalAddr(local_addr.0));
+            }
+            if let Some(peer_addr) = peer_addr {
+                c.insert(PeerAddr(peer_addr.0));
+            }
             c.insert(Linked);
         }
     }

@@ -20,10 +20,18 @@ The link is agnostic to the actual io layer, you will have to pair it with an ac
 
 Lightyear makes a distinction between a [`Link`] and a `Connection`.
 A `Link` is a low-level component that represents a raw IO link, which can be used to send and receive bytes.
-A `Connection` is a link that has a long-lived identifiers attached to them. The `LocalId` and `RemoteId` components are used to store the `PeerId` of the local and remote peers, respectively.
-The `PeerId` is a unique identifier for a peer in the network, which can be used to identify the peer across multiple connections. (a client could get disconnected and reconnect with a different 
-[`Link`],
-but still have the same `PeerId`).
+A connection adds resolved `LocalId` and `RemoteId` routing identities to a link.
+Transports use the default connection backend when no explicit backend is selected: no extra
+Raw marker or plugin is required for debugging. Add `NoDefaultConnection` when using a transport
+only for bytes, without connection admission.
+
+The default backend derives IDs from native transport facts and preserves explicitly configured
+debug IDs. It does not negotiate those IDs or authenticate the peer. NAT and local-only transports
+can give the two ends different routing labels. Use netcode when the client and server need an
+authenticated, agreed identity; use application-level player IDs for persistent accounts.
+
+Steam's normal `SteamPlugin` combines `SteamTransportPlugin` and `SteamConnectionPlugin`.
+Use the transport half alone when composing it with another explicit connection backend.
 
 The lifecycle of a connection is controlled by several sets of components.
 
@@ -91,8 +99,8 @@ Let's walk through this:
 - we manually specify the [`LocalAddr`] and [`PeerAddr`] components to define the local and remote addresses of the link.
 - we add the [`Link`] component to the entity, which will be used to send and receive raw bytes over the network.
 - we add the [`ReplicationReceiver`] component to the entity, which will be used to receive replicated entities and components from the server.
-- every [`Link`] needs to use a connection layer; either Netcode or Steam. Here we will use Netcode. For testing purposes we will use the `Manual` authentication method, where we have to specify the 
-  server address and client ID.
+- netcode is the explicit connection backend in this example. For testing, `Manual` authentication
+  specifies the server address and client ID. Omitting `NetcodeClient` uses the unauthenticated default.
 - finally we add the [`UdpIo`] component to the entity, which will be used to send and receive UDP packets over the network.
 
 Finally we trigger the [`Connect`] trigger to start the connection process.

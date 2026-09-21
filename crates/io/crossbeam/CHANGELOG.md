@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Crossbeam admits default debug connections without Raw plugins, using per-link native entity IDs when no IDs are configured.
+- Multiple default clients can share a server without colliding on dummy address identities.
+- Unlink drops the channel ends so both peers observe disconnection.
+
 ## v0.21.0 (2025-07-03)
 
 <csr-id-5dc2e81f8c2b1171df33703d73e38a49e7b4695d/>

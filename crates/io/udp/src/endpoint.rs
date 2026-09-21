@@ -30,7 +30,9 @@ use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_platform::collections::{HashMap, hash_map::Entry};
 use bytes::BufMut;
 use core::net::SocketAddr;
+use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_core::buffer_pool::BufferPool;
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_core::time::Instant;
 use lightyear_link::endpoint::EndpointLinkPlugin;
 use lightyear_link::prelude::{Endpoint, LinkOf};
@@ -113,6 +115,38 @@ impl UdpEndpoint {
 pub struct UdpEndpointPlugin;
 
 impl UdpEndpointPlugin {
+    fn admit_link(trigger: On<Add, UdpLinkOfIO>, mut commands: Commands) {
+        let entity = trigger.entity;
+        commands.queue(move |world: &mut World| {
+            let Some(endpoint) = world.get::<LinkOf>(entity).map(|link| link.endpoint) else {
+                return;
+            };
+            let Some(local) = world
+                .get::<LocalAddr>(endpoint)
+                .map(|addr| LocalId(PeerId::Raw(addr.0)))
+            else {
+                return;
+            };
+            let Some(remote) = world
+                .get::<PeerAddr>(entity)
+                .map(|addr| RemoteId(PeerId::Raw(addr.0)))
+            else {
+                return;
+            };
+            // Lobby roles must be in place before default admission sees this link.
+            #[cfg(feature = "lobby")]
+            if world
+                .get::<crate::lobby::UdpLobbyEndpoint>(endpoint)
+                .is_some()
+            {
+                world
+                    .entity_mut(entity)
+                    .insert(lightyear_connection::p2p::P2P::default());
+            }
+            apply_default_ids(world, entity, local, remote);
+        });
+    }
+
     fn link(
         trigger: On<LinkStart>,
         mut query: Query<
@@ -313,6 +347,10 @@ impl Plugin for UdpEndpointPlugin {
         if !app.is_plugin_added::<EndpointLinkPlugin>() {
             app.add_plugins(EndpointLinkPlugin);
         }
+        if !app.is_plugin_added::<DefaultConnectionPlugin>() {
+            app.add_plugins(DefaultConnectionPlugin);
+        }
+        app.add_observer(Self::admit_link);
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSystems::Receive));
@@ -329,6 +367,119 @@ mod tests {
 
     #[derive(Resource, Default)]
     struct UnlinkedChildren(Vec<Entity>);
+
+    #[test]
+    fn bare_server_admits_datagram_peer_and_stop_releases_routes() {
+        use lightyear_connection::client::Connected;
+        use lightyear_connection::client_of::ClientOf;
+        use lightyear_connection::network_topology::NetworkingMetadata;
+        use lightyear_connection::server::{Start, Started, Stop, Stopped};
+        use lightyear_link::prelude::Server;
+        let mut app = App::new();
+        app.add_plugins(UdpEndpointPlugin);
+        let endpoint = app
+            .world_mut()
+            .spawn((
+                Server::default(),
+                UdpEndpoint::default(),
+                LocalAddr("127.0.0.1:0".parse().unwrap()),
+            ))
+            .id();
+        app.world_mut().trigger(Start { entity: endpoint });
+        app.update();
+        let address = app.world().get::<LocalAddr>(endpoint).unwrap().0;
+        assert!(app.world().get::<Started>(endpoint).is_some());
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.send_to(b"hello", address).unwrap();
+        for _ in 0..100 {
+            app.update();
+            if app
+                .world_mut()
+                .query_filtered::<Entity, With<ClientOf>>()
+                .iter(app.world())
+                .next()
+                .is_some()
+            {
+                break;
+            }
+            std::thread::sleep(core::time::Duration::from_millis(1));
+        }
+        let child = app
+            .world_mut()
+            .query_filtered::<Entity, With<ClientOf>>()
+            .single(app.world())
+            .unwrap();
+        assert!(app.world().get::<Connected>(child).is_some());
+        assert_eq!(
+            app.world().get::<LocalId>(child),
+            Some(&LocalId(PeerId::Server))
+        );
+        assert_eq!(
+            app.world().get::<RemoteId>(child),
+            Some(&RemoteId(PeerId::Raw(peer.local_addr().unwrap())))
+        );
+        assert_eq!(
+            app.world_mut()
+                .get_mut::<Link>(child)
+                .unwrap()
+                .recv
+                .pop()
+                .unwrap()
+                .as_ref(),
+            b"hello"
+        );
+        app.world_mut().trigger(Stop { entity: endpoint });
+        app.update();
+        assert!(app.world().get::<Stopped>(endpoint).is_some());
+        assert!(app.world().get_entity(child).is_err());
+        assert!(
+            app.world()
+                .get::<UdpEndpoint>(endpoint)
+                .unwrap()
+                .socket
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
+    }
+
+    #[cfg(feature = "lobby")]
+    #[test]
+    fn lobby_child_has_p2p_identity_before_admission() {
+        use lightyear_connection::client::Connected;
+        use lightyear_connection::p2p::P2P;
+        let mut app = App::new();
+        app.add_plugins(crate::lobby::UdpLobbyPlugin);
+        let endpoint = app
+            .world_mut()
+            .spawn((
+                UdpEndpoint::default(),
+                LocalAddr("127.0.0.1:0".parse().unwrap()),
+            ))
+            .id();
+        let address = app.world().get::<LocalAddr>(endpoint).unwrap().0;
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.send_to(b"hello", address).unwrap();
+        app.update();
+        let child = app
+            .world_mut()
+            .query_filtered::<Entity, With<P2P>>()
+            .single(app.world())
+            .unwrap();
+        assert!(app.world().get::<Connected>(child).is_some());
+        assert_eq!(
+            app.world().get::<LocalId>(child),
+            Some(&LocalId(PeerId::Raw(address)))
+        );
+        assert_eq!(
+            app.world().get::<RemoteId>(child),
+            Some(&RemoteId(PeerId::Raw(peer.local_addr().unwrap())))
+        );
+    }
 
     #[test]
     fn standalone_endpoint_unlinks_and_despawns_children() {

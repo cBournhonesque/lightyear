@@ -13,6 +13,7 @@ default = []
 test_utils = ["lightyear_core/test_utils"]
 
 [dependencies]
+lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 
@@ -27,18 +28,6 @@ tracing.workspace = true
 
 # serde
 bytes.workspace = true
-
-[dev-dependencies]
-# Used by integration tests that exercise the documented pairing with
-# `RawConnectionPlugin` (server-side mirror flow).
-lightyear_raw_connection = { path = "../../connection/raw_connection", default-features = false, features = [
-  "client",
-  "server",
-] }
-lightyear_connection = { path = "../../connection/connection", default-features = false, features = [
-  "client",
-  "server",
-] }
 
 [lints]
 workspace = true

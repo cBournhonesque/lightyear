@@ -10,7 +10,6 @@ members = [
   "crates/io/webtransport",
   "crates/connection/connection",
   "crates/connection/p2p",
-  "crates/connection/raw_connection",
   "crates/connection/netcode",
   "crates/connection/steam",
   "crates/core/core",
@@ -98,7 +97,6 @@ lightyear = { path = "crates/core/lightyear", version = "0.30.0", default-featur
 lightyear_transport = { path = "crates/transport/transport", version = "0.30.0", default-features = false }
 lightyear_prediction = { path = "crates/replication/prediction", version = "0.30.0", default-features = false }
 lightyear_link = { path = "crates/io/link", version = "0.30.0", default-features = false }
-lightyear_raw_connection = { path = "crates/connection/raw_connection", version = "0.30.0", default-features = false }
 lightyear_replication = { path = "crates/replication/replication", version = "0.30.0", default-features = false }
 lightyear_serde = { path = "crates/transport/serde", version = "0.30.0", default-features = false }
 lightyear_steam = { path = "crates/connection/steam", version = "0.30.0", default-features = false }

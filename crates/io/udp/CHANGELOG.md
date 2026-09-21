@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Bare UDP links and endpoint children now establish default debug connections without Raw setup.
+- Single-peer sockets expose their actual bound address, including OS-assigned ports.
+- Lobby children receive P2P roles before default admission; explicit backends and opt-outs are not admitted by the default path.
+
 ## v0.21.0 (2025-07-03)
 
 ### Chore

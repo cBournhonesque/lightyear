@@ -27,10 +27,8 @@ fn startup(mut commands: Commands) {
         Link::default(),
         // allows this link to receive replication messages from the server
         ReplicationReceiver,
-        // the connection layer provides a durable identity to the client beyond just an IP
-        // Normally you would a more robust connection layer like NetcodeClient or SteamClient
-        // but for simple cases we can use RawClient, which uses the IP address as the identity of the client
-        RawClient,
+        // Without an explicit backend, the default debug connection uses transport-derived IDs.
+        // Use NetcodeClient when authenticated identity is required.
         // the transport used to send and receive bytes over the network
         UdpIo::default(),
     ));

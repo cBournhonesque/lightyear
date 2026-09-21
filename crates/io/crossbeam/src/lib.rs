@@ -8,21 +8,15 @@
 //!
 //! ## Connection layer
 //!
-//! [`CrossbeamPlugin`] is a pure transport: it inserts [`Linked`] once [`LinkStart`] is triggered
-//! but does not drive the `Connected` state. Pair it with a connection plugin to obtain a full peer
-//! connection. For handshake-less use, pair it with
-//! `lightyear_raw_connection::client::RawConnectionPlugin` and/or
-//! `lightyear_raw_connection::server::RawConnectionPlugin` and mark entities with `RawClient` /
-//! `RawServer` so that [`Linked`] implies `Connected`. For authenticated use, pair it with
-//! `lightyear_netcode`.
+//! [`CrossbeamPlugin`] admits debug connections automatically after [`LinkStart`]. Explicit
+//! connection backends such as `lightyear_netcode` retain control of their own admission.
+//! Insert `NoDefaultConnection` to use only the transport lifecycle.
 //!
 //! ### Spawning crossbeam entities
 //!
 //! Always trigger [`LinkStart`] to bring a [`CrossbeamIo`] entity online, rather than inserting
-//! [`Linked`] directly. [`CrossbeamPlugin`] gates its link observer on `With<CrossbeamIo>`, so by
-//! the time [`Linked`] is inserted the required Aeronet-compatible `LocalAddr` and `PeerAddr`
-//! components are also present. Connection-layer `Add<Linked>` observers can then construct their
-//! local and remote IDs reliably.
+//! [`Linked`] directly. Native fallback IDs are World-local entity IDs, not an agreement with the
+//! other end of the channel. Tests may preinsert coordinated `LocalId` and `RemoteId` values.
 //!
 //! ```ignore
 //! // Server-side mirror entity (one per connecting crossbeam client):
@@ -33,7 +27,7 @@
 //!
 //! // Client-side connection entity:
 //! let client = commands
-//!     .spawn((Client, RawClient, Link::default(), io))
+//!     .spawn((Client, Link::default(), io))
 //!     .id();
 //! commands.trigger(Connect { entity: client });  // Connect → LinkStart internally
 //! ```
@@ -49,6 +43,8 @@ use bevy_ecs::query::QueryData;
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
+use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_core::time::Instant;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Unlink, UnlinkReason,
@@ -111,8 +107,8 @@ impl CrossbeamIo {
 ///   [`Link::recv`];
 /// - a send system in [`LinkSystems::Send`] that flushes [`Link::send`] into the channel.
 ///
-/// It does not implement authentication, handshake state, or `Connected`; pair it with a Lightyear
-/// connection plugin when higher-level connection state is needed.
+/// Debug connections are admitted automatically; explicit connection backends remain responsible
+/// for authentication and admission.
 pub struct CrossbeamPlugin;
 
 #[derive(QueryData)]
@@ -138,6 +134,31 @@ impl CrossbeamPlugin {
             );
             commands.entity(link_start.entity).insert(Linked);
         }
+    }
+
+    fn admit_link(
+        trigger: On<Add, (Linked, CrossbeamIo)>,
+        query: Query<(), (With<Linked>, With<CrossbeamIo>)>,
+        mut commands: Commands,
+    ) {
+        if query.get(trigger.entity).is_ok() {
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                // Channels expose no shared identity; use a local routing label.
+                let candidate = PeerId::Entity(entity.to_bits());
+                apply_default_ids(world, entity, LocalId(candidate), RemoteId(candidate));
+            });
+        }
+    }
+
+    fn unlink(trigger: On<Unlink>, mut commands: Commands) {
+        // Dropping the channel ends lets the other peer observe disconnection as well.
+        let entity = trigger.entity;
+        commands.queue(move |world: &mut World| {
+            if let Ok(mut entity) = world.get_entity_mut(entity) {
+                entity.remove::<CrossbeamIo>();
+            }
+        });
     }
 
     fn send(mut query: Query<IOQuery, With<Linked>>, mut commands: Commands) {
@@ -221,7 +242,12 @@ impl Plugin for CrossbeamPlugin {
         if !app.is_plugin_added::<LinkPlugin>() {
             app.add_plugins(LinkPlugin);
         }
+        if !app.is_plugin_added::<DefaultConnectionPlugin>() {
+            app.add_plugins(DefaultConnectionPlugin);
+        }
         app.add_observer(Self::link);
+        app.add_observer(Self::admit_link);
+        app.add_observer(Self::unlink);
         app.add_systems(
             PreUpdate,
             Self::receive.in_set(LinkReceiveSystems::BufferToLink),
@@ -321,20 +347,17 @@ mod tests {
         );
     }
 
-    /// A raw client should observe the crossbeam channel disconnect through the
-    /// regular Link -> Connection lifecycle and become Disconnected.
+    /// Channel closure propagates through the default connection lifecycle.
     #[test]
-    fn peer_disconnect_disconnects_raw_client() {
-        use lightyear_connection::prelude::client::Connect;
-        use lightyear_raw_connection::client::{RawClient, RawConnectionPlugin};
+    fn peer_disconnect_disconnects_default_client() {
+        use lightyear_connection::client::{Client, Connect};
 
         let (client_io, server_io) = CrossbeamIo::new_pair();
 
         let mut app = App::new();
         app.add_plugins(CrossbeamPlugin);
-        app.add_plugins(RawConnectionPlugin);
 
-        let client_entity = app.world_mut().spawn((RawClient, client_io)).id();
+        let client_entity = app.world_mut().spawn((Client, client_io)).id();
         app.world_mut().trigger(Connect {
             entity: client_entity,
         });
@@ -456,17 +479,12 @@ mod tests {
         );
     }
 
-    /// Pair `CrossbeamPlugin` with server-side `RawConnectionPlugin`, mark the
-    /// parent with `RawServer`, spawn the mirror with `LinkOf` + `CrossbeamIo`,
-    /// then trigger `LinkStart` (not direct `Linked` insertion). The mirror
-    /// should reach `Linked + Connected + ClientOf` so downstream
-    /// `On<Insert, (Transport, ClientOf)>` channel observers fire.
+    /// A bare server mirror reaches the connection layer without backend markers.
     #[test]
     fn server_mirror_via_link_start_reaches_connected() {
+        use lightyear_connection::client_of::ClientOf;
         use lightyear_connection::prelude::Connected;
-        use lightyear_connection::prelude::server::ClientOf;
-        use lightyear_link::prelude::server::LinkOf;
-        use lightyear_raw_connection::prelude::server::RawServer;
+        use lightyear_link::prelude::{LinkOf, Server};
 
         // Keep the client side of the pair alive for the duration of the test —
         // dropping it would Disconnect the server's channel before the assert.
@@ -474,9 +492,8 @@ mod tests {
 
         let mut app = App::new();
         app.add_plugins(CrossbeamPlugin);
-        app.add_plugins(lightyear_raw_connection::server::RawConnectionPlugin);
 
-        let server_entity = app.world_mut().spawn(RawServer).id();
+        let server_entity = app.world_mut().spawn(Server::default()).id();
         let mirror_entity = app
             .world_mut()
             .spawn((
@@ -497,5 +514,101 @@ mod tests {
         assert!(world.get::<Linked>(mirror_entity).is_some(), "Linked");
         assert!(world.get::<Connected>(mirror_entity).is_some(), "Connected");
         assert!(world.get::<ClientOf>(mirror_entity).is_some(), "ClientOf");
+
+        let (_other_client, other_server_io) = CrossbeamIo::new_pair();
+        let other_mirror = app
+            .world_mut()
+            .spawn((
+                LinkOf {
+                    endpoint: server_entity,
+                },
+                other_server_io,
+            ))
+            .id();
+        app.world_mut().trigger(LinkStart {
+            entity: other_mirror,
+        });
+        app.update();
+        assert!(app.world().get::<Connected>(other_mirror).is_some());
+        assert_ne!(
+            app.world().get::<RemoteId>(mirror_entity),
+            app.world().get::<RemoteId>(other_mirror),
+        );
+    }
+
+    #[test]
+    fn explicit_backend_and_opt_out_stay_transport_only() {
+        use lightyear_connection::admission::NoDefaultConnection;
+        #[derive(Component)]
+        #[require(NoDefaultConnection)]
+        struct Explicit;
+        let (explicit_io, opted_out_io) = CrossbeamIo::new_pair();
+        let mut app = App::new();
+        app.add_plugins(CrossbeamPlugin);
+        let explicit = app.world_mut().spawn((explicit_io, Explicit)).id();
+        let opted_out = app
+            .world_mut()
+            .spawn((opted_out_io, NoDefaultConnection))
+            .id();
+        app.world_mut().trigger(LinkStart { entity: explicit });
+        app.world_mut().trigger(LinkStart { entity: opted_out });
+        app.update();
+        for entity in [explicit, opted_out] {
+            assert!(app.world().get::<Linked>(entity).is_some());
+            assert!(app.world().get::<Connected>(entity).is_none());
+            assert!(app.world().get::<RemoteId>(entity).is_none());
+            assert!(app.world().get::<Disconnected>(entity).is_none());
+        }
+    }
+
+    #[test]
+    fn requested_debug_ids_survive_until_disconnect_releases_both_peers() {
+        use lightyear_connection::client::Disconnect;
+        use lightyear_connection::network_topology::NetworkingMetadata;
+        let (left_io, right_io) = CrossbeamIo::new_pair();
+        let mut app = App::new();
+        app.add_plugins(CrossbeamPlugin);
+        let left = app
+            .world_mut()
+            .spawn((
+                left_io,
+                LocalId(PeerId::Local(10)),
+                RemoteId(PeerId::Local(20)),
+            ))
+            .id();
+        let right = app
+            .world_mut()
+            .spawn((
+                right_io,
+                LocalId(PeerId::Local(20)),
+                RemoteId(PeerId::Local(10)),
+            ))
+            .id();
+        app.world_mut().trigger(LinkStart { entity: left });
+        app.world_mut().trigger(LinkStart { entity: right });
+        app.update();
+        assert_eq!(
+            app.world().get::<LocalId>(left),
+            Some(&LocalId(PeerId::Local(10)))
+        );
+        assert_eq!(
+            app.world().get::<RemoteId>(left),
+            Some(&RemoteId(PeerId::Local(20)))
+        );
+        assert!(app.world().get::<Connected>(left).is_some());
+        assert!(app.world().get::<Connected>(right).is_some());
+        app.world_mut().trigger(Disconnect { entity: left });
+        app.update();
+        for entity in [left, right] {
+            assert!(app.world().get::<Connected>(entity).is_none());
+            assert!(app.world().get::<Linked>(entity).is_none());
+            assert!(app.world().get::<Disconnected>(entity).is_some());
+        }
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
     }
 }

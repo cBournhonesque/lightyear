@@ -21,7 +21,9 @@ use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bytes::BufMut;
+use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_core::buffer_pool::BufferPool;
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_core::time::Instant;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked,
@@ -137,24 +139,36 @@ pub enum UdpError {
 ///   [`Link::recv`];
 /// - a send system in [`LinkSystems::Send`] that drains [`Link::send`] to [`PeerAddr`].
 ///
-/// This is a raw datagram transport. Use Lightyear connection plugins above it when you need
-/// connection state, authentication, or session management.
+/// Debug connections are admitted automatically from the bound socket and peer address.
+/// Explicit connection backends retain control of authentication and admission.
 pub struct UdpPlugin;
 
 impl UdpPlugin {
     fn link(
         trigger: On<LinkStart>,
-        mut query: Query<(&mut UdpIo, Option<&LocalAddr>), (Without<Linking>, Without<Linked>)>,
+        mut query: Query<
+            (&mut UdpIo, Option<&mut LocalAddr>, Option<&PeerAddr>),
+            (Without<Linking>, Without<Linked>),
+        >,
         mut commands: Commands,
     ) -> Result {
         trace!("In LinkStart::UDP trigger");
-        if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.entity) {
-            let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
-            let socket = UdpSocket::bind(local_addr)?;
-            info!("UDP socket bound to {}", local_addr);
+        if let Ok((mut udp_io, local_addr, peer_addr)) = query.get_mut(trigger.entity) {
+            let mut local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?;
+            let socket = UdpSocket::bind(local_addr.0)?;
+            local_addr.0 = socket.local_addr()?;
+            info!("UDP socket bound to {}", local_addr.0);
             socket.set_nonblocking(true)?;
             udp_io.socket = Some(socket);
-            commands.entity(trigger.entity).insert(Linked);
+            let entity = trigger.entity;
+            let local = LocalId(PeerId::Raw(local_addr.0));
+            let remote = peer_addr.map(|addr| RemoteId(PeerId::Raw(addr.0)));
+            commands.queue(move |world: &mut World| {
+                world.entity_mut(entity).insert(Linked);
+                if let Some(remote) = remote {
+                    apply_default_ids(world, entity, local, remote);
+                }
+            });
         }
         Ok(())
     }
@@ -241,6 +255,9 @@ impl Plugin for UdpPlugin {
         if !app.is_plugin_added::<LinkPlugin>() {
             app.add_plugins(LinkPlugin);
         }
+        if !app.is_plugin_added::<DefaultConnectionPlugin>() {
+            app.add_plugins(DefaultConnectionPlugin);
+        }
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
         app.add_systems(
@@ -254,6 +271,86 @@ impl Plugin for UdpPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bare_client_uses_bound_address_and_disconnect_closes_socket() {
+        use lightyear_connection::client::{Client, Connect, Connected, Disconnect, Disconnected};
+        use lightyear_connection::network_topology::NetworkingMetadata;
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut app = App::new();
+        app.add_plugins(UdpPlugin);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Client,
+                UdpIo::default(),
+                LocalAddr("127.0.0.1:0".parse().unwrap()),
+                PeerAddr(peer.local_addr().unwrap()),
+            ))
+            .id();
+        app.world_mut().trigger(Connect { entity });
+        app.update();
+        let local = app.world().get::<LocalAddr>(entity).unwrap().0;
+        assert_ne!(local.port(), 0);
+        assert_eq!(
+            app.world().get::<LocalId>(entity),
+            Some(&LocalId(PeerId::Raw(local)))
+        );
+        assert_eq!(
+            app.world().get::<RemoteId>(entity),
+            Some(&RemoteId(PeerId::Server))
+        );
+        assert!(app.world().get::<Connected>(entity).is_some());
+        app.world_mut().trigger(Disconnect { entity });
+        app.update();
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<Linked>(entity).is_none());
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert!(app.world().get::<UdpIo>(entity).unwrap().socket.is_none());
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn explicit_backend_and_opt_out_are_not_admitted() {
+        use lightyear_connection::admission::NoDefaultConnection;
+        use lightyear_connection::client::{Connected, Disconnected};
+        #[derive(Component)]
+        #[require(NoDefaultConnection)]
+        struct Explicit;
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut app = App::new();
+        app.add_plugins(UdpPlugin);
+        let spawn = |world: &mut World| {
+            world
+                .spawn((
+                    UdpIo::default(),
+                    LocalAddr("127.0.0.1:0".parse().unwrap()),
+                    PeerAddr(peer.local_addr().unwrap()),
+                ))
+                .id()
+        };
+        let explicit = spawn(app.world_mut());
+        let opted_out = spawn(app.world_mut());
+        app.world_mut().entity_mut(explicit).insert(Explicit);
+        app.world_mut()
+            .entity_mut(opted_out)
+            .insert(NoDefaultConnection);
+        app.world_mut().trigger(LinkStart { entity: explicit });
+        app.world_mut().trigger(LinkStart { entity: opted_out });
+        app.update();
+        for entity in [explicit, opted_out] {
+            assert!(app.world().get::<Linked>(entity).is_some());
+            assert!(app.world().get::<Connected>(entity).is_none());
+            assert!(app.world().get::<LocalId>(entity).is_none());
+            assert!(app.world().get::<RemoteId>(entity).is_none());
+            assert!(app.world().get::<Disconnected>(entity).is_none());
+        }
+    }
 
     #[test]
     fn receive_buffer_pool_reclaims_a_published_datagram_after_drop() {

@@ -8,7 +8,6 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::server::{ListenTarget, SteamEndpoint};
 use lightyear::prelude::*;
 use lightyear::prelude::{SessionConfig, SteamAppExt};
-use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_crossbeam::CrossbeamIo;
 use lightyear_replication::prelude::Replicate;

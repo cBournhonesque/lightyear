@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Admission registers resolved peer IDs before emitting `Connected`; duplicate remote IDs across endpoints are rejected instead of replacing the existing route.
 - Disconnect and despawn release only bindings owned by the departing entity.
 - Netcode validates requested IDs against token identity before admission and releases rejected sessions.
+- Transports can admit debug links through `apply_default_ids` without Raw markers or plugins; explicit backends and `NoDefaultConnection` retain control.
+- Default connections share client/server lifecycle handling and preserve configured debug/P2P IDs before admission.
+- Removed the obsolete `SkipNetcode` marker; backend ownership determines which protocol handles a link.
+- Removed the `lightyear_raw_connection` crate and `raw_connection` feature. Existing `Client`/`Server` roles plus a transport now use default admission without extra markers.
+- Steam exposes transport and connection plugins separately, with `SteamPlugin` installing both.
 
 ## v0.21.0 (2025-07-03)
 

@@ -61,7 +61,6 @@ lightyear = { workspace = true, features = [
   "leafwing",
   "interpolation",
   "prediction",
-  "raw_connection",
   "replication",
   "deterministic",
 ] }
@@ -71,7 +70,6 @@ lightyear_transport = { workspace = true, features = ["client", "server"] }
 lightyear_core.workspace = true
 lightyear_netcode = { workspace = true, features = ["client", "server"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }
-lightyear_raw_connection = { workspace = true, features = ["client", "server"] }
 lightyear_replication = { workspace = true, features = ["client", "server"] }
 lightyear_crossbeam.workspace = true
 lightyear_connection = { workspace = true, features = ["client", "server"] }

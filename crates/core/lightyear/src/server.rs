@@ -69,14 +69,10 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(lightyear_webtransport::endpoint::WebTransportEndpointPlugin);
         #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_websocket::endpoint::WebSocketEndpointPlugin);
-        #[cfg(all(feature = "steam", not(target_family = "wasm")))]
-        let builder = builder.add(lightyear_steam::endpoint::SteamEndpointPlugin);
 
         // CONNECTION
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::server_plugin::NetcodeServerPlugin);
-        #[cfg(feature = "raw_connection")]
-        let builder = builder.add(lightyear_raw_connection::server::RawConnectionPlugin);
         builder
     }
 }

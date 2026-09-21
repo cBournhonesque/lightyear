@@ -62,27 +62,29 @@
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-use lightyear_connection::client::Client;
-use lightyear_connection::p2p::P2P;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
+use lightyear_core::id::PeerId;
 use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked};
 use lightyear_p2p::DialPeer;
 use tracing::{debug, warn};
 
-use aeronet_io::connection::{LocalAddr, PeerAddr};
+use aeronet_io::connection::PeerAddr;
 
 use crate::endpoint::{UdpEndpoint, UdpEndpointPlugin, UdpLinkOfIO};
 
 /// Dials UDP Links for a [`Lobby`](lightyear_p2p::Lobby) through a [`UdpEndpoint`].
 pub struct UdpLobbyPlugin;
 
+/// Identifies endpoints whose children need P2P roles before admission.
+#[derive(Component, Default)]
+pub(crate) struct UdpLobbyEndpoint;
+
 impl Plugin for UdpLobbyPlugin {
     fn build(&self, app: &mut App) {
+        app.register_required_components::<UdpEndpoint, UdpLobbyEndpoint>();
         if !app.is_plugin_added::<UdpEndpointPlugin>() {
             app.add_plugins(UdpEndpointPlugin);
         }
         app.add_observer(on_endpoint_added);
-        app.add_observer(on_peer_link_added);
         app.add_observer(on_dial);
     }
 }
@@ -91,41 +93,6 @@ impl Plugin for UdpLobbyPlugin {
 fn on_endpoint_added(trigger: On<Add, UdpEndpoint>, mut commands: Commands) {
     commands.trigger(LinkStart {
         entity: trigger.entity,
-    });
-}
-
-/// Gives a link the endpoint spawned the identity and connected state a P2P link needs.
-///
-/// The endpoint owns the socket, so a child link is usable the moment it exists: its local identity
-/// is the endpoint's address and its remote identity is the address the datagrams came from. This is
-/// the step that makes the peer's `PeerId` *be* its address, for both sides of the connection.
-fn on_peer_link_added(
-    trigger: On<Add, UdpLinkOfIO>,
-    links: Query<(&LinkOf, &PeerAddr)>,
-    endpoints: Query<&LocalAddr, With<UdpEndpoint>>,
-    mut commands: Commands,
-) {
-    let entity = trigger.entity;
-    let Ok((link_of, peer_addr)) = links.get(entity) else {
-        return;
-    };
-    let Ok(local_addr) = endpoints.get(link_of.endpoint) else {
-        return;
-    };
-
-    debug!(
-        local = %local_addr.0,
-        remote = %peer_addr.0,
-        "lobby endpoint spawned a peer link"
-    );
-    let local = LocalId(PeerId::Raw(local_addr.0));
-    let remote = RemoteId(PeerId::Raw(peer_addr.0));
-    commands.entity(entity).insert((P2P::default(), Client));
-    commands.queue(move |world: &mut World| {
-        if !lightyear_connection::admission::is_default_connection(world, entity) {
-            return;
-        }
-        lightyear_connection::admission::admit(world, entity, local, remote, ());
     });
 }
 

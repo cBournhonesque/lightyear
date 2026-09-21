@@ -100,12 +100,24 @@ impl Plugin for WebSocketLobbyPlugin {
     }
 }
 
+/// Endpoint whose accepted links must finish lobby identity setup before admission.
+#[derive(Component)]
+pub(crate) struct LobbyEndpoint;
+
 /// Opens the endpoint's socket as soon as the endpoint exists.
 ///
 /// A transport opens on [`LinkStart`], which for a server comes from `Start`. A P2P peer has no
 /// server to start, so the glue asks for it directly; without this the endpoint never listens and
 /// every dial connects to nothing.
-fn on_endpoint_added(trigger: On<Add, WebSocketEndpoint>, mut commands: Commands) {
+fn on_endpoint_added(
+    trigger: On<Add, WebSocketEndpoint>,
+    servers: Query<(), With<lightyear_link::server::Server>>,
+    mut commands: Commands,
+) {
+    if servers.contains(trigger.entity) {
+        return;
+    }
+    commands.entity(trigger.entity).insert(LobbyEndpoint);
     commands.trigger(LinkStart {
         entity: trigger.entity,
     });
@@ -248,6 +260,7 @@ fn on_accepted_link(
     trigger: On<Add, PeerAddr>,
     links: Query<(&LinkOf, &PeerAddr)>,
     addresses: Query<&LocalAddr, With<WebSocketEndpoint>>,
+    endpoints: Query<(), With<LobbyEndpoint>>,
     mut commands: Commands,
 ) {
     let entity = trigger.entity;
@@ -255,6 +268,9 @@ fn on_accepted_link(
         // Not an endpoint child: a dialed client session, which `on_dial` already annotated.
         return;
     };
+    if !endpoints.contains(link_of.endpoint) {
+        return;
+    }
     let Some(local_id) = local_id(link_of.endpoint, &addresses) else {
         return;
     };
@@ -269,22 +285,19 @@ fn on_accepted_link(
     ));
 }
 
-/// Makes a `P2P` link count as connected once its session is up.
-///
-/// The connection layer does not do this for Aeronet-backed transports: only `RawClient` and Steam
-/// promote [`Linked`] to [`Connected`], and every `P2P` session reads `Connected`.
+/// Admits a `P2P` link only once both its lobby identities and transport are ready.
 fn on_link_linked(
-    trigger: On<Add, Linked>,
-    query: Query<(&LocalId, &RemoteId), (With<P2P>, With<Client>, Without<Connected>)>,
+    trigger: On<Add, (Linked, LocalId, RemoteId, P2P)>,
+    query: Query<
+        (&LocalId, &RemoteId),
+        (With<Linked>, With<P2P>, With<Client>, Without<Connected>),
+    >,
     mut commands: Commands,
 ) {
     if let Ok((&local, &remote)) = query.get(trigger.entity) {
         let entity = trigger.entity;
         commands.queue(move |world: &mut World| {
-            if !lightyear_connection::admission::is_default_connection(world, entity) {
-                return;
-            }
-            lightyear_connection::admission::admit(world, entity, local, remote, ());
+            lightyear_connection::admission::apply_default_ids(world, entity, local, remote);
         });
     }
 }

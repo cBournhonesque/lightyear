@@ -51,14 +51,10 @@ impl PluginGroup for ClientPlugins {
         let builder = builder.add(lightyear_webtransport::client::WebTransportClientPlugin);
         #[cfg(feature = "websocket")]
         let builder = builder.add(lightyear_websocket::client::WebSocketClientPlugin);
-        #[cfg(feature = "steam")]
-        let builder = builder.add(lightyear_steam::client::SteamClientPlugin);
 
         // CONNECTION
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::client_plugin::NetcodeClientPlugin);
-        #[cfg(feature = "raw_connection")]
-        let builder = builder.add(lightyear_raw_connection::client::RawConnectionPlugin);
 
         #[cfg(target_family = "wasm")]
         let builder = builder.add(lightyear_web::WebKeepalivePlugin {

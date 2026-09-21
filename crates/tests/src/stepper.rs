@@ -16,8 +16,6 @@ use lightyear_connection::host::HostClient;
 #[cfg(feature = "test_utils")]
 use lightyear_core::test::TestHelper;
 use lightyear_netcode::client_plugin::NetcodeConfig;
-use lightyear_raw_connection::client::RawClient;
-use lightyear_raw_connection::server::RawServer;
 use lightyear_replication::receive::ReplicationReceiver;
 #[cfg(feature = "std")]
 use lightyear_udp::endpoint::UdpEndpointPlugin;
@@ -332,7 +330,7 @@ impl ClientServerStepper {
 
         match server_type {
             ServerType::Raw => {
-                server.insert(RawServer);
+                server.insert(Server::default());
             }
             ServerType::Netcode => {
                 server.insert(NetcodeServer::new(
@@ -520,9 +518,7 @@ impl ClientServerStepper {
         }
         match client_type {
             ClientType::Host => unreachable!(),
-            ClientType::Raw => {
-                client.insert(RawClient);
-            }
+            ClientType::Raw => {}
             ClientType::Netcode => {
                 client.insert(NetcodeClient::new(auth, NetcodeConfig::default()).unwrap());
             }

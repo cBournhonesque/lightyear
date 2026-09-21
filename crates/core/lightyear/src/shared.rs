@@ -52,6 +52,8 @@ impl Plugin for SharedPlugins {
         app.add_plugins(lightyear_crossbeam::CrossbeamPlugin);
         #[cfg(all(feature = "udp", not(target_family = "wasm")))]
         app.add_plugins(lightyear_udp::UdpPlugin);
+        #[cfg(feature = "steam")]
+        app.add_plugins(lightyear_steam::SteamPlugin);
 
         // Note: the server can also do interpolation
         // TODO: move the config to the InterpolationManager

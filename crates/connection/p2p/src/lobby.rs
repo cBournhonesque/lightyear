@@ -163,7 +163,7 @@ pub struct LobbyAnnounce {
 ///
 /// 1. **The id is the address.** A transport that identifies a peer by its socket address uses
 ///    [`PeerId::Raw`], so `peer` already *is* the target and the glue needs nothing else. This is
-///    what `lightyear_raw_connection` does: it tags each peer `PeerId::Raw(peer_addr)`.
+///    what default socket connections do: they identify the remote as `PeerId::Raw(peer_addr)`.
 /// 2. **The address is derivable.** A transport whose addressing is a function of its own
 ///    configuration computes the target from `peer` plus that configuration — a UDP mesh that
 ///    derives ports from a base port and the peer's slot, for instance.

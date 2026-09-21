@@ -60,7 +60,10 @@ pub enum ConnectionSystems {
 
 pub mod prelude {
     pub use crate::ConnectionSystems;
-    pub use crate::admission::{NoDefaultConnection, admit};
+    pub use crate::admission::{
+        DefaultConnectionPlugin, NoDefaultConnection, admit, apply_default_ids,
+        is_default_connection,
+    };
     pub use crate::direction::NetworkDirection;
     pub use crate::identity::{is_client, is_p2p};
     pub use crate::network_target::NetworkTarget;

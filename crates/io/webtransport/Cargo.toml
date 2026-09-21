@@ -18,10 +18,10 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [features]
 default = ["self-signed"]
-client = ["aeronet_webtransport/client"]
+client = ["aeronet_webtransport/client", "lightyear_connection/client"]
 ## Enables native accepting endpoints without selecting a Lightyear server role.
 p2p = ["aeronet_webtransport/server", "bevy_reflect/std"]
-server = ["aeronet_webtransport/server", "bevy_reflect/std"]
+server = ["aeronet_webtransport/server", "bevy_reflect/std", "lightyear_connection/server"]
 
 ## Enables `wtransport/self-signed`, allowing you to generate self-signed certificates easily for
 ## use in a server.
@@ -40,7 +40,7 @@ dangerous-configuration = ["aeronet_webtransport/dangerous-configuration"]
 ## Peer discovery over WebTransport: dials peers a `lightyear_p2p::Lobby` discovers, publishing this
 ## endpoint's certificate hash so they can authenticate it, and annotates the sessions they open
 ## towards us. Needs both halves of the transport, since one peer dials and the other accepts.
-lobby = ["client", "p2p", "dep:lightyear_p2p", "dep:lightyear_connection"]
+lobby = ["client", "p2p", "dep:lightyear_p2p"]
 
 [dependencies]
 aeronet_webtransport.workspace = true
@@ -49,9 +49,7 @@ lightyear_link.workspace = true
 lightyear_core.workspace = true
 lightyear_aeronet.workspace = true
 lightyear_p2p = { workspace = true, optional = true, features = ["std"] }
-lightyear_connection = { workspace = true, optional = true, features = [
-  "client",
-] }
+lightyear_connection.workspace = true
 
 tracing.workspace = true
 
@@ -61,3 +59,6 @@ bevy_ecs.workspace = true
 bevy_reflect = { workspace = true, optional = true }
 
 thiserror.workspace = true
+
+[dev-dependencies]
+lightyear_netcode = { workspace = true, features = ["std", "client", "server"] }

@@ -10,7 +10,6 @@ use bevy_time::{Real, Time};
 use core::net::SocketAddr;
 use lightyear_connection::admission::{NoDefaultConnection, admit, reject};
 use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
-use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
@@ -234,7 +233,7 @@ impl NetcodeServerPlugin {
                 Option<&Connected>,
                 Option<&Disconnecting>,
             ),
-            (With<LinkOf>, Without<HostClient>, Without<SkipNetcode>),
+            (With<LinkOf>, Without<HostClient>),
         >,
     ) {
         // TODO: we should be able to do ParIterMut if we can make the code understand
@@ -327,10 +326,7 @@ impl NetcodeServerPlugin {
             ),
             Without<Stopped>,
         >,
-        link_query: Query<
-            (Entity, &mut Link),
-            (With<LinkOf>, Without<HostClient>, Without<SkipNetcode>),
-        >,
+        link_query: Query<(Entity, &mut Link), (With<LinkOf>, Without<HostClient>)>,
     ) {
         let delta = real_time.delta();
 
@@ -512,12 +508,7 @@ impl NetcodeServerPlugin {
         mut query: Query<(Entity, &mut NetcodeServer, &Endpoint), Without<Stopped>>,
         mut link_query: Query<
             (Entity, &mut Link, &RemoteId),
-            (
-                With<ClientOf>,
-                With<Connected>,
-                Without<HostClient>,
-                Without<SkipNetcode>,
-            ),
+            (With<ClientOf>, With<Connected>, Without<HostClient>),
         >,
     ) -> Result {
         if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.entity) {

@@ -19,7 +19,6 @@ p2p = [
   "client",
   "udp",
   "lightyear/p2p",
-  "lightyear/raw_connection",
   "lightyear/websocket_lobby",
   "lightyear/webtransport_lobby",
 ]

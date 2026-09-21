@@ -8,7 +8,7 @@
 //! - A stream transport cannot tell who dialed it: the accepted session reports the ephemeral port
 //!   the peer connected from, not the endpoint it listens on. The announce names its sender, and the
 //!   lobby re-keys the Link to it — without that the two peers would disagree on the roster.
-//! - Only `RawClient` and Steam promote `Linked` to `Connected`, so the glue does it.
+//! - The default connection backend admits the link once transport facts are available.
 
 use super::stepper::{
     Stepper, TestTransport, explicit_retry_reconnects_members, lobby_id, next_base_port, peer_id,
