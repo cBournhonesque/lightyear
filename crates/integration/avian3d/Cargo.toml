@@ -20,7 +20,6 @@ bench = false
 
 [features]
 default = ["std", "3d", "avian3d/parry-f32"]
-f32 = ["avian3d/f32"]
 3d = ["avian3d/3d", "avian3d/serialize"]
 xpbd_joints = ["avian3d/xpbd_joints"]
 std = ["lightyear_prediction/std"]

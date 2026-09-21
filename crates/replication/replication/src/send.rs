@@ -116,10 +116,10 @@ impl ReplicationMode {
 /// links without it stay connected — messages still flow — but receive no
 /// replicated entities or components.
 ///
-/// On the server, this is typically added in the `On<Add, LinkOf>` observer:
+/// On the server, this is typically added in the `On<Add<LinkOf>>` observer:
 ///
 /// ```rust,ignore
-/// fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+/// fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
 ///     commands.entity(trigger.entity).insert(ReplicationSender);
 /// }
 /// ```
@@ -279,7 +279,7 @@ impl ReplicationTargetT for () {
 /// The hide runs deferred (after Replicon's own `on_remove`, which releases the
 /// filter bit) so removing `Replicate` deterministically despawns the remote
 /// entity instead of leaving it retained.
-fn on_replicate_remove(trigger: On<Remove, Replicate>, mut commands: Commands) {
+fn on_replicate_remove(trigger: On<Remove<Replicate>>, mut commands: Commands) {
     if trigger.trigger().new_archetype.is_none() {
         return;
     }
@@ -754,7 +754,7 @@ fn target_includes_host<T: ReplicationTargetT>(
 /// this observer only backfills the local markers.
 #[cfg(feature = "server")]
 fn emulate_replicate_on_host_client_added(
-    trigger: On<Add, HostClient>,
+    trigger: On<Add<HostClient>>,
     remote_ids: Query<&RemoteId>,
     mut host_visibilities: Query<
         &mut ClientVisibility,
@@ -836,7 +836,7 @@ fn emulate_replicate_on_host_client_added(
 /// `ClientVisibility` too); that backfill lives in [`RoomPlugin`](crate::visibility::room::RoomPlugin).
 #[cfg(feature = "server")]
 pub(crate) fn handle_new_client_visibility(
-    trigger: On<Add, ClientVisibility>,
+    trigger: On<Add<ClientVisibility>>,
     remote_id_query: Query<&RemoteId>,
     registry: Res<FilterRegistry>,
     replication_targets: Query<(Entity, &Replicate)>,

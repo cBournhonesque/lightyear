@@ -75,7 +75,7 @@ fn handle_new_character(
 }
 
 fn handle_controlled_character(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     character_query: Query<(), (With<CharacterMarker>, Without<InputMap<CharacterAction>>)>,
 ) {

@@ -117,7 +117,7 @@ impl Plugin for LagCompensationPlugin {
 /// Spawns a child entity with a collider that represents the broad-phase aabb envelope
 /// for lag compensation purposes
 fn spawn_broad_phase_aabb_envelope(
-    trigger: On<Add, LagCompensationHistory>,
+    trigger: On<Add<LagCompensationHistory>>,
     query: Query<Option<&CollisionLayers>>,
     mut commands: Commands,
 ) {

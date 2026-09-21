@@ -109,7 +109,7 @@ impl HostPlugin {
     fn check_if_host_on_client_change(
         // NOTE: we handle Connecting in the trigger because otherwise the client
         //  would never be Connected
-        trigger: On<Add, (Client, Connected, LinkOf)>,
+        trigger: On<Add<(Client, Connected, LinkOf)>>,
         client_query: Query<&LinkOf, (With<Client>, With<Connected>, Without<HostClient>)>,
         server_query: Query<(), (With<Started>, With<Server>)>,
         mut commands: Commands,
@@ -128,7 +128,7 @@ impl HostPlugin {
 
     #[cfg(feature = "server")]
     fn check_if_host_on_server_change(
-        trigger: On<Add, (Server, Started)>,
+        trigger: On<Add<(Server, Started)>>,
         endpoint_query: Query<&Endpoint, With<Started>>,
         client_query: Query<(Has<Connected>, Has<Connecting>), (With<Client>, Without<HostClient>)>,
         mut commands: Commands,

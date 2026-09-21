@@ -331,7 +331,7 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
     /// P2P links are handled as a topology-wide set by [`Self::sync_timelines`], so an individual
     /// P2P link connecting must not reset an already-running deterministic session.
     fn handle_connect(
-        trigger: On<Add, Connected>,
+        trigger: On<Add<Connected>>,
         clients: Query<(), (With<Client>, Without<P2P>)>,
         mut sync: ResMut<LocalTimelineSync>,
     ) {
@@ -345,7 +345,7 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
     /// A host client shares the server's world clock and therefore does not need latency samples
     /// or a remote-clock correction before local input systems can run.
     fn handle_host_client(
-        trigger: On<Add, HostClient>,
+        trigger: On<Add<HostClient>>,
         clients: Query<(), (With<Client>, Without<P2P>)>,
         mut sync: ResMut<LocalTimelineSync>,
     ) {
@@ -359,7 +359,7 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
     /// P2P readiness follows [`NetworkingMetadata`] so that one link's lifecycle cannot
     /// independently relabel or pause the world clock.
     fn handle_disconnect(
-        trigger: On<Add, Disconnected>,
+        trigger: On<Add<Disconnected>>,
         clients: Query<(), (With<Client>, Without<P2P>)>,
         mut sync: ResMut<LocalTimelineSync>,
     ) {

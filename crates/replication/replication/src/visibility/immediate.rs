@@ -327,7 +327,7 @@ fn set_visibility(
 /// (Rooms need no pull here: they are mirrored as components on attach in
 /// `RoomPlugin`.)
 fn inherit_visibility_on_replicate_like_added(
-    trigger: On<Insert, ReplicateLike>,
+    trigger: On<Insert<ReplicateLike>>,
     replicate_like: Query<&ReplicateLike>,
     children: Query<&ReplicateLikeChildren>,
     overridden: Query<Has<VisibilityOverridden>>,
@@ -363,7 +363,7 @@ fn inherit_visibility_on_replicate_like_added(
 /// Re-inherit the replication root's manual visibility after
 /// [`VisibilityOverridden`] is removed.
 fn reinherit_visibility_on_override_removed(
-    trigger: On<Remove, VisibilityOverridden>,
+    trigger: On<Remove<VisibilityOverridden>>,
     replicate_like: Query<&ReplicateLike>,
     mut senders: Query<&mut ClientVisibility>,
     bits: Res<VisibilityBits>,
@@ -392,7 +392,7 @@ fn reinherit_visibility_on_override_removed(
 /// client, it should remove [`Replicating`] before despawning, so this observer will not run for
 /// that entity.
 fn clear_retained_visibility_on_despawn(
-    trigger: On<Despawn, Replicating>,
+    trigger: On<Despawn<Replicating>>,
     bits: Res<VisibilityBits>,
     mut senders: Query<&mut ClientVisibility>,
 ) {

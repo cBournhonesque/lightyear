@@ -85,7 +85,7 @@ pub struct MetadataChannel;
 fn send_sender_metadata(
     // NOTE: it's important to trigger on both Add<Connected> and Add<ReplicationSender> because the ClientOf could be
     //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
-    trigger: On<Add, (Connected, ReplicationSender)>,
+    trigger: On<Add<(Connected, ReplicationSender)>>,
     metadata: Res<ReplicationMetadata>,
     tick_duration: Res<TickDuration>,
     mut query: Query<(Entity, &mut EventSender<SenderMetadata>), With<Connected>>,

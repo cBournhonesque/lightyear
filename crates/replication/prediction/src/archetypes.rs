@@ -7,13 +7,14 @@ use crate::registry::{
 };
 use crate::rollback::{DeterministicPredicted, DisableRollback};
 use alloc::vec::Vec;
+use bevy_ecs::system::SystemAccess;
 use bevy_ecs::{
     archetype::{Archetype, ArchetypeGeneration, ArchetypeId, Archetypes},
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Components, StorageType},
     entity_disabling::DefaultQueryFilters,
     prelude::{Res, ResMut},
-    query::{FilteredAccess, FilteredAccessSet},
+    query::FilteredAccess,
     resource::Resource,
     system::{SystemMeta, SystemParam, SystemParamValidationError},
     world::{FromWorld, World, unsafe_world_cell::UnsafeWorldCell},
@@ -189,7 +190,7 @@ unsafe impl<const MODE: u8> SystemParam for PredictionWorld<'_, '_, MODE> {
     fn init_access(
         state: &Self::State,
         system_meta: &mut SystemMeta,
-        system_access: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         <Res<'static, PredictionRegistry> as SystemParam>::init_access(
@@ -205,11 +206,9 @@ unsafe impl<const MODE: u8> SystemParam for PredictionWorld<'_, '_, MODE> {
             world,
         );
         let access = state.declared_access.clone();
-        assert!(
-            system_access.get_conflicts_single(&access).is_empty(),
+        system_access.try_add(access).expect(
             "error[B0001]: dynamic component access conflicts with a previous system parameter",
         );
-        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(

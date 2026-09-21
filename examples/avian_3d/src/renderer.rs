@@ -72,7 +72,7 @@ fn init(mut commands: Commands) {
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: On<Add, Position>,
+    trigger: On<Add<Position>>,
     query: Query<
         Entity,
         (

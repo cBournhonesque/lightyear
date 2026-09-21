@@ -243,7 +243,7 @@ fn angular_velocity_should_rollback(
 
 /// Linear interpolation for `LinearVelocity`.
 ///
-/// Avian does not implement [`Ease`](bevy_math::curve::Ease) for velocities,
+/// Avian does not implement [`Ease`](bevy_curve::Ease) for velocities,
 /// so this is used both as the fallback frame-interpolation function and as
 /// the visual-correction decay function (via `add_correction_fn`). It matches
 /// the velocity sampling that the Hermite bundle rule performs.
@@ -517,7 +517,7 @@ impl LightyearAvianPlugin {
     }
 
     fn add_apply_pos_to_transform(
-        trigger: On<Add, (Position, Rotation, Interpolated)>,
+        trigger: On<Add<(Position, Rotation, Interpolated)>>,
         query: Query<
             Option<&ColliderOf>,
             (
@@ -538,7 +538,7 @@ impl LightyearAvianPlugin {
     }
 
     fn remove_apply_pos_to_transform_from_child_collider(
-        trigger: On<Insert, (ColliderOf, ApplyPosToTransform)>,
+        trigger: On<Insert<(ColliderOf, ApplyPosToTransform)>>,
         query: Query<
             &ColliderOf,
             (
@@ -713,7 +713,7 @@ impl LightyearAvianPlugin {
     // /// Note, this is will only work is `ChildOf` is inserted at the same time or before
     // /// `Position/Rotation`.
     // fn add_transform(
-    //     trigger: On<Add, (Position, Rotation)>,
+    //     trigger: On<Add<(Position, Rotation)>>,
     //     query: Query<(&Position, &Rotation, Option<&ChildOf>), Without<Transform>>,
     //     parents: Query<(
     //         Option<&GlobalTransform>,

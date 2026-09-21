@@ -26,8 +26,9 @@ serde.workspace = true
 
 # bevy
 bevy_app.workspace = true
+bevy_curve.workspace = true
 bevy_ecs.workspace = true
-bevy_math = { workspace = true, features = ["curve"] }
+bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_reflect.workspace = true
 bevy_time.workspace = true

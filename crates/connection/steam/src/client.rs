@@ -95,7 +95,7 @@ impl SteamClientPlugin {
 
     /// Steam is both a Link and a Connection, so we add Connected when Linked is added
     fn on_linked(
-        trigger: On<Add, Linked>,
+        trigger: On<Add<Linked>>,
         query: Query<(), With<SteamClientIo>>,
         mut commands: Commands,
     ) {

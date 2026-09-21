@@ -30,7 +30,6 @@ udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 avian2d = { workspace = true, features = [
   "2d",
   "debug-plugin",
-  "f32",
   "parry-f32",
   "parallel",
   "serialize",

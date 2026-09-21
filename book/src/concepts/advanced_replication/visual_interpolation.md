@@ -37,7 +37,7 @@ Then add the plugin and opt entities in with `FrameInterpolate`:
 app.add_plugins(FrameInterpolationPlugin);
 
 fn enable_frame_interpolation(
-    trigger: On<Add, Predicted>,
+    trigger: On<Add<Predicted>>,
     mut commands: Commands,
 ) {
     commands.entity(trigger.entity).insert(FrameInterpolate);

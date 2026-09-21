@@ -186,7 +186,7 @@ fn send_client_packets(
 /// `Remove` observers run before the components disappear, so receiver-local [`Persistent`] can
 /// still be read here.
 fn on_replication_disconnect(
-    trigger: On<Remove, (Connected, ReplicationReceiver)>,
+    trigger: On<Remove<(Connected, ReplicationReceiver)>>,
     mut commands: Commands,
     receivers: Query<
         Has<Persistent>,

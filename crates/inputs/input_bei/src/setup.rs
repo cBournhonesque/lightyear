@@ -49,7 +49,7 @@ impl InputRegistryPlugin {
     /// Then we initiate rebroadcast
     #[cfg(all(feature = "client", feature = "server"))]
     pub(crate) fn add_action_of_host_server_rebroadcast<C: Component>(
-        trigger: On<Add, ActionOf<C>>,
+        trigger: On<Add<ActionOf<C>>>,
         host_server: Query<(), With<HostServer>>,
         action: Query<&ActionOf<C>, Or<(Without<Remote>, With<PreSpawned>)>>,
         mut commands: Commands,
@@ -73,7 +73,7 @@ impl InputRegistryPlugin {
     /// received input messages, not by the host player's physical keyboard.
     #[cfg(all(feature = "client", feature = "server"))]
     pub(crate) fn mock_non_host_owned_action<C: Component>(
-        trigger: On<Add, ActionOf<C>>,
+        trigger: On<Add<ActionOf<C>>>,
         host_server: Query<(), With<HostServer>>,
         action: Query<&ActionOf<C>, Without<ExternallyMocked>>,
         controlled: Query<&ControlledBy>,
@@ -101,7 +101,7 @@ impl InputRegistryPlugin {
 
     #[cfg(all(feature = "client", feature = "server"))]
     pub(crate) fn mock_non_host_owned_actions_on_controlled_by<C: Component>(
-        trigger: On<Add, ControlledBy>,
+        trigger: On<Add<ControlledBy>>,
         host_server: Query<(), With<HostServer>>,
         context: Query<(&Actions<C>, &ControlledBy)>,
         host_clients: Query<(), With<HostClient>>,
@@ -127,7 +127,7 @@ impl InputRegistryPlugin {
     /// When the server receives [`ActionOf`], optionally rebroadcast to other clients if rebroadcast_inputs is enabled
     #[cfg(feature = "server")]
     pub(crate) fn on_action_of_replicated<C: Component>(
-        trigger: On<Add, ActionOf<C>>,
+        trigger: On<Add<ActionOf<C>>>,
         query: Query<&ActionOf<C>, With<Remote>>,
         mut host: Query<&mut MessageManager, With<HostClient>>,
         _: Single<(), (With<Server>, With<Started>)>,
@@ -169,7 +169,7 @@ impl InputRegistryPlugin {
     /// observer will handle it later.
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
-        trigger: On<Add, ActionOf<C>>,
+        trigger: On<Add<ActionOf<C>>>,
         metadata: Res<NetworkingMetadata>,
         actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
         contexts: Query<(), With<C>>,
@@ -197,7 +197,7 @@ impl InputRegistryPlugin {
     /// or unmock those actions now that the control state can be inspected.
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_context_received<C: Component>(
-        trigger: On<Add, C>,
+        trigger: On<Add<C>>,
         metadata: Res<NetworkingMetadata>,
         contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
         actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
@@ -221,7 +221,7 @@ impl InputRegistryPlugin {
     /// remove mocking from locally controlled actions.
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_context_controlled<C: Component>(
-        trigger: On<Add, Controlled>,
+        trigger: On<Add<Controlled>>,
         metadata: Res<NetworkingMetadata>,
         contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
         actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,

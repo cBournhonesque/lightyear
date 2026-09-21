@@ -565,11 +565,8 @@ mod tests {
     use crate::plugin::PredictionMarkerPlugin;
     use crate::predicted_history::PredictionHistory;
     use crate::registry::{PredictionBuilderExt, PredictionRegistry};
+    use bevy_curve::{Curve, Ease, FunctionCurve, Interval};
     use bevy_ecs::system::RunSystemOnce;
-    use bevy_math::{
-        Curve,
-        curve::{Ease, FunctionCurve, Interval},
-    };
     use bevy_replicon::prelude::*;
     use bevy_state::app::StatesPlugin;
     use bevy_time::{Time, Virtual};
@@ -729,7 +726,7 @@ mod tests {
         assert!(world.get::<Predicted>(entity).is_some());
         assert!(world.get::<Interpolated>(entity).is_none());
         // A switch to prediction renders through frame interpolation even
-        // though the renderer observer (On<Add, Position>) never re-fires when
+        // though the renderer observer (On<Add<Position>>) never re-fires when
         // the markers swap.
         assert!(world.get::<FrameInterpolate>(entity).is_some());
         // Nothing is saved in this direction: the forced rollback captures the

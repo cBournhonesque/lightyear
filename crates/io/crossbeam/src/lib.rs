@@ -460,7 +460,7 @@ mod tests {
     /// parent with `RawServer`, spawn the mirror with `LinkOf` + `CrossbeamIo`,
     /// then trigger `LinkStart` (not direct `Linked` insertion). The mirror
     /// should reach `Linked + Connected + ClientOf` so downstream
-    /// `On<Insert, (Transport, ClientOf)>` channel observers fire.
+    /// `On<Insert<(Transport, ClientOf)>>` channel observers fire.
     #[test]
     fn server_mirror_via_link_start_reaches_connected() {
         use lightyear_connection::prelude::Connected;

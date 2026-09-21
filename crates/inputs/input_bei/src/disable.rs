@@ -11,7 +11,7 @@ use bevy_enhanced_input::prelude::Actions;
 /// exclude the action entities queried by Lightyear's input buffering and message preparation.
 /// Propagating the standard marker lets those existing queries skip the actions naturally.
 pub(crate) fn disable_context_actions<C: Component>(
-    trigger: On<Add, Disabled>,
+    trigger: On<Add<Disabled>>,
     mut commands: Commands,
     contexts: Query<&Actions<C>, (With<C>, Allow<Disabled>)>,
 ) {
@@ -25,7 +25,7 @@ pub(crate) fn disable_context_actions<C: Component>(
 
 /// Re-enables the actions belonging to a BEI context when that context is re-enabled.
 pub(crate) fn enable_context_actions<C: Component>(
-    trigger: On<Remove, Disabled>,
+    trigger: On<Remove<Disabled>>,
     mut commands: Commands,
     contexts: Query<&Actions<C>, (With<C>, Allow<Disabled>)>,
 ) {

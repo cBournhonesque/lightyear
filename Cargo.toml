@@ -178,11 +178,11 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = { version = "0.21" }
-aeronet_websocket = { version = "0.21" }
-aeronet_steam = { version = "0.21" }
+aeronet_webtransport = { git = "https://github.com/aecsocket/aeronet.git", rev = "82b2090e6f63d2f3a321a8fdcab2d823b2eee002", version = "0.22.0-rc.1" }
+aeronet_websocket = { git = "https://github.com/aecsocket/aeronet.git", rev = "82b2090e6f63d2f3a321a8fdcab2d823b2eee002", version = "0.22.0-rc.1" }
+aeronet_steam = { git = "https://github.com/aecsocket/aeronet.git", rev = "82b2090e6f63d2f3a321a8fdcab2d823b2eee002", version = "0.22.0-rc.1" }
 wtransport = "0.7.1"
-aeronet_io = { version = "0.21" }
+aeronet_io = { git = "https://github.com/aecsocket/aeronet.git", rev = "82b2090e6f63d2f3a321a8fdcab2d823b2eee002", version = "0.22.0-rc.1" }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
@@ -198,7 +198,7 @@ stats_alloc = "0.1.10"
 
 # Bevy
 # (the full app is used for examples)
-bevy = { version = "0.19", default-features = false, features = [
+bevy = { version = "0.20.0-rc.1", default-features = false, features = [
   "bevy_state",
   "bevy_log",
   "serialize",
@@ -209,57 +209,58 @@ bevy = { version = "0.19", default-features = false, features = [
   "zstd_rust",
   "keyboard",
 ] }
-bevy_app = { version = "0.19", default-features = false }
-bevy_derive = { version = "0.19", default-features = false }
-bevy_log = { version = "0.19", default-features = false }
-bevy_diagnostic = { version = "0.19", default-features = false }
-bevy_color = { version = "0.19", default-features = false }
-bevy_ecs = { version = "0.19", default-features = false }
-bevy_input = { version = "0.19", default-features = false }
-bevy_math = { version = "0.19", default-features = false }
-bevy_platform = { version = "0.19", default-features = false }
-bevy_ptr = { version = "0.19", default-features = false }
-bevy_reflect = { version = "0.19", default-features = false }
-bevy_state = { version = "0.19", default-features = false }
-bevy_text = { version = "0.19", default-features = false }
-bevy_time = { version = "0.19", default-features = false }
-bevy_transform = { version = "0.19", default-features = false }
-bevy_ui = { version = "0.19", default-features = false }
-bevy_utils = { version = "0.19", default-features = false, features = [
+bevy_app = { version = "0.20.0-rc.1", default-features = false }
+bevy_derive = { version = "0.20.0-rc.1", default-features = false }
+bevy_log = { version = "0.20.0-rc.1", default-features = false }
+bevy_diagnostic = { version = "0.20.0-rc.1", default-features = false }
+bevy_color = { version = "0.20.0-rc.1", default-features = false }
+bevy_curve = { version = "0.20.0-rc.1", default-features = false }
+bevy_ecs = { version = "0.20.0-rc.1", default-features = false }
+bevy_input = { version = "0.20.0-rc.1", default-features = false }
+bevy_math = { version = "0.20.0-rc.1", default-features = false }
+bevy_platform = { version = "0.20.0-rc.1", default-features = false }
+bevy_ptr = { version = "0.20.0-rc.1", default-features = false }
+bevy_reflect = { version = "0.20.0-rc.1", default-features = false }
+bevy_state = { version = "0.20.0-rc.1", default-features = false }
+bevy_text = { version = "0.20.0-rc.1", default-features = false }
+bevy_time = { version = "0.20.0-rc.1", default-features = false }
+bevy_transform = { version = "0.20.0-rc.1", default-features = false }
+bevy_ui = { version = "0.20.0-rc.1", default-features = false }
+bevy_utils = { version = "0.20.0-rc.1", default-features = false, features = [
   "debug",
 ] }
-bevy_winit = { version = "0.19", default-features = false }
+bevy_winit = { version = "0.20.0-rc.1", default-features = false }
 tracy-client = { version = "0.18" }
 
 # input
-bevy_enhanced_input = { version = "0.26", default-features = false, features = [
+bevy_enhanced_input = { git = "https://github.com/simgine/bevy_enhanced_input.git", rev = "357f100abf690aca7ad60e5e90956ad21823afd7", version = "0.26", default-features = false, features = [
   "serialize",
 ] }
-leafwing-input-manager = { version = "0.21", default-features = false, features = [
+leafwing-input-manager = { git = "https://github.com/andriyDev/leafwing-input-manager.git", rev = "721a9edb777915193aac53ecf463f811d84b76a0", version = "0.21", default-features = false, features = [
   "keyboard",
 ] }
 # replication
-bevy_replicon = { version = "0.44.1", default-features = false, features = [
+bevy_replicon = { git = "https://github.com/andriyDev/bevy_replicon.git", rev = "f6a8ff7f22dddca531528035cfed35769b2dd44e", version = "0.44.1", default-features = false, features = [
   "client",
   "server",
 ] }
 
 # physics
-avian2d = { version = "0.7", default-features = false }
-avian3d = { version = "0.7", default-features = false }
+avian2d = { git = "https://github.com/andriyDev/avian.git", rev = "9f7e28238a7e33977047c8e8f068475967fb6dff", version = "0.8.0-dev", default-features = false }
+avian3d = { git = "https://github.com/andriyDev/avian.git", rev = "9f7e28238a7e33977047c8e8f068475967fb6dff", version = "0.8.0-dev", default-features = false }
 obvhs = { version = "0.3" }
 # Avian 0.7's 2D `serialize` feature derives Serde for an ArrayVec without enabling this feature.
 arrayvec = { version = "0.7", features = ["serde"] }
-bevy_transform_interpolation = { version = "0.5", default-features = false }
+bevy_transform_interpolation = { git = "https://github.com/andriyDev/bevy_transform_interpolation.git", rev = "4b9ff214bd782e5003da602025c77210abe27545", version = "0.6.0-dev", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.37", default-features = false, features = [
+bevy-inspector-egui = { git = "https://github.com/taboky-dev/bevy-inspector-egui.git", rev = "6c4689637f289647ecad5897da35c29032fcc086", version = "0.37", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.40", default-features = false, features = [
+bevy_egui = { git = "https://github.com/taboky-dev/bevy_egui.git", rev = "3cd933b7fb9800cc1ccc2a66ad2b11ae06b893cb", version = "0.42", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",

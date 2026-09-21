@@ -29,7 +29,7 @@ impl PlayerChildCollider {
 /// player cube (rigid body + collider)
 /// └── smaller cube collider (no rigid body, fixed local offset)
 /// ```
-fn spawn_player_child_collider(trigger: On<Add, PlayerId>, mut commands: Commands) {
+fn spawn_player_child_collider(trigger: On<Add<PlayerId>>, mut commands: Commands) {
     let player = trigger.entity;
     commands.spawn((
         ChildOf(player),

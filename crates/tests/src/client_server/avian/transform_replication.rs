@@ -24,7 +24,7 @@ fn test_replicate_transform_rigid_body() {
     // add RigidBody on the client since it's not replicated
     stepper
         .client_app()
-        .add_observer(|trigger: On<Add, Replicated>, mut commands: Commands| {
+        .add_observer(|trigger: On<Add<Replicated>>, mut commands: Commands| {
             commands.entity(trigger.entity).insert(RigidBody::Kinematic);
         });
 

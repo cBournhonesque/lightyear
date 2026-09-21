@@ -61,7 +61,7 @@ fn player_movement(
 
 /// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut predicted: Query<(&PlayerId, &mut PlayerColor), With<Predicted>>,
 ) {
     let entity = trigger.entity;
@@ -77,7 +77,7 @@ pub(crate) fn handle_predicted_spawn(
 /// Add local movement bindings once the replicated action entity is fully
 /// ready for a player that we control.
 fn add_bindings_to_controlled_action(
-    trigger: On<Insert, (Action<Movement>, ActionOf<Player>)>,
+    trigger: On<Insert<(Action<Movement>, ActionOf<Player>)>>,
     actions: Query<&ActionOf<Player>, (With<Action<Movement>>, Without<Bindings>)>,
     controlled_players: Query<(), (With<Player>, With<Controlled>)>,
     mut commands: Commands,
@@ -96,7 +96,7 @@ fn add_bindings_to_controlled_action(
 /// Add local movement bindings if the controlled player becomes ready after
 /// its action entities.
 fn add_bindings_to_controlled_player_actions(
-    trigger: On<Add, (Player, Controlled, Actions<Player>)>,
+    trigger: On<Add<(Player, Controlled, Actions<Player>)>>,
     players: Query<&Actions<Player>, (With<Player>, With<Controlled>)>,
     actions: Query<(), (With<Action<Movement>>, Without<Bindings>)>,
     mut commands: Commands,
@@ -116,7 +116,7 @@ fn add_bindings_to_controlled_player_actions(
 
 /// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, PlayerColor>,
+    trigger: On<Add<PlayerColor>>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {
