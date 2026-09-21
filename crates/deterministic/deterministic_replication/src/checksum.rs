@@ -274,13 +274,13 @@ impl ChecksumSendPlugin {
 
         #[cfg(feature = "p2p")]
         {
-            let NetworkTopology::P2P(joined) = &metadata.mode else {
+            let Some(roster) = metadata.mode.started_p2p_roster() else {
                 return;
             };
             let checksum = compute_history_checksum(&mut world, confirmed_tick);
             pending_checksums.record_local(confirmed_tick, checksum, log_p2p_comparison);
             pending_checksums.clean(confirmed_tick);
-            Self::send_p2p_checksum(&mut senders, joined, confirmed_tick, checksum);
+            Self::send_p2p_checksum(&mut senders, &roster.started, confirmed_tick, checksum);
         }
     }
 
@@ -398,10 +398,10 @@ impl ChecksumReceivePlugin {
         mut messages: Query<(&mut MessageReceiver<ChecksumMessage>, &RemoteId)>,
         mut pending_checksums: ResMut<PendingP2PChecksums>,
     ) {
-        let NetworkTopology::P2P(joined) = &metadata.mode else {
+        let Some(roster) = metadata.mode.started_p2p_roster() else {
             return;
         };
-        for &link in joined {
+        for &link in &roster.started {
             let Ok((mut receiver, remote_id)) = messages.get_mut(link) else {
                 continue;
             };

@@ -10,3 +10,4 @@ mod stepper;
 mod websocket;
 #[cfg(feature = "p2p_webtransport")]
 mod webtransport;
+mod solo;

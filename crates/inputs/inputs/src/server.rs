@@ -27,6 +27,7 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
+use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
@@ -291,9 +292,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
     }
 }
 
-// NOTE: the `Server` query exists for rebroadcasting (sending to all except
-// the sender); the receive half would work on any receiver.
-
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<InputConfig<S::Action>>,
@@ -312,9 +310,8 @@ fn receive_input_message<S: ActionStateSequence>(
             &RemoteId,
             Option<&InputRebroadcaster<S::Action>>,
         ),
-        // We also receive inputs from the HostClient, in case we want the HostClient's inputs to be
-        // rebroadcast to other clients (so that they can do prediction of the HostClient's entity)
-        With<Connected>,
+        // Include the host client's server-side Link, but never consume P2P/client packets.
+        (With<Connected>, With<ClientOf>),
     >,
     mut query: Query<Option<&mut InputBuffer<S::Snapshot, S::Action>>>,
     prespawned: Query<
