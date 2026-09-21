@@ -3,8 +3,9 @@ use crate::timeline::sync::{SyncConfig, SyncContext, SyncTargetTimeline, Timelin
 
 use bevy_ecs::change_detection::Tick as ChangeTick;
 use bevy_ecs::prelude::*;
-use bevy_ecs::query::FilteredAccessSet;
-use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
+use bevy_ecs::system::{
+    ReadOnlySystemParam, SystemAccess, SystemMeta, SystemParam, SystemParamValidationError,
+};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use core::{marker::PhantomData, time::Duration};
@@ -90,7 +91,7 @@ impl InputTimelineConfig {
 
     /// Recompute input delay when the global configuration resource is inserted or replaced.
     pub(crate) fn recompute_input_delay_on_config_update(
-        _trigger: On<Insert, InputTimelineConfig>,
+        _trigger: On<Insert<InputTimelineConfig>>,
         tick_duration: Res<TickDuration>,
         metadata: Res<NetworkingMetadata>,
         links: Query<&Link>,
@@ -463,19 +464,19 @@ unsafe impl SystemParam for SyncedLocalTimeline<'_, '_> {
     fn init_access(
         state: &Self::State,
         system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         <Res<'static, LocalTimeline> as SystemParam>::init_access(
             &state.0,
             system_meta,
-            component_access_set,
+            system_access,
             world,
         );
         <Res<'static, LocalTimelineSync> as SystemParam>::init_access(
             &state.1,
             system_meta,
-            component_access_set,
+            system_access,
             world,
         );
     }

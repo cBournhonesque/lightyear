@@ -246,7 +246,7 @@ pub(super) fn register_island_rollback(app: &mut App, rollback_sleeping: bool) {
 /// history systems record only changed components, and `insert_if_new` preserves histories already
 /// installed through an ordinary prediction marker.
 fn add_collider_rollback_histories(
-    trigger: On<Add, (ColliderTreeProxyKey, ColliderAabb, EnlargedAabb)>,
+    trigger: On<Add<(ColliderTreeProxyKey, ColliderAabb, EnlargedAabb)>>,
     colliders: Query<
         (),
         (

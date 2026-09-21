@@ -50,7 +50,7 @@ fn test_prediction_history_received_from_initial_marker() {
     struct ObservedCompleteInitialPrediction;
 
     fn observe_initial_prediction(
-        trigger: On<Add, Predicted>,
+        trigger: On<Add<Predicted>>,
         query: Query<
             (),
             (

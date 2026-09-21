@@ -261,7 +261,7 @@ fn reconcile_member_rooms(
 /// Sender links need no handling: inheriting children carry [`Rooms`], so
 /// replicon's own filter observers evaluate them on client changes.
 fn propagate_rooms_when_inserted(
-    trigger: On<Insert, Rooms>,
+    trigger: On<Insert<Rooms>>,
     children: Query<&ReplicateLikeChildren>,
     rooms: Query<&Rooms>,
     replicate_like: Query<&ReplicateLike>,
@@ -290,7 +290,7 @@ fn propagate_rooms_when_inserted(
 /// - otherwise it was a root: the constraint is gone, drop the mirrors on
 ///   unmarked members.
 fn propagate_rooms_when_removed(
-    trigger: On<Remove, Rooms>,
+    trigger: On<Remove<Rooms>>,
     children: Query<&ReplicateLikeChildren>,
     rooms: Query<&Rooms>,
     replicate_like: Query<&ReplicateLike>,
@@ -332,7 +332,7 @@ fn propagate_rooms_when_removed(
 /// without rooms get mirrored, and unmarked members with rooms are left for
 /// the propagation system's force-sync to converge via reconciliation.
 fn inherit_rooms_on_replicate_like_added(
-    trigger: On<Insert, ReplicateLike>,
+    trigger: On<Insert<ReplicateLike>>,
     replicate_like: Query<&ReplicateLike>,
     rooms: Query<&Rooms>,
     overridden: Query<Has<RoomsOverridden>>,
@@ -362,7 +362,7 @@ fn inherit_rooms_on_replicate_like_added(
 
 /// Re-inherit the replication root's rooms after [`RoomsOverridden`] is removed.
 fn reinherit_rooms_on_override_removed(
-    trigger: On<Remove, RoomsOverridden>,
+    trigger: On<Remove<RoomsOverridden>>,
     replicate_like: Query<&ReplicateLike>,
     rooms: Query<&Rooms>,
     mut commands: Commands,
@@ -379,13 +379,13 @@ fn reinherit_rooms_on_override_removed(
 /// [`ClientVisibility::default`] treats entities as visible, and replicon's own
 /// new-client backfill skips links that already have the filter's client
 /// component — but client [`Rooms`] are usually inserted together with the
-/// replication sender (e.g. in `On<Add, Connected>`), i.e. before replicon
+/// replication sender (e.g. in `On<Add<Connected>>`), i.e. before replicon
 /// inserts [`ClientVisibility`] for the link. Without this backfill the link
 /// would receive pre-existing entities in rooms it never joined.
 /// (Links that gain [`Rooms`] after admission are covered by replicon's
 /// client-insert observer instead.)
 fn backfill_rooms_for_new_client(
-    trigger: On<Add, ClientVisibility>,
+    trigger: On<Add<ClientVisibility>>,
     client_rooms: Query<&Rooms>,
     entities: Query<(Entity, &Rooms), Without<ClientVisibility>>,
     registry: Res<FilterRegistry>,
@@ -798,7 +798,7 @@ mod tests {
         let entity = app.world_mut().spawn(Rooms::single(room_a)).id();
 
         // link already carries its rooms when ClientVisibility arrives (as when
-        // client Rooms are inserted in `On<Add, Connected>`): replicon's own
+        // client Rooms are inserted in `On<Add<Connected>>`): replicon's own
         // new-client backfill skips it, so the rooms backfill must evaluate it
         let stranger = app.world_mut().spawn(Rooms::single(room_b)).id();
         app.world_mut()

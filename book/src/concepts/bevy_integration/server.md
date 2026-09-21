@@ -12,7 +12,7 @@ that also has P2P endpoints, filter for the `Server` role before applying server
 
 ```rust,ignore
 pub(crate) fn handle_new_client(
-    trigger: On<Add, LinkOf>,
+    trigger: On<Add<LinkOf>>,
     links: Query<&LinkOf>,
     servers: Query<(), With<Server>>,
     mut commands: Commands,

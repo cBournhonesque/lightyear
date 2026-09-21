@@ -142,7 +142,7 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
 
 /// Remove all entities when the client disconnect
 fn on_disconnect(
-    trigger: On<Insert, Disconnected>,
+    trigger: On<Insert<Disconnected>>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
 ) {

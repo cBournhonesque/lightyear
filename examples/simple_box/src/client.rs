@@ -133,7 +133,7 @@ pub(crate) fn receive_message1(
 /// but also for the remote-controlled entities that are spawned with [`Interpolated`].
 /// The `With<Predicted>` filter ensures we only add the `InputMarker` once.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
 ) {
     let entity = trigger.entity;
@@ -147,7 +147,7 @@ pub(crate) fn handle_predicted_spawn(
 }
 
 fn handle_controlled_spawn(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     players: Query<&PlayerId, Without<InputMarker<Inputs>>>,
 ) {
@@ -163,7 +163,7 @@ fn handle_controlled_spawn(
 
 /// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, Interpolated>,
+    trigger: On<Add<Interpolated>>,
     mut interpolated: Query<&mut PlayerColor>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {

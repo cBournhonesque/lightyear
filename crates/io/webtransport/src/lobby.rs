@@ -126,7 +126,7 @@ fn publish_digest(
 /// A transport opens on [`LinkStart`], which for a server comes from `Start`. A P2P peer has no
 /// server to start, so the glue asks for it directly; without this the endpoint never listens and
 /// every dial connects to nothing.
-fn on_endpoint_added(trigger: On<Add, WebTransportEndpoint>, mut commands: Commands) {
+fn on_endpoint_added(trigger: On<Add<WebTransportEndpoint>>, mut commands: Commands) {
     commands.trigger(LinkStart {
         entity: trigger.entity,
     });
@@ -250,7 +250,7 @@ fn on_dial(
 
 /// Retires obsolete transport-owned Links when an inbound replacement settles its identity.
 fn on_accepted_identity(
-    trigger: On<Insert, (RemoteId, Connected)>,
+    trigger: On<Insert<(RemoteId, Connected)>>,
     accepted: Query<(&RemoteId, &LinkOf), (With<P2P>, With<Connected>)>,
     endpoints: Query<(), With<WebTransportEndpoint>>,
     obsolete: Query<
@@ -292,7 +292,7 @@ fn on_accepted_identity(
 ///
 /// Only links owned by a [`WebTransportEndpoint`] are touched, so a server's sessions are left alone.
 fn on_accepted_link(
-    trigger: On<Add, PeerAddr>,
+    trigger: On<Add<PeerAddr>>,
     links: Query<(&LinkOf, &PeerAddr)>,
     addresses: Query<&LocalAddr, With<WebTransportEndpoint>>,
     mut commands: Commands,
@@ -321,7 +321,7 @@ fn on_accepted_link(
 /// The connection layer does not do this for Aeronet-backed transports: only `RawClient` and Steam
 /// promote [`Linked`] to [`Connected`], and every `P2P` session reads `Connected`.
 fn on_link_linked(
-    trigger: On<Add, Linked>,
+    trigger: On<Add<Linked>>,
     query: Query<(), (With<P2P>, With<Client>, Without<Connected>)>,
     mut commands: Commands,
 ) {

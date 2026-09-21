@@ -85,12 +85,13 @@ use crate::rollback::RollbackSystems;
 use crate::switch::{SwitchBlend, SwitchDirection};
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
+use bevy_ecs::system::SystemAccess;
 use bevy_ecs::{
     archetype::{Archetype, ArchetypeGeneration, ArchetypeId, Archetypes},
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Mutable},
     prelude::*,
-    query::{FilteredAccess, FilteredAccessSet},
+    query::FilteredAccess,
     system::{SystemMeta, SystemParam, SystemParamValidationError},
     world::unsafe_world_cell::UnsafeWorldCell,
 };
@@ -272,7 +273,7 @@ unsafe impl SystemParam for CorrectionWorld<'_> {
     fn init_access(
         _state: &Self::State,
         _system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
@@ -281,7 +282,7 @@ unsafe impl SystemParam for CorrectionWorld<'_> {
                 correction.add_correction_access(&mut filtered_access);
             }
         }
-        component_access_set.add(filtered_access);
+        system_access.try_add(filtered_access).unwrap();
     }
 
     unsafe fn get_param<'world, 'state>(
@@ -363,7 +364,7 @@ pub fn add_correction_systems<
 /// causes is measured from it. The system that computes corrections decides when
 /// a saved value is past saving; see [`crate::correction`]'s creation system.
 fn remove_correction_state_on_live_removed<C: Component, D: Send + Sync + 'static>(
-    trigger: On<Remove, C>,
+    trigger: On<Remove<C>>,
     mut commands: Commands,
 ) {
     commands
@@ -1055,11 +1056,8 @@ impl CorrectionPolicy {
 mod tests {
     use core::time::Duration;
 
+    use bevy_curve::{Curve, Ease, FunctionCurve, Interval};
     use bevy_ecs::system::RunSystemOnce;
-    use bevy_math::{
-        Curve,
-        curve::{Ease, FunctionCurve, Interval},
-    };
     use bevy_replicon::prelude::*;
     use bevy_state::app::StatesPlugin;
     use lightyear_interpolation::{

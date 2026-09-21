@@ -232,7 +232,7 @@ pub(crate) fn materialize(
 /// When the local visual expires or hits something, remove its fire-data
 /// parent. On the server that despawns the replicated network entity too.
 pub(crate) fn despawn_parent(
-    trigger: On<Remove, ProjectileVisualOf>,
+    trigger: On<Remove<ProjectileVisualOf>>,
     visuals: Query<&ProjectileVisualOf, With<BulletMarker>>,
     authoritative_parents: Query<(), With<AuthoritativeFireData>>,
     mut commands: Commands,

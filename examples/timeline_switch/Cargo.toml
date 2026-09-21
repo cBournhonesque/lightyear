@@ -38,7 +38,6 @@ leafwing-input-manager = { workspace = true, default-features = false, features 
 ] }
 avian3d = { workspace = true, features = [
   "3d",
-  "f32",
   "parry-f32",
   "parallel",
   "serialize",

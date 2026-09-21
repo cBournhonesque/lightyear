@@ -75,7 +75,7 @@ impl VisibilityFilter for ControlledBy {
 
 impl ControlledBy {
     pub(crate) fn handle_disconnection(
-        trigger: On<Add, Disconnected>,
+        trigger: On<Add<Disconnected>>,
         mut commands: Commands,
         controlled_by_remote: Query<&ControlledByRemote>,
         controlled_by: Query<&ControlledBy>,
@@ -118,7 +118,7 @@ pub(crate) fn remove_controlled(_ctx: &mut RemoveCtx, entity: &mut DeferredEntit
 /// Host-server local emulation for control when a client becomes a host client after entities
 /// already exist.
 fn emulate_controlled_on_host_client_added(
-    trigger: On<Add, HostClient>,
+    trigger: On<Add<HostClient>>,
     mut commands: Commands,
     controlled_by: Query<(Entity, &ControlledBy, Option<&Controlled>)>,
 ) {
@@ -131,7 +131,7 @@ fn emulate_controlled_on_host_client_added(
 
 /// Host-server local emulation for control when a host-owned controlled entity is created.
 fn emulate_controlled_on_add(
-    trigger: On<Add, ControlledBy>,
+    trigger: On<Add<ControlledBy>>,
     mut commands: Commands,
     controlled_by: Query<(&ControlledBy, Option<&Controlled>)>,
     host_clients: Query<(), With<HostClient>>,
