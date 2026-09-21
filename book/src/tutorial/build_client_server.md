@@ -36,6 +36,19 @@ The [`Stopped`], [`Starting`], [`Started`] components represent the current stat
 
 While a client is disconnected, you can update its configuration (`ReplicationSender`, `MessageManager`, etc.), it will be applied on the next connection attempt.
 
+Choose the connection backend before connecting. A connection entity keeps that backend even after
+disconnecting; spawn a new entity to use another backend. Conflicting backend markers fail with a
+`Disconnected` reason rather than silently selecting one.
+
+Remote peer IDs are unique across all endpoints in the same Bevy `World`. A backend registers the
+resolved identity before adding `Connected`, so connection observers can immediately route to it.
+A second connection claiming an occupied ID is rejected without notifying `Connected` observers.
+Normal disconnect or despawn releases the binding.
+
+For netcode, a preinserted `LocalId` is an expectation, not an override of the token. Manual
+authentication can validate it before the handshake. Opaque tokens keep that ID encrypted, so their
+expected ID is checked after authentication but before `Connected`.
+
 
 ## Client
 

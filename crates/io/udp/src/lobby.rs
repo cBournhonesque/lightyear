@@ -62,7 +62,7 @@
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-use lightyear_connection::client::{Client, Connected};
+use lightyear_connection::client::Client;
 use lightyear_connection::p2p::P2P;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked};
@@ -118,15 +118,15 @@ fn on_peer_link_added(
         remote = %peer_addr.0,
         "lobby endpoint spawned a peer link"
     );
-    // One bundle, with `RemoteId` before `Connected`: `Connected`'s hook reads the remote id,
-    // and component hooks run in bundle order.
-    commands.entity(entity).insert((
-        P2P::default(),
-        LocalId(PeerId::Raw(local_addr.0)),
-        RemoteId(PeerId::Raw(peer_addr.0)),
-        Client,
-        Connected,
-    ));
+    let local = LocalId(PeerId::Raw(local_addr.0));
+    let remote = RemoteId(PeerId::Raw(peer_addr.0));
+    commands.entity(entity).insert((P2P::default(), Client));
+    commands.queue(move |world: &mut World| {
+        if !lightyear_connection::admission::is_default_connection(world, entity) {
+            return;
+        }
+        lightyear_connection::admission::admit(world, entity, local, remote, ());
+    });
 }
 
 /// Opens a Link to the peer the lobby asked for.

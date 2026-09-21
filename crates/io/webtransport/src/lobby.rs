@@ -322,10 +322,16 @@ fn on_accepted_link(
 /// promote [`Linked`] to [`Connected`], and every `P2P` session reads `Connected`.
 fn on_link_linked(
     trigger: On<Add, Linked>,
-    query: Query<(), (With<P2P>, With<Client>, Without<Connected>)>,
+    query: Query<(&LocalId, &RemoteId), (With<P2P>, With<Client>, Without<Connected>)>,
     mut commands: Commands,
 ) {
-    if query.get(trigger.entity).is_ok() {
-        commands.entity(trigger.entity).insert(Connected);
+    if let Ok((&local, &remote)) = query.get(trigger.entity) {
+        let entity = trigger.entity;
+        commands.queue(move |world: &mut World| {
+            if !lightyear_connection::admission::is_default_connection(world, entity) {
+                return;
+            }
+            lightyear_connection::admission::admit(world, entity, local, remote, ());
+        });
     }
 }

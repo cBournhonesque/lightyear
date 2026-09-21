@@ -51,12 +51,12 @@ impl From<Entity> for Disconnect {
     }
 }
 
-// TODO: it looks like in some cases, we want Connected.peer_id to return the local peer_id (when client connects to server)
-//  and in some cases we want it to return the remote peer_id (when server's ClientOf gets connected)
-//  We should decide on a rule.
-
+/// An admitted connection with a registered remote identity.
+///
+/// Production backends must use [`crate::admission::admit`]. Direct insertion is retained for
+/// fixtures, but panics if another entity already owns the requested remote identity.
 #[derive(Component, Debug, Reflect)]
-#[component(on_add = Connected::on_add)]
+#[component(on_add = Connected::on_add, on_remove = crate::admission::release)]
 pub struct Connected;
 
 impl Connected {
@@ -70,11 +70,20 @@ impl Connected {
                 )
             })
             .0;
+        // Admission already clears these states synchronously. Only legacy direct insertion
+        // needs deferred cleanup, which must not later erase an admission failure.
         world
             .commands()
             .entity(context.entity)
             .remove::<(Connecting, Disconnected)>();
         if let Some(mut metadata) = world.get_resource_mut::<NetworkingMetadata>() {
+            assert!(
+                metadata
+                    .peer_map
+                    .get(&peer_id)
+                    .is_none_or(|owner| *owner == context.entity),
+                "Remote identity {peer_id:?} is already registered; use admission::admit"
+            );
             metadata.peer_map.insert(peer_id, context.entity);
         }
     }
@@ -133,12 +142,11 @@ pub struct Disconnected {
 
 impl Disconnected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        if let Some(peer_id) = world.get::<RemoteId>(context.entity).map(|c| c.0) {
-            let mut metadata = world.resource_mut::<NetworkingMetadata>();
-            // An old connection can finish disconnecting after its replacement is connected.
-            if metadata.peer_map.get(&peer_id) == Some(&context.entity) {
-                metadata.peer_map.remove(&peer_id);
-            }
+        if let Some(remote) = world.get::<RemoteId>(context.entity).map(|id| id.0)
+            && let Some(mut metadata) = world.get_resource_mut::<NetworkingMetadata>()
+            && metadata.peer_map.get(&remote) == Some(&context.entity)
+        {
+            metadata.peer_map.remove(&remote);
         }
         world
             .commands()
@@ -241,6 +249,7 @@ mod tests {
         world.init_resource::<NetworkingMetadata>();
         let peer = PeerId::Local(1);
         let old = world.spawn((RemoteId(peer), Connected)).id();
+        world.entity_mut(old).remove::<Connected>();
         let replacement = world.spawn((RemoteId(peer), Connected)).id();
 
         world.entity_mut(old).insert(Disconnected::default());

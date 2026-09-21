@@ -595,12 +595,17 @@ mod tests {
             })
         );
 
-        let other_server = start_server(&mut app);
+        let other_server = app.world_mut().spawn(Server::default()).id();
+        assert!(!crate::server::start_server(app.world_mut(), other_server));
         app.world_mut().despawn(first);
         app.update();
+        assert_eq!(mode(&app), &NetworkTopology::Server(server));
+        assert!(app.world().get::<Started>(other_server).is_none());
+        assert!(app.world().get::<Disconnected>(other_server).is_some());
+        // The classifier also diagnoses malformed ready sets independently of lifecycle admission.
         assert_eq!(
-            mode(&app),
-            &NetworkTopology::Invalid(NetworkTopologyError::MultipleStartedServers(
+            unique_ready_server([server, other_server].into_iter()),
+            Err(NetworkTopologyError::MultipleStartedServers(
                 SmallVec::from_slice(&[server, other_server])
             ))
         );

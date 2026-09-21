@@ -8,6 +8,8 @@
 use alloc::vec::Vec;
 
 #[cfg(feature = "server")]
+use crate::admission::admit;
+#[cfg(feature = "server")]
 use crate::{
     client::{
         Client, Connect, Connected, Connecting, Disconnect, Disconnected, DisconnectedReason,
@@ -56,34 +58,37 @@ impl HostPlugin {
         trigger: On<Connect>,
         mut commands: Commands,
         query: Query<&LinkOf, (With<Client>, Without<HostClient>)>,
-        server_query: Query<Has<Started>, With<Server>>,
+        server_query: Query<(), With<Server>>,
     ) {
         let Ok(link_of) = query.get(trigger.entity) else {
             return;
         };
-        let Ok(server_started) = server_query.get(link_of.endpoint) else {
-            return;
-        };
-        if !server_started {
-            commands.entity(trigger.entity).insert(Connecting);
+        if server_query.get(link_of.endpoint).is_err() {
             return;
         }
-
-        info!(entity=?trigger.entity, "Connected host-client");
-        commands.entity(trigger.entity).insert((
-            Connected,
-            // We cannot insert the ids purely from the point of view of the client
-            // so we set both its to Local
-            LocalId(PeerId::Local(0)),
-            RemoteId(PeerId::Local(0)),
-            ClientOf,
-            // NOTE: it's very important to insert Connected and HostClient at the same time
-            //  to avoid race conditions between observers that depend on Connected, and those
-            // that depend on HostClient
-            HostClient { buffer: Vec::new() },
-        ));
-        commands.entity(link_of.endpoint).insert(HostServer {
-            client: trigger.entity,
+        let entity = trigger.entity;
+        let endpoint = link_of.endpoint;
+        commands.queue(move |world: &mut World| {
+            if world.get::<Started>(endpoint).is_none() {
+                world.entity_mut(entity).insert(Connecting);
+                return;
+            }
+            // HostClient observers also need the resolved identity for existing-entity backfill.
+            // Connected is exposed only after admission registers that identity.
+            world
+                .entity_mut(endpoint)
+                .insert(HostServer { client: entity });
+            if admit(
+                world,
+                entity,
+                LocalId(PeerId::Local(0)),
+                RemoteId(PeerId::Local(0)),
+                (ClientOf, HostClient { buffer: Vec::new() }),
+            ) {
+                info!(?entity, "Connected host-client");
+            } else {
+                world.entity_mut(endpoint).remove::<HostServer>();
+            }
         });
     }
 
@@ -171,6 +176,38 @@ impl Plugin for HostPlugin {
 #[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
+    #[test]
+    fn host_admission_exposes_role_and_registry_before_connected() {
+        let mut app = test_app();
+        app.add_observer(
+            |trigger: On<Add, (Connected, HostClient)>,
+             clients: Query<(
+                &Connected,
+                &HostClient,
+                &ClientOf,
+                &LinkOf,
+                &LocalId,
+                &RemoteId,
+            )>,
+             servers: Query<&HostServer>,
+             metadata: Res<NetworkingMetadata>| {
+                let (_, _, _, link, local, remote) = clients.get(trigger.entity).unwrap();
+                assert_eq!(local.0, PeerId::Local(0));
+                assert_eq!(remote.0, PeerId::Local(0));
+                assert_eq!(metadata.peer_map.get(&remote.0), Some(&trigger.entity));
+                assert_eq!(servers.get(link.endpoint).unwrap().client, trigger.entity);
+            },
+        );
+        let (server, client) = spawn_host(&mut app);
+        app.world_mut()
+            .entity_mut(server)
+            .insert(crate::admission::NoDefaultConnection);
+        app.world_mut().entity_mut(server).insert(Started);
+        app.world_mut().trigger(Connect { entity: client });
+        app.world_mut().flush();
+        assert!(app.world().get::<Connected>(client).is_some());
+    }
+
     use crate::client::ConnectionPlugin;
     use crate::network_topology::NetworkingMetadata;
 

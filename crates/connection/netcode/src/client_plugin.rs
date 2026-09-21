@@ -11,6 +11,7 @@ use bevy_ecs::{system::ParallelCommands, world::DeferredWorld};
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSystems;
+use lightyear_connection::admission::{NoDefaultConnection, admit, reject};
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected, DisconnectedReason,
 };
@@ -26,12 +27,17 @@ pub struct NetcodeClientPlugin;
 /// Add this component on an entity to make it a netcode client.
 ///
 /// The [`Link`] component will be added.
+///
+/// A preinserted [`LocalId`] requests the token's client identity, not an override.
+/// Manual authentication validates it before the handshake. Opaque tokens keep the
+/// client ID encrypted, so their request is checked after authentication, before admission.
 #[derive(Component)]
 #[require(Link, lightyear_connection::client::Client)]
-#[require(Disconnected)]
+#[require(Disconnected, NoDefaultConnection)]
 #[component(on_insert = NetcodeClient::on_insert)]
 pub struct NetcodeClient {
     pub inner: crate::client::Client<()>,
+    token_client_id: Option<u64>,
 }
 
 impl NetcodeClient {
@@ -85,10 +91,15 @@ impl NetcodeConfig {
 
 impl NetcodeClient {
     pub fn new(auth: Authentication, config: NetcodeConfig) -> Result<Self, Error> {
+        let token_client_id = match &auth {
+            Authentication::Manual { client_id, .. } => Some(*client_id),
+            _ => None,
+        };
         let token = auth.get_token(config.client_timeout_secs, config.token_expire_secs)?;
         let token_bytes = token.try_into_bytes()?;
         Ok(Self {
             inner: crate::client::Client::with_config(&token_bytes, config.build())?,
+            token_client_id,
         })
     }
 
@@ -164,11 +175,10 @@ impl NetcodeClientPlugin {
                     if state == ClientState::Connected && connecting {
                         info!("Client {} connected", client.id());
                         parallel_commands.command_scope(|mut commands| {
-                            commands.entity(entity).insert((
-                                Connected,
-                                LocalId(client.id()),
-                                RemoteId(PeerId::Server),
-                            ));
+                            let local = LocalId(client.id());
+                            commands.queue(move |world: &mut World| {
+                                Self::admit_connection(world, entity, local);
+                            });
                         });
                     }
                     if !disconnected
@@ -194,15 +204,62 @@ impl NetcodeClientPlugin {
         )
     }
 
+    fn admit_connection(world: &mut World, entity: Entity, local: LocalId) {
+        let mismatch = world
+            .get::<LocalId>(entity)
+            .is_some_and(|requested| *requested != local)
+            || world
+                .get::<RemoteId>(entity)
+                .is_some_and(|requested| requested.0 != PeerId::Server);
+        if mismatch {
+            reject(
+                world,
+                entity,
+                format!(
+                    "requested identity does not match authenticated netcode identity {:?}",
+                    local.0
+                ),
+            );
+        } else if admit(world, entity, local, RemoteId(PeerId::Server), ()) {
+            return;
+        }
+        if let Some(mut client) = world.get_mut::<NetcodeClient>(entity) {
+            if !client.inner.is_disconnected() {
+                let _ = client.inner.disconnect();
+            }
+        }
+    }
+
     fn connect(
         trigger: On<Connect>,
         mut commands: Commands,
-        mut query: Query<&mut NetcodeClient, Without<Connected>>,
+        query: Query<(), (With<NetcodeClient>, Without<Connected>)>,
     ) {
-        if let Ok(mut client) = query.get_mut(trigger.entity) {
-            debug!("Starting netcode connection process");
-            client.inner.connect();
-            commands.entity(trigger.entity).insert(Connecting);
+        if query.get(trigger.entity).is_ok() {
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                let token_id = world
+                    .get::<NetcodeClient>(entity)
+                    .and_then(|client| client.token_client_id);
+                if let (Some(token_id), Some(requested)) = (token_id, world.get::<LocalId>(entity))
+                {
+                    if requested.0 != PeerId::Netcode(token_id) {
+                        let reason = format!(
+                            "requested local ID {:?} does not match netcode token ID {token_id}",
+                            requested.0
+                        );
+                        reject(world, entity, reason);
+                        return;
+                    }
+                }
+                debug!("Starting netcode connection process");
+                world
+                    .get_mut::<NetcodeClient>(entity)
+                    .unwrap()
+                    .inner
+                    .connect();
+                world.entity_mut(entity).insert(Connecting);
+            });
         }
     }
 
@@ -218,6 +275,14 @@ impl NetcodeClientPlugin {
             });
         }
         Ok(())
+    }
+
+    fn disconnected(trigger: On<Insert, Disconnected>, mut query: Query<&mut NetcodeClient>) {
+        if let Ok(mut client) = query.get_mut(trigger.entity) {
+            if !client.inner.is_disconnected() {
+                let _ = client.inner.disconnect();
+            }
+        }
     }
 }
 
@@ -249,5 +314,112 @@ impl Plugin for NetcodeClientPlugin {
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSystems::Send));
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect);
+        app.add_observer(Self::disconnected);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::packet::{ChallengePacket, KeepAlivePacket};
+    use crate::token::ChallengeToken;
+
+    #[test]
+    fn opaque_token_checks_requested_id_before_admission() {
+        let token =
+            crate::ConnectToken::build("127.0.0.1:5000", 1, 7, [0; crate::PRIVATE_KEY_BYTES])
+                .generate()
+                .unwrap();
+        let key = token.server_to_client_key;
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>();
+        app.add_plugins(NetcodeClientPlugin);
+        let entity = app
+            .world_mut()
+            .spawn((
+                NetcodeClient::new(Authentication::Token(token), NetcodeConfig::default()).unwrap(),
+                LocalId(PeerId::Netcode(8)),
+            ))
+            .id();
+        app.world_mut().flush();
+        app.world_mut().trigger(Connect { entity });
+        app.world_mut().flush();
+        app.world_mut().entity_mut(entity).insert(Linked);
+        for (sequence, packet) in [
+            ChallengePacket::create(0, [0; ChallengeToken::SIZE]),
+            KeepAlivePacket::create(7),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut buf = [0; crate::MAX_PKT_BUF_SIZE];
+            let len = packet.write(&mut buf, sequence as u64, &key, 1).unwrap();
+            app.world_mut()
+                .get_mut::<Link>(entity)
+                .unwrap()
+                .recv
+                .push_raw(bytes::BytesMut::from(&buf[..len]));
+        }
+        app.update();
+
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(
+            app.world()
+                .get::<NetcodeClient>(entity)
+                .unwrap()
+                .inner
+                .is_disconnected()
+        );
+        assert_eq!(
+            app.world().get::<LocalId>(entity).unwrap().0,
+            PeerId::Netcode(8)
+        );
+        assert!(matches!(
+            app.world().get::<Disconnected>(entity).unwrap().reason,
+            DisconnectedReason::TransportError(_)
+        ));
+    }
+
+    #[test]
+    fn manual_token_rejects_requested_id_before_handshake() {
+        let mut app = App::new();
+        app.add_plugins(NetcodeClientPlugin);
+        let entity = app
+            .world_mut()
+            .spawn((
+                NetcodeClient::new(
+                    Authentication::Manual {
+                        server_addr: "127.0.0.1:5000".parse().unwrap(),
+                        client_id: 7,
+                        private_key: [0; crate::PRIVATE_KEY_BYTES],
+                        protocol_id: 1,
+                    },
+                    NetcodeConfig::default(),
+                )
+                .unwrap(),
+                LocalId(PeerId::Netcode(8)),
+            ))
+            .id();
+        app.world_mut().flush();
+        app.world_mut().trigger(Connect { entity });
+        app.world_mut().flush();
+
+        assert!(
+            !app.world()
+                .get::<NetcodeClient>(entity)
+                .unwrap()
+                .inner
+                .is_pending()
+        );
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<Connecting>(entity).is_none());
+        assert_eq!(
+            app.world().get::<LocalId>(entity).unwrap().0,
+            PeerId::Netcode(8)
+        );
+        assert!(matches!(
+            app.world().get::<Disconnected>(entity).unwrap().reason,
+            DisconnectedReason::TransportError(_)
+        ));
     }
 }

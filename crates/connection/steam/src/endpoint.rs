@@ -10,10 +10,11 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
 use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason};
+use lightyear_connection::admission::{NoDefaultConnection, admit};
+use lightyear_connection::client::{Disconnected, DisconnectedReason};
 use lightyear_connection::client_of::{ClientOf, SkipNetcode};
-use lightyear_connection::server::{Start, Started, Stop};
-use lightyear_core::id::{PeerId, RemoteId};
+use lightyear_connection::server::{Start, Stop, start_server};
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::endpoint::{Endpoint, LinkOf};
 use lightyear_link::{Link, LinkStart, Linked, Linking, UnlinkReason};
 use tracing::{info, trace};
@@ -51,7 +52,7 @@ impl Plugin for SteamEndpointPlugin {
 /// This is not a server role: add [`Server`](lightyear_link::server::Server) alongside
 /// for the authority role.
 #[derive(Debug, Component)]
-#[require(Endpoint)]
+#[require(Endpoint, NoDefaultConnection)]
 pub struct SteamEndpoint {
     pub target: ListenTarget,
     pub config: SessionConfig,
@@ -60,7 +61,7 @@ pub struct SteamEndpoint {
 /// Marker component to identify this link as connected to a Steam Server.
 #[derive(Component)]
 // Steam links don't need to go through Netcode, so we skip it
-#[require(SkipNetcode)]
+#[require(SkipNetcode, NoDefaultConnection)]
 pub struct SteamClientOf;
 
 impl SteamEndpointPlugin {
@@ -89,7 +90,10 @@ impl SteamEndpointPlugin {
     ) {
         if query.get(trigger.entity).is_ok() {
             trace!("Set Steam server to Started");
-            commands.entity(trigger.entity).insert(Started);
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                start_server(world, entity);
+            });
         }
     }
 
@@ -112,58 +116,6 @@ impl SteamEndpointPlugin {
         request.respond(SessionResponse::Accepted);
     }
 
-    // fn on_connecting(
-    //     // SteamNetServerClient is added at the same time as SessionEndpoint
-    //     trigger: On<Add, SteamNetServerClient<ClientManager>>,
-    //     query: Query<&AeronetLinkOf>,
-    //     child_query: Query<(&ChildOf, &SteamNetServerClient<ClientManager>)>,
-    //     mut commands: Commands,
-    // ) {
-    //     if let Ok((child_of, steam_conn)) = child_query.get(trigger.entity) {
-    //         if let Ok(server_link) = query.get(child_of.parent()) {
-    //
-    //             let link_entity = commands
-    //                 .spawn((
-    //                     LinkOf {
-    //                         endpoint: server_link.0,
-    //                     },
-    //                     Link::default(),
-    //                     ClientOf,
-    //                     Linked,
-    //                     Connecting,
-    //                     RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
-    //                     SteamClientOf,
-    //                 ))
-    //                 .id();
-    //             trace!(
-    //                 "New Steam LinkOf connecting. AeronetEntity: {:?}, LinkOf: {:?}. Steam id: {:?}",
-    //                 trigger.entity,
-    //                 link_entity,
-    //                 steam_conn.steam_id()
-    //             );
-    //             commands
-    //                 .entity(trigger.entity)
-    //                 .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
-    //         }
-    //     }
-    // }
-    //
-    // fn on_connection(
-    //     trigger: On<Add, Session>,
-    //     link_of_query: Query<&AeronetLinkOf, With<SteamNetServerClient<ClientManager>>>,
-    //     mut commands: Commands,
-    // ) {
-    //     info!("steam connection");
-    //     if let Ok(link_of) = link_of_query.get(trigger.entity) {
-    //         if let Ok(mut link) = commands.get_entity(link_of.0) {
-    //             trace!(
-    //                 "Steam link-of connection established. AeronetEntity: {:?}, LinkOf: {:?}", trigger.entity, link_of.0
-    //             );
-    //             link.insert(Connected);
-    //         }
-    //     }
-    // }
-
     fn on_connection(
         trigger: On<Add, Session>,
         query: Query<&AeronetLinkOf>,
@@ -184,11 +136,13 @@ impl SteamEndpointPlugin {
                     },
                     Link::default(),
                     ClientOf,
-                    Connected,
-                    RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),
                     SteamClientOf,
                 ))
                 .id();
+            let remote = RemoteId(PeerId::Steam(steam_conn.steam_id().raw()));
+            commands.queue(move |world: &mut World| {
+                admit(world, link_entity, LocalId(PeerId::Server), remote, ());
+            });
             commands
                 .entity(trigger.entity)
                 .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));

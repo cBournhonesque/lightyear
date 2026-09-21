@@ -1,6 +1,7 @@
 use aeronet_io::connection::LocalAddr;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
+use lightyear_connection::admission::admit;
 use lightyear_connection::client::ConnectionPlugin;
 use lightyear_connection::prelude::client::*;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
@@ -29,14 +30,14 @@ impl RawConnectionPlugin {
         mut commands: Commands,
     ) {
         if let Ok((local_addr, local_id, remote_id)) = query.get(trigger.entity) {
-            trace!("RawClient Linked! Adding Connected");
-            commands.entity(trigger.entity).insert((
-                Connected,
-                local_id
-                    .copied()
-                    .unwrap_or(LocalId(PeerId::Raw(local_addr.0))),
-                remote_id.copied().unwrap_or(RemoteId(PeerId::Server)),
-            ));
+            let entity = trigger.entity;
+            let local = local_id
+                .copied()
+                .unwrap_or(LocalId(PeerId::Raw(local_addr.0)));
+            let remote = remote_id.copied().unwrap_or(RemoteId(PeerId::Server));
+            commands.queue(move |world: &mut World| {
+                admit(world, entity, local, remote, ());
+            });
         }
     }
 

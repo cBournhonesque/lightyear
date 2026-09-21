@@ -3,7 +3,7 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::entity::UniqueEntitySlice;
 use bevy_ecs::prelude::*;
 use core::fmt::Debug;
-use lightyear_connection::prelude::client::*;
+use lightyear_connection::admission::admit;
 use lightyear_connection::prelude::server::*;
 use lightyear_link::prelude::*;
 
@@ -35,7 +35,10 @@ impl RawConnectionPlugin {
     ) {
         if query.get(trigger.entity).is_ok() {
             trace!("RawClient Server Linked! Adding Started");
-            commands.entity(trigger.entity).insert(Started);
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                start_server(world, entity);
+            });
         }
     }
 
@@ -49,13 +52,12 @@ impl RawConnectionPlugin {
         if let Ok((link_of, peer_addr)) = link_of.get(trigger.entity)
             && server.get(link_of.endpoint).is_ok()
         {
-            trace!("RawClient LinkOf Linked! Adding Connected");
-            commands.entity(trigger.entity).insert((
-                Connected,
-                LocalId(PeerId::Server),
-                RemoteId(PeerId::Raw(peer_addr.0)),
-                ClientOf,
-            ));
+            let entity = trigger.entity;
+            let remote = RemoteId(PeerId::Raw(peer_addr.0));
+            commands.queue(move |world: &mut World| {
+                world.entity_mut(entity).insert(ClientOf);
+                admit(world, entity, LocalId(PeerId::Server), remote, ());
+            });
         }
     }
 

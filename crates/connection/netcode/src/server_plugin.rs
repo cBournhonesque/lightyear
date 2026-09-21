@@ -8,6 +8,7 @@ use bevy_ecs::{
 };
 use bevy_time::{Real, Time};
 use core::net::SocketAddr;
+use lightyear_connection::admission::{NoDefaultConnection, admit, reject};
 use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
@@ -46,7 +47,7 @@ pub(crate) struct NetcodeServerContext {
 }
 
 #[derive(Component)]
-#[require(Server)]
+#[require(Server, NoDefaultConnection)]
 pub struct NetcodeServer {
     pub(crate) inner: crate::server::Server<NetcodeServerContext>,
     server_addr_check: bool,
@@ -178,6 +179,49 @@ impl NetcodeServer {
 }
 
 impl NetcodeServerPlugin {
+    fn admit_connection(
+        world: &mut World,
+        server_entity: Entity,
+        entity: Entity,
+        id: ClientId,
+        user_data: [u8; USER_DATA_BYTES],
+    ) {
+        if world.get_entity(entity).is_err() {
+            if let Some(mut server) = world.get_mut::<NetcodeServer>(server_entity) {
+                server.inner.remove_by_entity(entity);
+            }
+            return;
+        }
+        let local = LocalId(PeerId::Server);
+        let remote = RemoteId(PeerId::Netcode(id));
+        let mismatch = world
+            .get::<LocalId>(entity)
+            .is_some_and(|requested| *requested != local)
+            || world
+                .get::<RemoteId>(entity)
+                .is_some_and(|requested| *requested != remote);
+        if mismatch {
+            reject(
+                world,
+                entity,
+                alloc::format!(
+                    "requested identity does not match authenticated netcode identity {:?}",
+                    remote.0
+                ),
+            );
+        } else {
+            world
+                .entity_mut(entity)
+                .insert((ClientOf, TokenUserData(user_data)));
+            if admit(world, entity, local, remote, ()) {
+                return;
+            }
+        }
+        if let Some(mut server) = world.get_mut::<NetcodeServer>(server_entity) {
+            server.inner.remove_by_entity(entity);
+        }
+    }
+
     /// Takes packets from the Link, process them through the server,
     /// and buffer them back into the link to be sent by the IO
     fn send(
@@ -326,6 +370,18 @@ impl NetcodeServerPlugin {
                     link_query
                         .iter_many_unique_mut(unique_slice)
                         .for_each(|(entity, mut link)| {
+                            // Timeout callbacks already scheduled this link for retirement.
+                            // Buffered retries must not recreate a reservation before it despawns.
+                            if netcode_server
+                                .inner
+                                .cfg
+                                .context
+                                .disconnections
+                                .iter()
+                                .any(|(_, disconnected)| *disconnected == entity)
+                            {
+                                return;
+                            }
                             let mut entity_mut = c.entity(entity);
 
                             // #[cfg(feature = "test_utils")]
@@ -371,13 +427,9 @@ impl NetcodeServerPlugin {
                             // TODO: mention server id in case we have multiple servers
                             info!("New connection on netcode from {:?} ({:?})", id, entity);
                             trace!("Adding Connected/ClientOf with id {:?}", id);
-                            c.entity(entity).insert((
-                                Connected,
-                                LocalId(PeerId::Server),
-                                RemoteId(PeerId::Netcode(id)),
-                                ClientOf,
-                                TokenUserData(user_data),
-                            ));
+                            c.queue(move |world: &mut World| {
+                                Self::admit_connection(world, server_entity, entity, id, user_data);
+                            });
                         });
                     netcode_server
                         .inner
@@ -413,13 +465,44 @@ impl NetcodeServerPlugin {
 
     fn start(trigger: On<Start>, query: Query<(), With<NetcodeServer>>, mut commands: Commands) {
         if query.get(trigger.entity).is_ok() {
-            commands.entity(trigger.entity).insert(Started);
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                lightyear_connection::server::start_server(world, entity);
+            });
         }
     }
 
     fn reset_on_stopped(trigger: On<Add, Stopped>, mut query: Query<&mut NetcodeServer>) {
         if let Ok(mut server) = query.get_mut(trigger.entity) {
             server.reset();
+        }
+    }
+
+    fn remove_link(
+        trigger: On<Remove, LinkOf>,
+        links: Query<&LinkOf>,
+        mut servers: Query<&mut NetcodeServer>,
+    ) {
+        if let Ok(link) = links.get(trigger.entity) {
+            if let Ok(mut server) = servers.get_mut(link.endpoint) {
+                server.inner.remove_by_entity(trigger.entity);
+            }
+        }
+    }
+
+    fn disconnected(
+        trigger: On<Insert, Disconnected>,
+        links: Query<&LinkOf>,
+        mut servers: Query<&mut NetcodeServer>,
+        mut commands: Commands,
+    ) {
+        if let Ok(link) = links.get(trigger.entity)
+            && let Ok(mut server) = servers.get_mut(link.endpoint)
+            && server.inner.remove_by_entity(trigger.entity)
+        {
+            // Transport failure can precede netcode's timeout. Retire the entity as well as
+            // its session, since that timeout can no longer perform the cleanup.
+            commands.entity(trigger.entity).try_despawn();
         }
     }
 
@@ -462,16 +545,101 @@ impl NetcodeServerPlugin {
         Ok(())
     }
 }
-
-#[cfg(test)]
+#[cfg(all(test, feature = "client"))]
 mod tests {
     use super::*;
+    use lightyear_connection::network_topology::NetworkingMetadata;
+    use lightyear_link::recv_payload_from_bytes;
 
     #[test]
-    fn max_clients_is_forwarded_to_the_server() {
-        let server = NetcodeServer::new(NetcodeConfig::default().with_max_clients(42));
+    fn duplicate_global_admission_removes_netcode_session() {
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>();
+        app.add_plugins(NetcodeServerPlugin);
+        #[derive(Resource, Default)]
+        struct Rejections(Vec<Entity>);
+        app.init_resource::<Rejections>();
+        app.add_observer(
+            |event: On<Insert, Disconnected>,
+             disconnected: Query<&Disconnected>,
+             mut rejections: ResMut<Rejections>| {
+                if matches!(
+                    disconnected.get(event.entity).unwrap().reason,
+                    DisconnectedReason::TransportError(_)
+                ) {
+                    rejections.0.push(event.entity);
+                }
+            },
+        );
+        let server = app
+            .world_mut()
+            .spawn(NetcodeServer::new(NetcodeConfig {
+                server_addr_check: false,
+                ..Default::default()
+            }))
+            .id();
+        app.world_mut().flush();
+        app.world_mut().trigger(Start { entity: server });
+        app.world_mut().flush();
 
-        assert_eq!(server.inner.cfg.max_clients, 42);
+        let incumbent = app.world_mut().spawn_empty().id();
+        assert!(admit(
+            app.world_mut(),
+            incumbent,
+            LocalId(PeerId::Server),
+            RemoteId(PeerId::Netcode(7)),
+            (),
+        ));
+        let incoming = app
+            .world_mut()
+            .spawn((Link::default(), LinkOf { endpoint: server }))
+            .id();
+        let token = crate::ConnectToken::build("127.0.0.1:5000", 0, 7, [0; PRIVATE_KEY_BYTES])
+            .generate()
+            .unwrap()
+            .try_into_bytes()
+            .unwrap();
+        let mut client = crate::client::Client::new(&token).unwrap();
+        let mut client_link = Link::default();
+        client.connect();
+        for _ in 0..4 {
+            client.try_update(0.2, &mut client_link.recv).unwrap();
+            client.drain_send_netcode_packets(&mut client_link.send);
+            {
+                let mut link = app.world_mut().get_mut::<Link>(incoming).unwrap();
+                while let Some(packet) = client_link.send.pop() {
+                    link.recv.push_raw(recv_payload_from_bytes(packet));
+                }
+            }
+            app.update();
+            let Some(mut link) = app.world_mut().get_mut::<Link>(incoming) else {
+                break;
+            };
+            while let Some(packet) = link.send.pop() {
+                client_link.recv.push_raw(recv_payload_from_bytes(packet));
+            }
+        }
+
+        assert_eq!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .get(&PeerId::Netcode(7)),
+            Some(&incumbent),
+        );
+        assert!(app.world().get::<Connected>(incumbent).is_some());
+        assert!(app.world().get::<Connected>(incoming).is_none());
+        assert_eq!(app.world().resource::<Rejections>().0, [incoming]);
+        assert!(app.world().get_entity(incoming).is_err());
+        assert!(
+            app.world()
+                .get::<NetcodeServer>(server)
+                .unwrap()
+                .inner
+                .client_ids()
+                .next()
+                .is_none()
+        );
     }
 }
 
@@ -510,5 +678,7 @@ impl Plugin for NetcodeServerPlugin {
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
         app.add_observer(Self::reset_on_stopped);
+        app.add_observer(Self::remove_link);
+        app.add_observer(Self::disconnected);
     }
 }

@@ -24,6 +24,7 @@ extern crate core;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::SystemSet;
 
+pub mod admission;
 pub mod client;
 
 pub mod server;
@@ -59,6 +60,7 @@ pub enum ConnectionSystems {
 
 pub mod prelude {
     pub use crate::ConnectionSystems;
+    pub use crate::admission::{NoDefaultConnection, admit};
     pub use crate::direction::NetworkDirection;
     pub use crate::identity::{is_client, is_p2p};
     pub use crate::network_target::NetworkTarget;
@@ -84,7 +86,9 @@ pub mod prelude {
     pub mod server {
         pub use crate::client_of::ClientOf;
         pub use crate::identity::{is_headless_server, is_host_server, is_server};
-        pub use crate::server::{ConnectionError, Start, Started, Starting, Stop, Stopped};
+        pub use crate::server::{
+            ConnectionError, Start, Started, Starting, Stop, Stopped, start_server,
+        };
     }
 }
 

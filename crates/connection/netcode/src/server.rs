@@ -86,6 +86,7 @@ struct Connection {
     client_id: ClientId,
     entity: Entity,
     timeout: i32,
+    pending_deadline: f64,
     last_access_time: f64,
     last_send_time: f64,
     last_receive_time: f64,
@@ -163,6 +164,14 @@ impl ConnectionCache {
             client_id,
             entity,
             timeout,
+            // Retransmitted requests must not extend an unproven client's reservation.
+            // Infinite session timeouts apply only once the handshake completes.
+            pending_deadline: time
+                + if timeout.is_positive() {
+                    timeout
+                } else {
+                    CLIENT_TIMEOUT_SECS
+                } as f64,
             last_access_time: time,
             last_send_time: f64::NEG_INFINITY,
             last_receive_time: f64::NEG_INFINITY,
@@ -181,9 +190,6 @@ impl ConnectionCache {
         let Some(conn) = self.clients.get(&client_id) else {
             return;
         };
-        if !conn.is_connected() {
-            return;
-        }
         self.client_id_map.remove(&conn.entity);
         self.replay_protection.remove(&client_id);
         self.clients.remove(&client_id);
@@ -717,20 +723,23 @@ impl<Ctx> Server<Ctx> {
             );
             return Ok(());
         };
-        if self
-            .conn_cache
-            .find_by_entity(&entity)
-            .is_some_and(|conn| conn.is_connected())
-        {
-            return Err(Error::ClientEntityInUse(entity));
-        };
+        if let Some(conn) = self.conn_cache.find_by_entity(&entity) {
+            if conn.is_connected() || conn.client_id != token.client_id {
+                return Err(Error::ClientEntityInUse(entity));
+            }
+        }
         if self
             .conn_cache
             .find_by_id(token.client_id)
-            .is_some_and(|conn| conn.is_connected())
+            .is_some_and(|conn| conn.entity != entity)
         {
+            self.send_netcode_packet(
+                DeniedPacket::create(DeniedReason::AlreadyConnected),
+                token.server_to_client_key,
+                entity,
+            )?;
             return Err(Error::ClientIdInUse(id::PeerId::Netcode(token.client_id)));
-        };
+        }
         let entry = TokenEntry {
             time: self.time,
             entity,
@@ -812,6 +821,9 @@ impl<Ctx> Server<Ctx> {
         let Some(client) = self.conn_cache.clients.get(&id) else {
             return Err(Error::UnknownClient(id::PeerId::Netcode(id)));
         };
+        if client.entity != entity {
+            return Err(Error::ClientIdInUse(id::PeerId::Netcode(id)));
+        }
         if client.is_connected() {
             // TODO: most of the time this error can happen because we receive older 'ConnectionResponse' messages
             // even though the client is already connected. Should we just ignore this error?
@@ -848,16 +860,17 @@ impl<Ctx> Server<Ctx> {
             let Some(client) = self.conn_cache.clients.get_mut(&id) else {
                 continue;
             };
-            if !client.is_connected() {
-                continue;
-            }
+            let timed_out = if client.is_connected() {
+                client.timeout.is_positive()
+                    && client.last_receive_time + (client.timeout as f64) < self.time
+            } else {
+                client.pending_deadline < self.time
+            };
             let entity = client.entity;
-            if client.timeout.is_positive()
-                && client.last_receive_time + (client.timeout as f64) < self.time
-            {
+            if timed_out {
                 debug!("server timed out client {id}");
                 self.on_disconnect(id, entity);
-                self.conn_cache.remove(id);
+                self.remove_by_entity(entity);
             }
         }
         self.conn_cache.recycle_client_ids(client_ids);
@@ -1113,6 +1126,23 @@ impl<Ctx> Server<Ctx> {
         Ok(())
     }
 
+    /// Discards a rejected or torn-down link, including pending crypto and queued packets.
+    /// Removal is entity-scoped so stale teardown cannot evict a replacement client.
+    pub(crate) fn remove_by_entity(&mut self, entity: Entity) -> bool {
+        let mut removed = false;
+        if let Some(client_id) = self.conn_cache.client_id_map.get(&entity).copied()
+            && self
+                .conn_cache
+                .find_by_id(client_id)
+                .is_some_and(|conn| conn.entity == entity)
+        {
+            self.conn_cache.remove(client_id);
+            removed = true;
+        }
+        self.send_queue.remove(&entity);
+        removed
+    }
+
     /// Disconnects a client.
     ///
     /// The server will send a number of redundant disconnect packets to the client, and then remove its connection info.
@@ -1271,7 +1301,10 @@ mod tests {
                 .internal_addresses(internal_server_addresses)
                 .unwrap();
         }
-        let token = token_builder.generate().unwrap();
+        request_from_token(token_builder.generate().unwrap())
+    }
+
+    fn request_from_token(token: ConnectToken) -> RequestPacket {
         let Packet::Request(mut request) = RequestPacket::create(
             token.protocol_id,
             token.expire_timestamp,
@@ -1322,6 +1355,196 @@ mod tests {
         }
         command_queue.apply(&mut world);
         (server, world, client)
+    }
+
+    #[test]
+    fn duplicate_pending_token_id_does_not_replace_crypto_owner() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let (mut server, mut world, first) = process_request(Some(addr), &[addr], None);
+        let second = world.spawn_empty().id();
+        let mut command_queue = CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut command_queue, &world);
+            let error = server
+                .process_connection_request(
+                    connection_request(&[addr], None),
+                    &mut commands.entity(second),
+                    Some(addr),
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                Error::ClientIdInUse(id::PeerId::Netcode(1))
+            ));
+        }
+        command_queue.apply(&mut world);
+        assert_eq!(server.client_entity(1), Some(first));
+        assert!(world.get::<Connecting>(second).is_none());
+
+        // Teardown of the rejected link must not invalidate the pending winner.
+        server.remove_by_entity(second);
+        assert_eq!(server.client_entity(1), Some(first));
+        server.remove_by_entity(first);
+        assert!(server.client_ids().next().is_none());
+        assert!(server.conn_cache.replay_protection.is_empty());
+        assert!(server.conn_cache.client_id_map.is_empty());
+        assert!(!server.send_queue.contains_key(&first));
+    }
+
+    #[cfg(feature = "client")]
+    fn exchange_packets(
+        server: &mut Server,
+        client: &mut crate::client::Client,
+        world: &mut World,
+        entity: Entity,
+        client_link: &mut Link,
+        server_link: &mut Link,
+        server_addr: SocketAddr,
+    ) -> Vec<Error> {
+        client.try_update(0.2, &mut client_link.recv).unwrap();
+        client.drain_send_netcode_packets(&mut client_link.send);
+        while let Some(packet) = client_link.send.pop() {
+            server_link
+                .recv
+                .push_raw(lightyear_link::recv_payload_from_bytes(packet));
+        }
+        let mut queue = CommandQueue::default();
+        let errors = {
+            let mut commands = Commands::new(&mut queue, world);
+            server
+                .receive(server_link, &mut commands.entity(entity), Some(server_addr))
+                .unwrap()
+        };
+        queue.apply(world);
+        server.send_netcode_packets(entity, &mut server_link.send);
+        while let Some(packet) = server_link.send.pop() {
+            client_link
+                .recv
+                .push_raw(lightyear_link::recv_payload_from_bytes(packet));
+        }
+        client.try_update(0.0, &mut client_link.recv).unwrap();
+        errors
+    }
+
+    #[cfg(feature = "client")]
+    #[test]
+    fn abandoned_handshake_expires_without_extending_on_retransmission() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        // Nonpositive connected timeouts must not leave pending IDs reserved forever.
+        for timeout in [5, -1, 0] {
+            let mut server =
+                Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, ServerConfig::default())
+                    .unwrap();
+            let mut world = World::new();
+            let abandoned = world.spawn_empty().id();
+            let replacement = world.spawn_empty().id();
+            let duplicate = world.spawn_empty().id();
+            let token = || {
+                ConnectToken::build(addr, TEST_PROTOCOL_ID, 1, TEST_PRIVATE_KEY)
+                    .timeout_seconds(timeout)
+                    .expire_seconds(-1)
+                    .generate()
+                    .unwrap()
+            };
+            let mut queue = CommandQueue::default();
+            let lifetime = if timeout > 0 {
+                timeout
+            } else {
+                CLIENT_TIMEOUT_SECS
+            } as f64;
+            // Start away from zero to exercise a deadline relative to the request's arrival.
+            server.update_state(100.0);
+            for advance in [0.0, lifetime - 1.0] {
+                server.update_state(advance);
+                let mut commands = Commands::new(&mut queue, &world);
+                server
+                    .process_connection_request(
+                        request_from_token(token()),
+                        &mut commands.entity(abandoned),
+                        Some(addr),
+                    )
+                    .unwrap();
+            }
+            queue.apply(&mut world);
+            assert_eq!(server.client_entity(1), Some(abandoned));
+            server.update_state(2.0);
+            assert_eq!(server.client_entity(1), None);
+            let mut stale_sender = Link::default();
+            server.send_netcode_packets(abandoned, &mut stale_sender.send);
+            assert!(stale_sender.send.pop().is_none());
+
+            let mut client =
+                crate::client::Client::new(&token().try_into_bytes().unwrap()).unwrap();
+            let mut client_link = Link::default();
+            let mut server_link = Link::default();
+            client.connect();
+            for _ in 0..4 {
+                assert!(
+                    exchange_packets(
+                        &mut server,
+                        &mut client,
+                        &mut world,
+                        replacement,
+                        &mut client_link,
+                        &mut server_link,
+                        addr,
+                    )
+                    .is_empty()
+                );
+            }
+            assert!(client.is_connected());
+            // Late cleanup for the expired link cannot remove its replacement.
+            server.remove_by_entity(abandoned);
+            assert_eq!(server.client_entity(1), Some(replacement));
+
+            let mut intruder =
+                crate::client::Client::new(&token().try_into_bytes().unwrap()).unwrap();
+            intruder.connect();
+            let errors = exchange_packets(
+                &mut server,
+                &mut intruder,
+                &mut world,
+                duplicate,
+                &mut Link::default(),
+                &mut Link::default(),
+                addr,
+            );
+            assert!(matches!(
+                errors.as_slice(),
+                [Error::ClientIdInUse(id::PeerId::Netcode(1))]
+            ));
+            assert_eq!(
+                intruder.state(),
+                crate::client::ClientState::ConnectionDenied
+            );
+            assert_eq!(server.client_entity(1), Some(replacement));
+
+            server.update_state(3600.0);
+            if timeout > 0 {
+                assert_eq!(server.client_entity(1), None);
+            } else {
+                assert_eq!(server.connected_client_ids().collect::<Vec<_>>(), [1]);
+                client
+                    .send(
+                        SendPayload::from_static(b"still live"),
+                        &mut client_link.send,
+                    )
+                    .unwrap();
+                assert!(
+                    exchange_packets(
+                        &mut server,
+                        &mut client,
+                        &mut world,
+                        replacement,
+                        &mut client_link,
+                        &mut server_link,
+                        addr,
+                    )
+                    .is_empty()
+                );
+                assert_eq!(&server_link.recv.pop().unwrap()[..], b"still live");
+            }
+        }
     }
 
     #[test]
@@ -1487,28 +1710,5 @@ mod tests {
         // handshake, which involves Link/transport layers. The callback signature
         // change is verified by the type system - if it compiles, the user_data
         // parameter is correctly threaded through.
-    }
-
-    #[test]
-    fn connection_stores_user_data() {
-        // Verify that Connection struct correctly stores user_data
-        let user_data = [0xAB; USER_DATA_BYTES];
-
-        let conn = Connection {
-            confirmed: false,
-            connected: false,
-            client_id: 123,
-            entity: Entity::PLACEHOLDER,
-            timeout: 10,
-            last_access_time: 0.0,
-            last_send_time: 0.0,
-            last_receive_time: 0.0,
-            send_key: [0; 32],
-            receive_key: [0; 32],
-            sequence: 0,
-            user_data,
-        };
-
-        assert_eq!(conn.user_data, user_data);
     }
 }

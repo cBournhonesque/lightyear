@@ -9,7 +9,8 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::client::{Connected, Disconnect};
+use lightyear_connection::admission::{NoDefaultConnection, admit};
+use lightyear_connection::client::Disconnect;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkStart, Linked, Linking, Unlink, UnlinkReason};
 use tracing::trace;
@@ -34,7 +35,7 @@ impl Plugin for SteamClientPlugin {
 /// The [`SteamworksClient`] resource must have been created beforehand.
 #[derive(Debug, Component)]
 #[component(on_add = SteamClientIo::on_add)]
-#[require(Link)]
+#[require(Link, NoDefaultConnection)]
 pub struct SteamClientIo {
     pub target: ConnectTarget,
     pub config: SessionConfig,
@@ -96,15 +97,14 @@ impl SteamClientPlugin {
     /// Steam is both a Link and a Connection, so we add Connected when Linked is added
     fn on_linked(
         trigger: On<Add, Linked>,
-        query: Query<(), With<SteamClientIo>>,
+        query: Query<(&LocalId, &RemoteId), With<SteamClientIo>>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.entity).is_ok() {
-            trace!(
-                "Steam client entity {:?} is now Linked, inserting Connected component",
-                trigger.entity
-            );
-            commands.entity(trigger.entity).insert(Connected);
+        if let Ok((&local, &remote)) = query.get(trigger.entity) {
+            let entity = trigger.entity;
+            commands.queue(move |world: &mut World| {
+                admit(world, entity, local, remote, ());
+            });
         }
     }
 

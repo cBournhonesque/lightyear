@@ -1,6 +1,7 @@
 use crate::client::{Disconnected, DisconnectedReason, Disconnecting};
 use crate::client_of::ClientOf;
 use crate::network_topology::NetworkingMetadata;
+use alloc::format;
 use bevy_app::{App, Last, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -53,6 +54,43 @@ impl Starting {
     }
 }
 
+/// Publish server readiness after reserving the World-wide server route.
+///
+/// A conflicting route rejects the endpoint without exposing [`Started`] to observers.
+pub fn start_server(world: &mut World, entity: Entity) -> bool {
+    if world.get_entity(entity).is_err() {
+        return false;
+    }
+    world.init_resource::<NetworkingMetadata>();
+    if let Some(owner) = world
+        .resource::<NetworkingMetadata>()
+        .peer_map
+        .get(&PeerId::Server)
+        .copied()
+        && owner != entity
+    {
+        crate::admission::reject(
+            world,
+            entity,
+            format!("Server route is already registered to {owner:?}"),
+        );
+        if let Ok(mut endpoint) = world.get_entity_mut(entity) {
+            endpoint.insert(Stopped);
+        }
+        return false;
+    }
+    world
+        .resource_mut::<NetworkingMetadata>()
+        .peer_map
+        .insert(PeerId::Server, entity);
+    world
+        .entity_mut(entity)
+        .remove::<(Starting, Stopped, Stopping, Disconnected)>();
+    world.entity_mut(entity).insert(Started);
+    true
+}
+
+/// Server readiness. Backends must publish this through [`start_server`].
 #[derive(Component, Event, Reflect)]
 #[component(
     on_add = Started::on_add,
@@ -62,10 +100,16 @@ pub struct Started;
 
 impl Started {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        world
-            .resource_mut::<NetworkingMetadata>()
-            .peer_map
-            .insert(PeerId::Server, context.entity);
+        let mut metadata = world.resource_mut::<NetworkingMetadata>();
+        // Direct insertion is supported for fixtures, but cannot replace an existing route.
+        assert!(
+            metadata
+                .peer_map
+                .get(&PeerId::Server)
+                .is_none_or(|owner| *owner == context.entity),
+            "Server route is already registered; use start_server to reject conflicting starts"
+        );
+        metadata.peer_map.insert(PeerId::Server, context.entity);
         trace!("Started added: removing Starting/Stopped");
         world
             .commands()
@@ -183,6 +227,7 @@ pub use crate::identity::is_headless_server;
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<NetworkingMetadata>();
         app.add_observer(Self::start);
         app.add_observer(Self::stop_if_link_fails);
         app.add_systems(Last, Self::disconnect);
@@ -191,9 +236,12 @@ impl Plugin for ConnectionPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::{Started, Stopped, Stopping};
+    use super::{Started, Stopped, Stopping, start_server};
+    use crate::client::Disconnected;
     use crate::network_topology::NetworkingMetadata;
+    use alloc::vec::Vec;
     use bevy_app::App;
+    use bevy_ecs::prelude::*;
     use lightyear_core::id::PeerId;
     use lightyear_link::server::Server;
 
@@ -252,6 +300,56 @@ mod tests {
                 .resource::<NetworkingMetadata>()
                 .peer_map
                 .contains_key(&PeerId::Server)
+        );
+    }
+
+    #[test]
+    fn rejected_start_never_publishes_readiness_or_replaces_the_route() {
+        #[derive(Resource, Default)]
+        struct ReadyServers(Vec<Entity>);
+
+        let mut app = App::new();
+        app.init_resource::<ReadyServers>();
+        app.add_observer(
+            |trigger: On<Add, Started>,
+             metadata: Res<NetworkingMetadata>,
+             disconnected: Query<(), With<Disconnected>>,
+             mut ready: ResMut<ReadyServers>| {
+                assert_eq!(
+                    metadata.peer_map.get(&PeerId::Server),
+                    Some(&trigger.entity)
+                );
+                assert!(!disconnected.contains(trigger.entity));
+                ready.0.push(trigger.entity);
+            },
+        );
+        let incumbent = app.world_mut().spawn(Server::default()).id();
+        let contender = app.world_mut().spawn(Server::default()).id();
+        assert!(start_server(app.world_mut(), incumbent));
+        assert!(!start_server(app.world_mut(), contender));
+        app.world_mut().flush();
+
+        assert_eq!(
+            app.world().resource::<ReadyServers>().0.as_slice(),
+            &[incumbent]
+        );
+        assert!(app.world().get::<Started>(contender).is_none());
+        assert!(app.world().get::<Stopped>(contender).is_some());
+        assert!(app.world().get::<Disconnected>(contender).is_some());
+        assert!(app.world().get::<Started>(incumbent).is_some());
+        assert_eq!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .get(&PeerId::Server),
+            Some(&incumbent)
+        );
+
+        app.world_mut().entity_mut(incumbent).insert(Stopped);
+        assert!(start_server(app.world_mut(), contender));
+        assert_eq!(
+            app.world().resource::<ReadyServers>().0.as_slice(),
+            &[incumbent, contender]
         );
     }
 }
