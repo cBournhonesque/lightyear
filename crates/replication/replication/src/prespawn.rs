@@ -511,7 +511,7 @@ mod tests {
         let mut app = test_app();
         app.world_mut().spawn((
             Client,
-            RemoteId(PeerId::Server),
+            RemoteId(PeerId::SERVER),
             Connected,
             ReplicationReceiver,
         ));
@@ -531,7 +531,7 @@ mod tests {
         let mut app = test_app();
         app.world_mut().spawn((
             P2P::Inactive,
-            RemoteId(PeerId::Local(1)),
+            RemoteId(PeerId(1)),
             Connected,
             ReplicationReceiver,
         ));

@@ -139,7 +139,7 @@ impl CrossbeamPlugin {
             let entity = trigger.entity;
             commands.queue(move |world: &mut World| {
                 // Channels expose no shared identity; use a local routing label.
-                let candidate = PeerId::Entity(entity.to_bits());
+                let candidate = PeerId(entity.to_bits().max(1));
                 apply_default_ids(world, entity, LocalId(candidate), RemoteId(candidate));
             });
         }
@@ -564,30 +564,19 @@ mod tests {
         app.add_plugins(CrossbeamPlugin);
         let left = app
             .world_mut()
-            .spawn((
-                left_io,
-                LocalId(PeerId::Local(10)),
-                RemoteId(PeerId::Local(20)),
-            ))
+            .spawn((left_io, LocalId(PeerId(10)), RemoteId(PeerId(20))))
             .id();
         let right = app
             .world_mut()
-            .spawn((
-                right_io,
-                LocalId(PeerId::Local(20)),
-                RemoteId(PeerId::Local(10)),
-            ))
+            .spawn((right_io, LocalId(PeerId(20)), RemoteId(PeerId(10))))
             .id();
         app.world_mut().trigger(LinkStart { entity: left });
         app.world_mut().trigger(LinkStart { entity: right });
         app.update();
-        assert_eq!(
-            app.world().get::<LocalId>(left),
-            Some(&LocalId(PeerId::Local(10)))
-        );
+        assert_eq!(app.world().get::<LocalId>(left), Some(&LocalId(PeerId(10))));
         assert_eq!(
             app.world().get::<RemoteId>(left),
-            Some(&RemoteId(PeerId::Local(20)))
+            Some(&RemoteId(PeerId(20)))
         );
         assert!(app.world().get::<Connected>(left).is_some());
         assert!(app.world().get::<Connected>(right).is_some());

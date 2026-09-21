@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Connection backends now claim fixed ownership of a connection entity. Changing backend requires a new entity.
-- Admission registers resolved peer IDs before emitting `Connected`; duplicate remote IDs across endpoints are rejected instead of replacing the existing route.
+- Admission registers resolved peer IDs before emitting `Connected`; authoritative and requested duplicate aliases are rejected instead of replacing the existing route.
 - Disconnect and despawn release only bindings owned by the departing entity.
 - Netcode validates requested IDs against token identity before admission and releases rejected sessions.
 - Transports can admit debug links through `apply_default_ids` without Raw markers or plugins; explicit backends and `NoDefaultConnection` retain control.
@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the obsolete `SkipNetcode` marker; backend ownership determines which protocol handles a link.
 - Removed the `lightyear_raw_connection` crate and `raw_connection` feature. Existing `Client`/`Server` roles plus a transport now use default admission without extra markers.
 - Steam exposes transport and connection plugins separately, with `SteamPlugin` installing both.
+- `PeerId` is now an opaque u64. Zero is the server sentinel; ordinary, authenticated, and host IDs must be nonzero. Removed transport variants and legacy conversions.
+- Unrequested default/debug aliases may fall back locally after collision. Explicit, authenticated, and P2P aliases never do.
+- Host role checks use `HostClient`, and native transport identities remain separate from routing aliases.
+- Application packets carry a versioned wire prefix across every transport, independently of netcode token compatibility.
 
 ## v0.21.0 (2025-07-03)
 

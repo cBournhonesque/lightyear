@@ -60,7 +60,7 @@ pub(crate) fn spawn_player(
         return;
     };
     let client_id = client_id.0;
-    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let y = (client_id.0 as f32 * 50.0) % 500.0 - 250.0;
     let color = color_from_id(client_id);
     info!("Spawning player with id: {}", client_id);
     commands.spawn((
@@ -160,7 +160,7 @@ pub(crate) fn compute_hit_lag_compensation(
                         bullet = ?entity,
                         player_id = ?id.0,
                         shooter = ?marker.shooter,
-                        shooter_bits = marker.shooter.to_bits(),
+                        shooter_bits = marker.shooter.0,
                         fire_tick = marker.fire_tick.0 as i64,
                         prespawn_hash = marker.prespawn_hash,
                         owner = ?controlled_by.owner,
@@ -220,7 +220,7 @@ pub(crate) fn compute_hit_lag_compensation(
                     bullet = ?entity,
                     player_id = ?id.0,
                     shooter = ?marker.shooter,
-                    shooter_bits = marker.shooter.to_bits(),
+                    shooter_bits = marker.shooter.0,
                     fire_tick = marker.fire_tick.0 as i64,
                     prespawn_hash = marker.prespawn_hash,
                     position = ?position,
@@ -290,7 +290,7 @@ pub(crate) fn compute_hit_prediction(
                     bullet = ?entity,
                     player_id = ?id.0,
                     shooter = ?marker.shooter,
-                    shooter_bits = marker.shooter.to_bits(),
+                    shooter_bits = marker.shooter.0,
                     fire_tick = marker.fire_tick.0 as i64,
                     prespawn_hash = marker.prespawn_hash,
                     position = ?position,

@@ -242,7 +242,7 @@ mod tests {
 
         let entity = app
             .world_mut()
-            .spawn((RemoteId(PeerId::Server), PingManager::default()))
+            .spawn((RemoteId(PeerId::SERVER), PingManager::default()))
             .id();
         app.world_mut()
             .entity_mut(entity)

@@ -76,7 +76,7 @@ fn main() {
         // Build and run the appropriate app based on mode from config
         match config.mode {
             NetworkingMode::ClientOnly => {
-                if config.client_id.is_some()
+                if config.client_id.is_some_and(|id| id != 0)
                     && config.server_addr.is_some()
                     && config.client_transport.is_some()
                 {
@@ -99,7 +99,7 @@ fn main() {
                 }
             }
             NetworkingMode::HostServer => {
-                if config.client_id.is_some()
+                if config.client_id.is_some_and(|id| id != 0)
                     && config.server_addr.is_some()
                     && config.client_transport.is_some()
                     && config.server_transport.is_some()
@@ -352,9 +352,9 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) -> 
 
         // Launch Button - Enable only if config is valid for the selected mode
         let launch_enabled = match config.mode {
-            NetworkingMode::ClientOnly => config.client_id.is_some() && config.server_addr.is_some() && config.client_transport.is_some(),
+            NetworkingMode::ClientOnly => config.client_id.is_some_and(|id| id != 0) && config.server_addr.is_some() && config.client_transport.is_some(),
             NetworkingMode::ServerOnly => config.server_addr.is_some() && config.server_transport.is_some(),
-            NetworkingMode::HostServer => config.client_id.is_some() && config.server_addr.is_some() && config.client_transport.is_some() && config.server_transport.is_some(),
+            NetworkingMode::HostServer => config.client_id.is_some_and(|id| id != 0) && config.server_addr.is_some() && config.client_transport.is_some() && config.server_transport.is_some(),
         };
         if ui.add_enabled(launch_enabled, egui::Button::new("Launch Example")).clicked() {
             info!("Launch button clicked! Config: {:?}", *config);

@@ -7,7 +7,9 @@
 use bevy::app::{App, Plugin};
 use bevy::ecs::entity::MapEntities;
 use bevy::math::Curve;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use core::net::SocketAddr;
 use serde::{Deserialize, Serialize};
 
 use lightyear::input::native::plugin::InputPlugin;
@@ -24,7 +26,7 @@ pub(crate) struct PlayerBundle {
 impl PlayerBundle {
     pub(crate) fn new(id: PeerId, position: Vec2) -> Self {
         // Generate pseudo random color from client id.
-        let h = (((id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+        let h = (((id.0.wrapping_mul(30)) % 360) as f32) / 360.0;
         let s = 0.8;
         let l = 0.5;
         let color = Color::hsl(h, s, l);
@@ -56,6 +58,7 @@ impl Lobbies {
         for (lobby_id, lobby) in self.lobbies.iter_mut().enumerate() {
             if let Some(index) = lobby.players.iter().position(|id| *id == client_id) {
                 lobby.players.remove(index);
+                lobby.game_addresses.remove(&client_id);
                 if lobby.players.is_empty() {
                     removed_lobby = Some(lobby_id);
                 }
@@ -70,8 +73,11 @@ impl Lobbies {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct Lobby {
     pub players: Vec<PeerId>,
+    /// Native game endpoints advertised by members, independent of routing aliases.
+    pub game_addresses: HashMap<PeerId, SocketAddr>,
     /// Which client is selected to be the host for the next game (if None, the server will be the host)
     pub host: Option<PeerId>,
+    pub host_address: Option<SocketAddr>,
     pub room_id: RoomId,
     /// If true, the lobby is in game. If not, it is still in lobby mode
     pub in_game: bool,
@@ -81,7 +87,9 @@ impl Lobby {
     pub(crate) fn new(room_id: RoomId) -> Self {
         Self {
             players: vec![],
+            game_addresses: HashMap::default(),
             host: None,
+            host_address: None,
             room_id,
             in_game: false,
         }
@@ -116,6 +124,7 @@ pub struct Channel1;
 pub struct StartGame {
     pub(crate) lobby_id: usize,
     pub(crate) host: Option<PeerId>,
+    pub(crate) host_address: Option<SocketAddr>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -126,6 +135,7 @@ pub struct ExitLobby {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct JoinLobby {
     pub(crate) lobby_id: usize,
+    pub(crate) game_address: SocketAddr,
 }
 
 // Inputs

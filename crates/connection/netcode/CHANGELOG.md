@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Decouple netcode from transport addresses and remove its Aeronet dependency. Clients
   expose `token_server_addresses()` without configuring transport routing or implicit
   failover; applications establish a new link when trying another destination.
+- Preserve nonzero authenticated client IDs directly as opaque `PeerId` values. Token
+  minting and admission reject client ID zero, reserved for the server role.
+- Retire disconnected accepted links in `Last`, after deferred native link-state cleanup,
+  rather than despawning them while lifecycle commands still reference the entity.
 
 ## v0.21.0 (2025-07-03)
 

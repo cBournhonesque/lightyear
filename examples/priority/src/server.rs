@@ -83,7 +83,7 @@ pub(crate) fn handle_connected(
         return;
     };
     let client_id = client_id.0;
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let h = (((client_id.0.wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 0.8;
     let l = 0.5;
     let color = Color::hsl(h, s, l);

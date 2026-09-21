@@ -88,7 +88,7 @@ impl ReplicationMode {
             ReplicationMode::SingleSender => remote.is_some(),
             #[cfg(feature = "client")]
             ReplicationMode::SingleClient => {
-                remote.is_some_and(|remote| matches!(remote.0, PeerId::Local(_) | PeerId::Server))
+                remote.is_some_and(|remote| remote.0 == PeerId::SERVER)
             }
             #[cfg(feature = "server")]
             ReplicationMode::SingleServer(target) => {
@@ -106,6 +106,15 @@ impl ReplicationMode {
             }
             ReplicationMode::Manual(senders) => remote.is_some_and(|_| senders.contains(&client)),
         }
+    }
+
+    /// Host-local replication is selected by role, never by the host's numeric alias.
+    fn is_visible_for_host(&self, client: Entity, remote: Option<&RemoteId>) -> bool {
+        #[cfg(feature = "client")]
+        if matches!(self, Self::SingleClient) {
+            return remote.is_some();
+        }
+        self.is_visible_for(client, remote)
     }
 }
 
@@ -153,8 +162,8 @@ pub struct ReplicationSender;
 /// let mut app = App::new();
 /// app.add_plugins(SendPlugin);
 ///
-/// let alice = PeerId::Netcode(1);
-/// let bob = PeerId::Netcode(2);
+/// let alice = PeerId(1);
+/// let bob = PeerId(2);
 ///
 /// // Spawn an entity replicated to Alice only, and `Replicating` is added
 /// // automatically as a required component.
@@ -540,7 +549,7 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
         let world = unsafe { unsafe_world.world_mut() };
         let mut hosts = world.query_filtered::<(Entity, Option<&RemoteId>), With<HostClient>>();
         for (sender_entity, remote) in hosts.iter(world) {
-            if mode.is_visible_for(sender_entity, remote) {
+            if mode.is_visible_for_host(sender_entity, remote) {
                 T::update_context(&mut post_insert_context, sender_entity, true);
             }
         }
@@ -626,6 +635,18 @@ mod tests {
     use bevy_ecs::schedule::common_conditions::resource_changed;
     use bevy_time::Time;
     use core::time::Duration;
+
+    #[cfg(feature = "client")]
+    #[test]
+    fn to_server_distinguishes_remote_peers_from_host_role() {
+        let mode = ReplicationMode::SingleClient;
+        let link = Entity::PLACEHOLDER;
+        let remote = RemoteId(PeerId(73));
+        assert!(mode.is_visible_for(link, Some(&RemoteId(PeerId::SERVER))));
+        assert!(!mode.is_visible_for(link, Some(&remote)));
+        assert!(mode.is_visible_for_host(link, Some(&remote)));
+        assert!(!mode.is_visible_for_host(link, None));
+    }
 
     #[derive(Resource, Default)]
     struct SendCount(usize);
@@ -743,7 +764,9 @@ fn target_includes_host<T: ReplicationTargetT>(
     host_peer_id: Option<PeerId>,
 ) -> bool {
     let remote = host_peer_id.map(RemoteId);
-    target.is_visible_for(host_entity, remote.as_ref())
+    target
+        .mode
+        .is_visible_for_host(host_entity, remote.as_ref())
 }
 
 /// When a client becomes a host client after replicated entities already exist, backfill the
@@ -837,7 +860,7 @@ fn emulate_replicate_on_host_client_added(
 #[cfg(feature = "server")]
 pub(crate) fn handle_new_client_visibility(
     trigger: On<Add, ClientVisibility>,
-    remote_id_query: Query<&RemoteId>,
+    remote_id_query: Query<(Option<&RemoteId>, Has<HostClient>)>,
     registry: Res<FilterRegistry>,
     replication_targets: Query<(Entity, &Replicate)>,
     #[cfg(feature = "prediction")] prediction_targets: Query<(Entity, &PredictionTarget)>,
@@ -846,7 +869,14 @@ pub(crate) fn handle_new_client_visibility(
     mut visibilities: Query<&mut ClientVisibility>,
 ) {
     let sender_entity = trigger.entity;
-    let remote = remote_id_query.get(sender_entity).ok();
+    let (remote, is_host_client) = remote_id_query.get(sender_entity).unwrap_or((None, false));
+    let is_visible = |mode: &ReplicationMode| {
+        if is_host_client {
+            mode.is_visible_for_host(sender_entity, remote)
+        } else {
+            mode.is_visible_for(sender_entity, remote)
+        }
+    };
     trace!(?sender_entity, ?remote, "handle_new_client_visibility");
 
     let Ok(mut visibility) = visibilities.get_mut(sender_entity) else {
@@ -855,21 +885,21 @@ pub(crate) fn handle_new_client_visibility(
 
     if let Some(bit) = registry.get_bit::<Replicate>() {
         for (entity, target) in replication_targets.iter() {
-            visibility.set(entity, bit, target.is_visible_for(sender_entity, remote));
+            visibility.set(entity, bit, is_visible(&target.mode));
         }
     }
 
     #[cfg(feature = "prediction")]
     if let Some(bit) = registry.get_bit::<PredictionTarget>() {
         for (entity, target) in prediction_targets.iter() {
-            visibility.set(entity, bit, target.is_visible_for(sender_entity, remote));
+            visibility.set(entity, bit, is_visible(&target.mode));
         }
     }
 
     #[cfg(feature = "interpolation")]
     if let Some(bit) = registry.get_bit::<InterpolationTarget>() {
         for (entity, target) in interpolation_targets.iter() {
-            visibility.set(entity, bit, target.is_visible_for(sender_entity, remote));
+            visibility.set(entity, bit, is_visible(&target.mode));
         }
     }
 

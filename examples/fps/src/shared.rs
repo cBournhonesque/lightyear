@@ -72,7 +72,7 @@ impl Plugin for SharedPlugin {
 
 // Generates a pseudo-random color from the peer id.
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
+    let h = (((client_id.0.wrapping_mul(90)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
@@ -108,7 +108,7 @@ pub(crate) fn shared_player_movement(
 }
 
 fn bullet_prespawn_hash(player_id: PeerId, tick: Tick) -> u64 {
-    player_id.to_bits().wrapping_mul(1_000_003) ^ tick.0 as u64
+    player_id.0.wrapping_mul(1_000_003) ^ tick.0 as u64
 }
 
 fn should_skip_client_side_entity(
@@ -320,7 +320,7 @@ pub(crate) fn shoot_bullet(
                 entity = ?bullet_entity,
                 client_id = ?id.0,
                 shooter = ?id.0,
-                shooter_bits = id.0.to_bits(),
+                shooter_bits = id.0.0,
                 fire_tick = tick.0 as i64,
                 prespawn_hash = prespawn_hash,
                 is_server = is_server,

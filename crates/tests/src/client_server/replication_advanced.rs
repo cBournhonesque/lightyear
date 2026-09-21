@@ -175,7 +175,7 @@
 //         .world_mut()
 //         .spawn((
 //             Replicate::to_clients(NetworkTarget::All),
-//             PredictionTarget::to_clients(NetworkTarget::Single(PeerId::Netcode(0))),
+//             PredictionTarget::to_clients(NetworkTarget::Single(PeerId(1))),
 //             CompSimple(0.0),
 //         ))
 //         .id();
@@ -199,7 +199,7 @@
 //         .world_mut()
 //         .spawn((
 //             Replicate::to_clients(NetworkTarget::All),
-//             PredictionTarget::to_clients(NetworkTarget::Single(PeerId::Netcode(1))),
+//             PredictionTarget::to_clients(NetworkTarget::Single(PeerId(2))),
 //             CompSimple(1.0),
 //         ))
 //         .id();

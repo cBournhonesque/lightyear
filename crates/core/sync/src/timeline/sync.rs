@@ -883,7 +883,7 @@ mod tests {
                 .world_mut()
                 .spawn((
                     P2P::Candidate,
-                    RemoteId(PeerId::Local(peer)),
+                    RemoteId(PeerId(peer)),
                     TestRemote {
                         now: estimate,
                         estimate,

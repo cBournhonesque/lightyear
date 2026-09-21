@@ -98,7 +98,7 @@ impl Plugin for SharedPlugin {
 }
 
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let hue = (((client_id.to_bits().wrapping_mul(90)) % 360) as f32) / 360.0;
+    let hue = (((client_id.0.wrapping_mul(90)) % 360) as f32) / 360.0;
     Color::hsl(hue, 1.0, 0.5)
 }
 
@@ -390,7 +390,7 @@ pub(crate) fn player_bundle(client_id: PeerId, is_bot: bool) -> impl Bundle {
         // Nearby lanes keep additional manual clients from spawning on top of
         // it while retaining the same clear top-versus-bottom layout.
         const PLAYER_LANES: [f32; 7] = [-60.0, 0.0, 60.0, -120.0, 120.0, -180.0, 180.0];
-        let lane = (client_id.to_bits() % PLAYER_LANES.len() as u64) as usize;
+        let lane = (client_id.0 % PLAYER_LANES.len() as u64) as usize;
         Position::from_xy(PLAYER_LANES[lane], -180.0)
     };
     let rotation = if is_bot {

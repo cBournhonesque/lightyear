@@ -336,7 +336,7 @@ fn activate_replicated_players_at_tick(
         .iter()
         .map(|(entity, player_id)| (entity, player_id.0))
         .collect::<Vec<_>>();
-    ready.sort_by_key(|(_, player_id)| player_id.to_bits());
+    ready.sort_by_key(|(_, player_id)| player_id.0);
     for (entity, _) in ready {
         commands.entity(entity).insert((
             DetPhysicsBundle::player(),
@@ -430,13 +430,13 @@ fn test_input_only_two_clients() {
     // the initial Position via `replicate_once` at spawn time.
     let server_player_a = spawn_player_on_server(
         &mut stepper.server_app,
-        PeerId::Netcode(0),
+        PeerId(1),
         Vec2::new(-20.0, 0.0),
         false,
     );
     let server_player_b = spawn_player_on_server(
         &mut stepper.server_app,
-        PeerId::Netcode(1),
+        PeerId(2),
         Vec2::new(20.0, 0.0),
         false,
     );
@@ -481,14 +481,14 @@ fn test_input_only_two_clients() {
         .map(|client_id| {
             latest_real_input_covered_tick(
                 stepper.client_app(client_id).world_mut(),
-                PeerId::Netcode(client_id as u64),
+                PeerId(client_id as u64 + 1),
             )
         })
         .fold(server_tick, |min_tick, tick| {
             if tick.0 < min_tick.0 { tick } else { min_tick }
         });
-    let peer_a = PeerId::Netcode(0);
-    let peer_b = PeerId::Netcode(1);
+    let peer_a = PeerId(1);
+    let peer_b = PeerId(2);
     let server_pos_a = fixed_position_at(stepper.server_app.world(), peer_a, compare_tick);
     let server_pos_b = fixed_position_at(stepper.server_app.world(), peer_b, compare_tick);
     info!(
@@ -582,13 +582,13 @@ fn test_input_only_islands_many_colliders_small_box() {
 
     let server_player_a = spawn_player_on_server(
         &mut stepper.server_app,
-        PeerId::Netcode(0),
+        PeerId(1),
         Vec2::new(-20.0, 0.0),
         false,
     );
     let server_player_b = spawn_player_on_server(
         &mut stepper.server_app,
-        PeerId::Netcode(1),
+        PeerId(2),
         Vec2::new(20.0, 0.0),
         false,
     );

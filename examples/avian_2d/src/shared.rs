@@ -107,7 +107,7 @@ pub(crate) fn init(mut commands: Commands) {
 
 // Generates a pseudo-random color from the peer id.
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let h = (((client_id.0.wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)

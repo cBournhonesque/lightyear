@@ -79,7 +79,7 @@ fn spawn_player_entity(
     client_id: PeerId,
     room_id: Option<RoomId>,
 ) -> Entity {
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let h = (((client_id.0.wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 0.8;
     let l = 0.5;
     let color = Color::hsl(h, s, l);
@@ -185,6 +185,7 @@ mod lobby {
                 let room_id = lobby.room_id;
                 info!("Client {client_id:?} joined lobby {lobby_id:?}. Room: {room_id:?}");
                 lobby.players.push(client_id);
+                lobby.game_addresses.insert(client_id, message.game_address);
                 // Add the sender to the room
                 commands
                     .entity(client_entity)
@@ -241,14 +242,23 @@ mod lobby {
                 let host = event.host;
                 let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
                 let lobby_was_in_game = lobby.in_game;
+                if !lobby.in_game
+                    && host.is_some_and(|peer| !lobby.game_addresses.contains_key(&peer))
+                {
+                    warn!("Ignoring game host without an advertised native address");
+                    continue;
+                }
 
                 // Setting lobby ingame
                 if !lobby.in_game {
                     lobby.in_game = true;
                     lobby.host = host;
+                    lobby.host_address =
+                        host.and_then(|peer| lobby.game_addresses.get(&peer).copied());
                 }
 
                 let room_id = lobby.room_id;
+                let host_address = lobby.host_address;
 
                 // the client was not part of the lobby, they are joining in the middle of the game
                 if !lobby.players.contains(&client_id) {
@@ -264,6 +274,7 @@ mod lobby {
                         &StartGame {
                             lobby_id,
                             host: lobby.host,
+                            host_address,
                         },
                         server,
                         &NetworkTarget::Single(client_id),
@@ -304,6 +315,7 @@ mod lobby {
                         &StartGame {
                             lobby_id,
                             host: lobby.host,
+                            host_address,
                         },
                         server,
                         &NetworkTarget::Only(lobby.players.clone().into()),

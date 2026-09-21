@@ -109,6 +109,7 @@ mod client {
         app_state: Res<State<AppState>>,
         mut next_state: ResMut<NextState<AppState>>,
         lobbies: Query<&Lobbies, Changed<Lobbies>>,
+        game_server: Res<crate::client::GameServerAddr>,
         mut join_sender: Single<&mut MessageSender<JoinLobby>>,
         mut joined: Local<bool>,
     ) {
@@ -118,7 +119,10 @@ mod client {
         if lobbies.is_empty() {
             return;
         }
-        join_sender.send::<Channel1>(JoinLobby { lobby_id: 0 });
+        join_sender.send::<Channel1>(JoinLobby {
+            lobby_id: 0,
+            game_address: game_server.0,
+        });
         next_state.set(AppState::Lobby {
             joined_lobby: Some(0),
         });
@@ -156,7 +160,11 @@ mod client {
             AutoStartMode::Server => None,
             AutoStartMode::Host => Some(local_id.0),
         };
-        sender.send::<Channel1>(StartGame { lobby_id, host });
+        sender.send::<Channel1>(StartGame {
+            lobby_id,
+            host,
+            host_address: None,
+        });
         *sent = true;
     }
 

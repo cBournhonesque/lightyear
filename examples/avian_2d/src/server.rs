@@ -80,7 +80,7 @@ pub(crate) fn replicate_players(
     let entity = trigger.entity;
 
     let color = color_from_id(client_id);
-    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let y = (client_id.0 as f32 * 50.0) % 500.0 - 250.0;
     let position = Vec2::new(-50.0, y);
     let rotation = Rotation::radians(0.15);
     info!("Spawn player for client {client_id:?}");

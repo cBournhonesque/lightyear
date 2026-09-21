@@ -1866,14 +1866,14 @@ fn setup_stepper_for_input_rollback(
         .server_app
         .world_mut()
         .spawn(Replicate::to_clients(NetworkTarget::AllExceptSingle(
-            PeerId::Netcode(2),
+            PeerId(3),
         )))
         .id();
     let server_entity_2 = stepper
         .server_app
         .world_mut()
         .spawn(Replicate::to_clients(NetworkTarget::AllExceptSingle(
-            PeerId::Netcode(1),
+            PeerId(2),
         )))
         .id();
     stepper.frame_step_server_first(1);

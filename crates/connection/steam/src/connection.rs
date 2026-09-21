@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-use lightyear_connection::admission::{NoDefaultConnection, admit};
+use lightyear_connection::admission::{NoDefaultConnection, admit, reject};
 use lightyear_connection::client::{Connected, Disconnect};
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
 use lightyear_connection::server::{Stop, start_server};
@@ -56,23 +56,51 @@ impl SteamConnectionPlugin {
         if let Ok(&facts) = query.get(trigger.entity) {
             let entity = trigger.entity;
             commands.queue(move |world: &mut World| {
-                let server_child = world.get::<LinkOf>(entity).is_some_and(|link| {
-                    world.get::<Server>(link.endpoint).is_some()
-                        && world
-                            .get::<lightyear_connection::p2p::P2P>(entity)
-                            .is_none()
-                        && world
-                            .get::<lightyear_connection::p2p::P2P>(link.endpoint)
-                            .is_none()
-                });
+                let endpoint = world.get::<LinkOf>(entity).map(|link| link.endpoint);
+                let p2p = world
+                    .get::<lightyear_connection::p2p::P2P>(entity)
+                    .is_some()
+                    || endpoint.is_some_and(|endpoint| {
+                        world
+                            .get::<lightyear_connection::p2p::P2P>(endpoint)
+                            .is_some()
+                    });
+                let server_child = !p2p
+                    && endpoint.is_some_and(|endpoint| world.get::<Server>(endpoint).is_some());
+                if facts.local.raw() == 0 || facts.remote.is_some_and(|id| id.raw() == 0) {
+                    reject(
+                        world,
+                        entity,
+                        "Steam identity zero is reserved for the server role".into(),
+                    );
+                    return;
+                }
+                if facts.remote.is_none() && (p2p || server_child) {
+                    reject(
+                        world,
+                        entity,
+                        "Steam address sessions cannot authenticate a remote peer identity".into(),
+                    );
+                    return;
+                }
                 let local = if server_child {
-                    PeerId::Server
+                    PeerId::SERVER
                 } else {
-                    PeerId::Steam(facts.local.raw())
+                    PeerId(facts.local.raw())
                 };
-                let remote = facts
-                    .remote
-                    .map_or(PeerId::Server, |id| PeerId::Steam(id.raw()));
+                let remote = facts.remote.map_or(PeerId::SERVER, |id| PeerId(id.raw()));
+                if world.get::<LocalId>(entity).is_some_and(|id| id.0 != local)
+                    || world
+                        .get::<RemoteId>(entity)
+                        .is_some_and(|id| id.0 != remote)
+                {
+                    reject(
+                        world,
+                        entity,
+                        "Requested identity does not match authenticated Steam identity".into(),
+                    );
+                    return;
+                }
                 admit(world, entity, LocalId(local), RemoteId(remote), ());
             });
         }
@@ -149,15 +177,12 @@ mod tests {
         app.world_mut().entity_mut(entity).insert(facts(Some(20)));
         app.world_mut().flush();
         assert!(app.world().get::<Connected>(entity).is_some());
-        assert_eq!(
-            app.world().get::<RemoteId>(entity).unwrap().0,
-            PeerId::Steam(20)
-        );
+        assert_eq!(app.world().get::<RemoteId>(entity).unwrap().0, PeerId(20));
         assert_eq!(
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Steam(20)),
+                .get(&PeerId(20)),
             Some(&entity)
         );
         app.world_mut().entity_mut(entity).insert(Unlinked {
@@ -169,7 +194,7 @@ mod tests {
             !app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .contains_key(&PeerId::Steam(20))
+                .contains_key(&PeerId(20))
         );
     }
 
@@ -200,12 +225,12 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&entity)
         );
         assert_eq!(
             app.world().get::<RemoteId>(entity).unwrap().0,
-            PeerId::Server
+            PeerId::SERVER
         );
         assert!(
             app.world()
@@ -214,6 +239,87 @@ mod tests {
                 .remote
                 .is_none()
         );
+    }
+
+    #[test]
+    fn full_width_native_identity_is_preserved() {
+        let mut app = App::new();
+        app.add_plugins(SteamConnectionPlugin);
+        let entity = app
+            .world_mut()
+            .spawn((Link::default(), Linked, facts(Some(u64::MAX))))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<Connected>(entity).is_some());
+        assert_eq!(
+            app.world().get::<RemoteId>(entity).unwrap().0,
+            PeerId(u64::MAX)
+        );
+        assert_eq!(
+            app.world()
+                .get::<SteamSessionFacts>(entity)
+                .unwrap()
+                .remote
+                .unwrap()
+                .raw(),
+            u64::MAX
+        );
+    }
+
+    #[test]
+    fn zero_native_identity_and_mismatched_expectations_are_rejected() {
+        let mut app = App::new();
+        app.add_plugins(SteamConnectionPlugin);
+        let zero_remote = app
+            .world_mut()
+            .spawn((Link::default(), Linked, facts(Some(0))))
+            .id();
+        let zero_local = app
+            .world_mut()
+            .spawn((
+                Link::default(),
+                Linked,
+                SteamSessionFacts {
+                    local: SteamId::from_raw(0),
+                    remote: Some(SteamId::from_raw(20)),
+                },
+            ))
+            .id();
+        let mismatch = app
+            .world_mut()
+            .spawn((
+                Link::default(),
+                Linked,
+                facts(Some(30)),
+                RemoteId(PeerId(40)),
+            ))
+            .id();
+        app.world_mut().flush();
+        for entity in [zero_remote, zero_local, mismatch] {
+            assert!(app.world().get::<Connected>(entity).is_none());
+            assert!(app.world().get::<Disconnected>(entity).is_some());
+        }
+        assert_eq!(app.world().get::<RemoteId>(mismatch).unwrap().0, PeerId(40));
+    }
+
+    #[test]
+    fn address_target_cannot_authenticate_p2p_alias() {
+        let mut app = App::new();
+        app.add_plugins(SteamConnectionPlugin);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Link::default(),
+                Linked,
+                facts(None),
+                lightyear_connection::p2p::P2P::Inactive,
+                RemoteId(PeerId(20)),
+            ))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert_eq!(app.world().get::<RemoteId>(entity).unwrap().0, PeerId(20));
     }
 
     #[test]
@@ -250,7 +356,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Steam(20)),
+                .get(&PeerId(20)),
             Some(&first)
         );
     }

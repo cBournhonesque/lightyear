@@ -22,7 +22,9 @@ use bevy_ecs::prelude::*;
 use bytes::BufMut;
 use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_core::buffer_pool::BufferPool;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
+#[cfg(test)]
+use lightyear_core::id::PeerId;
+use lightyear_core::id::{LocalId, RemoteId, peer_id_from_socket};
 use lightyear_core::time::Instant;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked,
@@ -32,9 +34,9 @@ use tracing::{error, info, trace};
 
 /// Peer-discovery glue for [`lightyear_p2p::Lobby`].
 ///
-/// This module is available with the `lobby` feature. It turns a
-/// [`DialPeer`](lightyear_p2p::DialPeer) into a UDP Link through a peer endpoint, so that a peer's
-/// address is its identity.
+/// With the `lobby` feature, this turns [`DialPeer`](lightyear_p2p::DialPeer) into a UDP
+/// Link using its native dial context. Peers exchange their opaque routing aliases
+/// before admission; a socket address is not their identity.
 #[cfg(feature = "lobby")]
 pub mod lobby;
 
@@ -168,8 +170,8 @@ impl UdpPlugin {
             udp_io.socket = Some(socket);
             let entity = trigger.entity;
             let peer_addr = udp_io.peer_addr;
-            let local = LocalId(PeerId::Raw(local_addr));
-            let remote = RemoteId(PeerId::Raw(peer_addr));
+            let local = LocalId(peer_id_from_socket(b"udp", local_addr));
+            let remote = RemoteId(peer_id_from_socket(b"udp", peer_addr));
             commands.queue(move |world: &mut World| {
                 world.entity_mut(entity).insert((
                     UdpLocalAddr(local_addr),
@@ -301,11 +303,11 @@ mod tests {
         assert_ne!(local.port(), 0);
         assert_eq!(
             app.world().get::<LocalId>(entity),
-            Some(&LocalId(PeerId::Raw(local)))
+            Some(&LocalId(peer_id_from_socket(b"udp", local)))
         );
         assert_eq!(
             app.world().get::<RemoteId>(entity),
-            Some(&RemoteId(PeerId::Server))
+            Some(&RemoteId(PeerId::SERVER))
         );
         assert!(app.world().get::<Connected>(entity).is_some());
         app.world_mut()

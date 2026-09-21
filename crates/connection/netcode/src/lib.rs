@@ -82,7 +82,7 @@ pub use server::{Callback, ConnectCallback, Server, ServerConfig};
 pub use server_plugin::{NetcodeServer, NetcodeServerError, TokenUserData};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
-/// The client id from a connect token, must be unique for each client.
+/// The full-width client ID from a connect token; nonzero and unique for each client.
 pub(crate) type ClientId = u64;
 
 mod bytes;

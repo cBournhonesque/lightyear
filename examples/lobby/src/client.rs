@@ -25,6 +25,10 @@ struct SwitchingGameConnection;
 #[derive(Component, Clone, Copy)]
 pub(crate) struct LobbyClientId(pub u64);
 
+/// Native dial address of this application's standby game server.
+#[derive(Resource)]
+pub(crate) struct GameServerAddr(pub SocketAddr);
+
 fn spawn_remote_client(commands: &mut Commands, id: LobbyClientId, address: SocketAddr) -> Entity {
     use lightyear_examples_common::client::{ClientTransports, ExampleClient};
     commands
@@ -210,16 +214,12 @@ mod lobby {
 
     use super::*;
     use crate::client::{lobby, AppState};
-    use crate::host_server_port;
     use bevy::platform::collections::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
     use egui_extras::{Column, TableBuilder};
     use lightyear::connection::client::ClientState;
     use lightyear::connection::server::Start;
-    use lightyear::netcode::client_plugin::NetcodeConfig;
-    use lightyear::netcode::NetcodeClient;
-    use lightyear::prelude::PeerId::Netcode;
     use lightyear_examples_common::shared::SHARED_SETTINGS;
     use tracing::{error, info};
 
@@ -244,6 +244,7 @@ mod lobby {
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyTable>,
         lobbies: Option<Single<&Lobbies>>,
+        game_server: Res<GameServerAddr>,
         message_sender: Single<
             (
                 Entity,
@@ -323,11 +324,15 @@ mod lobby {
                                                             send_start_game.send::<Channel1>(StartGame {
                                                                 lobby_id,
                                                                 host,
+                                                                host_address: None,
                                                             });
                                                         }
                                                     } else if ui.button("Join Lobby").clicked() {
                                                         info!("Client joining lobby {lobby_id}");
-                                                        send_join_lobby.send::<Channel1>(JoinLobby { lobby_id });
+                                                        send_join_lobby.send::<Channel1>(JoinLobby {
+                                                            lobby_id,
+                                                            game_address: game_server.0,
+                                                        });
                                                         next_app_state.set(AppState::Lobby {
                                                             joined_lobby: Some(lobby_id),
                                                         });
@@ -407,6 +412,7 @@ mod lobby {
                                         send_start_game.send::<Channel1>(StartGame {
                                             lobby_id: *lobby_id,
                                             host,
+                                            host_address: None,
                                         });
                                     }
                                 } else if ui.button("Exit lobby list").clicked() {
@@ -447,6 +453,10 @@ mod lobby {
         let Some(host) = message.host else {
             return;
         };
+        let Some(host_address) = message.host_address else {
+            error!("Game host has no advertised native address");
+            return;
+        };
 
         commands
             .entity(local_client)
@@ -468,11 +478,7 @@ mod lobby {
                 ))
                 .id()
         } else {
-            spawn_remote_client(
-                &mut commands,
-                *account_id,
-                SocketAddr::new(Ipv4Addr::LOCALHOST.into(), host_server_port(host)),
-            )
+            spawn_remote_client(&mut commands, *account_id, host_address)
         };
         commands.trigger(Connect { entity: client });
     }

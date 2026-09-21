@@ -18,6 +18,7 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
+use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::{LocalTimeline, Tick, TimelineRegistry};
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendMapView;
@@ -424,7 +425,10 @@ impl MessagePlugin {
     /// (the [`Transport`] is not used)
     pub fn send_local(
         timeline: Res<LocalTimeline>,
-        mut manager_query: Query<(Entity, &MessageManager), (With<Connected>, With<HostClient>)>,
+        mut manager_query: Query<
+            (Entity, &MessageManager, &RemoteId),
+            (With<Connected>, With<HostClient>),
+        >,
         // MessageSender<M>/MessageReceiver<M>/TriggerSender<M> present on that entity
         message_components_query: Query<FilteredEntityMut>,
         commands: ParallelCommands,
@@ -436,7 +440,7 @@ impl MessagePlugin {
         // share the query before taking their disjoint unsafe reborrows below.
         let tick = timeline.tick();
         let message_components_query = &message_components_query;
-        adaptive_for_each_mut!(manager_query).for_each(|(entity, message_manager)| {
+        adaptive_for_each_mut!(manager_query).for_each(|(entity, message_manager, remote_id)| {
             // SAFETY: we know that this won't lead to violating the aliasing rule
             let mut message_sender_query = unsafe { message_components_query.reborrow_unsafe() };
             let mut message_receiver_query = unsafe { message_components_query.reborrow_unsafe() };
@@ -498,6 +502,7 @@ impl MessagePlugin {
                             message_sender,
                             &mut entity_mut,
                             &commands,
+                            remote_id.0,
                             tick,
                             &registry,
                             &channel_registry,

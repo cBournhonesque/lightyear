@@ -94,7 +94,7 @@ impl Default for LauncherConfig {
             mode: default_mode,
             // Set initial defaults based on HostServer mode
             client_transport: Some(default_client_transport()),
-            client_id: Some(0),
+            client_id: Some(1),
             server_addr: Some(SERVER_ADDR),
             server_transport: Some(default_server_transport(SERVER_PORT)),
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
@@ -143,7 +143,7 @@ impl LauncherConfig {
         match new_mode {
             NetworkingMode::ClientOnly => {
                 if self.client_id.is_none() {
-                    self.client_id = Some(rand::random());
+                    self.client_id = Some(rand::random::<u64>().max(1));
                 }
                 if self.server_addr.is_none() {
                     self.server_addr = Some(SERVER_ADDR);
@@ -167,7 +167,7 @@ impl LauncherConfig {
             }
             NetworkingMode::HostServer => {
                 if self.client_id.is_none() {
-                    self.client_id = Some(rand::random());
+                    self.client_id = Some(rand::random::<u64>().max(1));
                 }
                 if self.server_addr.is_none() {
                     self.server_addr = Some(SERVER_ADDR);

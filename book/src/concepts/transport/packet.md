@@ -6,13 +6,29 @@ A packet is a structure that contains some data and some metadata (inside the he
 
 ## Packet header
 
-The packet header will contain the same data as described in the Gaffer On Games articles:
+Every Lightyear application packet begins with the fixed prefix `b"LY\x01"`: two magic bytes
+(`LY`) and application wire version 1. This includes raw/P2P, Steam, Crossbeam, and application
+payloads carried inside netcode. Receivers reject legacy packets and unknown versions before reading
+the remaining header or decoding application data. Legacy receivers reject the new first byte as an
+invalid packet type. This is a wire compatibility boundary, not a connection handshake.
 
-- the packet type (single vs fragmented)
-- the packet id (a wrapping u16)
-- the last ack-ed packet id received by the sender
-- an ack bitfield containing the ack of the last 32 packets before last_ack_packet_id
-- the current tick
+The complete header is 16 bytes:
+
+- the three-byte application wire prefix
+- the packet type (one byte: data, fragment, compressed data, compressed fragment, or ACK-only)
+- the packet id (a wrapping u16, two bytes)
+- the last ack-ed packet id received by the sender (two bytes)
+- an ack bitfield containing the ack of the last 32 packets before last_ack_packet_id (four bytes)
+- the current tick (four bytes)
+
+Multi-byte header fields use big-endian encoding. Packet-level compression leaves the entire header
+uncompressed and compresses only its body. Every fragment carries its own prefixed header, and
+ACK-only packets contain just this header. MTU and fragment payload calculations include all 16
+header bytes.
+
+Netcode connection packets and connect-token protocol bytes are unchanged; that protocol has its
+own compatibility boundary. The application wire prefix is inside each netcode application payload,
+not ahead of the netcode envelope.
 
 ## Packet data
 

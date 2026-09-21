@@ -44,7 +44,7 @@ fn spawn_fixed_world(
     let local = lobby.local();
     for (slot, peer) in roster.iter().enumerate() {
         let slot = u8::try_from(slot).expect("P2P roster slot fits in u8");
-        let id = PeerId::Entity(u64::from(slot));
+        let id = *peer;
         let input_target = input_target_for_peer(
             &lobby,
             &links,

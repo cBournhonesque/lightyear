@@ -832,6 +832,135 @@ mod tests {
     }
 
     #[test]
+    fn application_wire_gate_precedes_ack_and_message_processing() {
+        use crate::packet::message::{FragmentCompression, FragmentIndex, MessageId};
+        use lightyear_serde::writer::WriteInteger;
+
+        #[derive(Resource, Default)]
+        struct ReceivedPackets(usize);
+
+        for packet_type in [
+            PacketType::Data,
+            PacketType::DataFragment,
+            PacketType::AckOnly,
+            #[cfg(feature = "compression_lz4")]
+            PacketType::DataCompressed,
+            #[cfg(feature = "compression_lz4")]
+            PacketType::DataFragmentCompressed,
+        ] {
+            let settings = ChannelSettings::default();
+            let mut registry = ChannelRegistry::default();
+            let (_, channel_id) = registry.add_channel::<SmallMtuChannel>(settings);
+            let mut transport = Transport::default();
+            transport.add_channel_receive::<SmallMtuChannel>(settings, channel_id);
+            #[cfg(feature = "compression_lz4")]
+            transport.set_compression(crate::packet::compression::CompressionConfig::LZ4);
+
+            let expected = Bytes::from_static(&[3u8; 128]);
+            let mut body = Vec::new();
+            if packet_type != PacketType::AckOnly {
+                channel_id.to_bytes(&mut body).unwrap();
+                if packet_type.uncompressed_variant() == PacketType::DataFragment {
+                    FragmentData {
+                        message_id: MessageId(0),
+                        fragment_id: FragmentIndex(0),
+                        num_fragments: FragmentIndex(1),
+                        compression: Some(FragmentCompression::None),
+                        bytes: expected.clone(),
+                    }
+                    .to_bytes(&mut body)
+                    .unwrap();
+                } else {
+                    body.write_u8(1).unwrap();
+                    SingleData::new(None, expected.clone())
+                        .to_bytes(&mut body)
+                        .unwrap();
+                }
+            }
+            #[cfg(feature = "compression_lz4")]
+            if packet_type.is_compressed() {
+                use crate::packet::compression::{
+                    CompressionConfig, CompressionScratch, PayloadCompressionCandidate,
+                    compress_fragment,
+                };
+                let candidate = compress_fragment(
+                    &body,
+                    CompressionConfig {
+                        min_payload_size: 0,
+                        ..CompressionConfig::LZ4
+                    },
+                    &mut CompressionScratch::default(),
+                )
+                .unwrap();
+                let PayloadCompressionCandidate::Compressed { payload, .. } = candidate else {
+                    panic!("repetitive payload should compress");
+                };
+                body = payload;
+            }
+            let header =
+                PacketHeaderManager::default().preview_send_packet_header(packet_type, Tick(7));
+            let mut packet = Vec::new();
+            header.to_bytes(&mut packet).unwrap();
+            packet.extend_from_slice(&body);
+
+            let mut world = World::new();
+            world.insert_resource(registry);
+            world.init_resource::<Time<Real>>();
+            world.init_resource::<ReceivedPackets>();
+            world.add_observer(
+                |_: On<PacketReceived>, mut received: ResMut<ReceivedPackets>| {
+                    received.0 += 1;
+                },
+            );
+            let entity = world.spawn((Link::default(), Linked, transport)).id();
+            let legacy = packet[PacketHeader::WIRE_PREFIX.len()..].to_vec();
+            let mut wrong_version = packet.clone();
+            wrong_version[PacketHeader::WIRE_PREFIX.len() - 1] = 2;
+            for incompatible in [legacy, wrong_version] {
+                world.get_mut::<Link>(entity).unwrap().recv.push_raw(
+                    lightyear_link::recv_payload_from_bytes(Bytes::from(incompatible)),
+                );
+                world
+                    .run_system_once(TransportPlugin::buffer_receive)
+                    .unwrap();
+                assert_eq!(world.resource::<ReceivedPackets>().0, 0);
+                assert!(
+                    world
+                        .get_mut::<Transport>(entity)
+                        .unwrap()
+                        .receivers
+                        .get_mut(&channel_id)
+                        .unwrap()
+                        .read_message()
+                        .is_none()
+                );
+            }
+
+            world
+                .get_mut::<Link>(entity)
+                .unwrap()
+                .recv
+                .push_raw(lightyear_link::recv_payload_from_bytes(Bytes::from(packet)));
+            world
+                .run_system_once(TransportPlugin::buffer_receive)
+                .unwrap();
+            assert_eq!(world.resource::<ReceivedPackets>().0, 1);
+            let received = world
+                .get_mut::<Transport>(entity)
+                .unwrap()
+                .receivers
+                .get_mut(&channel_id)
+                .unwrap()
+                .read_message()
+                .map(|(_, bytes, _)| bytes);
+            assert_eq!(
+                received,
+                (packet_type != PacketType::AckOnly).then_some(expected)
+            );
+        }
+    }
+
+    #[test]
     fn queued_ack_is_processed_before_packet_loss_timeout() {
         let settings = ChannelSettings {
             mode: ChannelMode::UnorderedReliable(Default::default()),

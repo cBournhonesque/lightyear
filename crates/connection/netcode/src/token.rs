@@ -375,7 +375,12 @@ impl<A: utils::ToSocketAddrs> ConnectTokenBuilder<A> {
         Ok(self)
     }
     /// Generates the token and consumes the builder.
+    ///
+    /// Client ID zero is reserved for the server role and cannot be minted.
     pub fn generate(self) -> Result<ConnectToken, Error> {
+        if self.client_id == 0 {
+            return Err(Error::ReservedClientId);
+        }
         // number of seconds since unix epoch
         let now = utils::now()?;
         let expire_timestamp = if self.expire_seconds < 0 {
@@ -678,6 +683,14 @@ mod tests {
             .for_each(|(have, expected)| {
                 assert_eq!(have, expected);
             });
+    }
+
+    #[test]
+    fn token_builder_rejects_reserved_client_id() {
+        assert!(matches!(
+            ConnectToken::build("127.0.0.1:5000", 1, 0, [0; PRIVATE_KEY_BYTES]).generate(),
+            Err(Error::ReservedClientId)
+        ));
     }
 
     #[test]

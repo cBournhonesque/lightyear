@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WebTransportEndpoint::bind_addr` owns the listener configuration. Read `WebTransportLocalAddr` and `WebTransportPeerAddr` for observed socket facts.
 - Removed shared `LocalAddr`/`PeerAddr` configuration and generic Aeronet address copying onto Lightyear entities. Browser links do not manufacture socket facts.
 - Native clients use a dual-stack bind so hostname resolution and IPv6 targets remain usable.
+- Native debug aliases use domain-separated opaque `PeerId` projections; browser debug candidates are nonzero local entity labels.
+- Lobby discovery requires native socket and certificate context rather than recovering a target from the peer alias; endpoint aliases remain frozen across context updates.
 
 ## v0.21.0 (2025-07-03)
 

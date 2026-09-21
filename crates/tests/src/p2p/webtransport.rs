@@ -43,10 +43,12 @@ fn two_peers_discover_each_other_over_webtransport_and_start_a_session() {
         assert_eq!(first.id(), Some(lobby_id()));
         assert_eq!(second.id(), Some(lobby_id()));
         // Admission resolves the endpoint alias before any observer can see an ephemeral source.
-        assert_eq!(
-            first.roster(),
-            vec![peer_id(base_port, 0), peer_id(base_port, 1)]
-        );
+        let mut expected = vec![
+            peer_id(TestTransport::WebTransport, base_port, 0),
+            peer_id(TestTransport::WebTransport, base_port, 1),
+        ];
+        expected.sort_unstable();
+        assert_eq!(first.roster(), expected);
         assert_eq!(first.roster(), second.roster());
     }
     assert_eq!(stepper.peers[0].connected_links(), 1);
@@ -101,11 +103,12 @@ fn three_peers_join_one_seed_without_identity_collisions() {
     stepper.wait_for_session(&[0, 1, 2]);
     for (slot, peer) in stepper.peers.iter_mut().enumerate() {
         assert_eq!(peer.connected_links(), 2);
-        let local = peer_id(base_port, slot as u8);
-        let expected: Vec<_> = (0..3)
-            .map(|slot| peer_id(base_port, slot))
+        let local = peer_id(TestTransport::WebTransport, base_port, slot as u8);
+        let mut expected: Vec<_> = (0..3)
+            .map(|slot| peer_id(TestTransport::WebTransport, base_port, slot))
             .filter(|id| *id != local)
             .collect();
+        expected.sort_unstable();
         let metadata = peer.app.world().resource::<NetworkingMetadata>();
         let mut actual: Vec<_> = metadata.peer_map.keys().copied().collect();
         actual.sort_unstable();

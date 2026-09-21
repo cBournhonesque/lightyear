@@ -6,8 +6,8 @@
 //!
 //! Add this plugin alongside `LobbyPlugin` and the normal P2P messaging/session plugins.
 //! Spawn `UdpEndpoint::new(bind)` and optionally configure its `LocalId` before adding the IO.
-//! Port-zero binds publish [`crate::UdpLocalAddr`]. Use [`dial_context`] when seeding chosen IDs:
-//! socket routing belongs in discovery context, not in the peer alias.
+//! Port-zero binds publish [`crate::UdpLocalAddr`]. Discovery always requires [`dial_context`]:
+//! socket routing belongs in discovery context, never in the peer alias.
 //!
 //! A UDP link becomes [`Linked`] immediately, but a lobby link is admitted only after receiving
 //! the peer's existing identity announcement on the reliable P2P channel. No new raw handshake
@@ -17,7 +17,7 @@
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-use lightyear_core::id::PeerId;
+use lightyear_core::id::{LocalId, PeerId, peer_id_from_socket};
 use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked};
 use lightyear_p2p::{
     DialContext, DialPeer, Lobby, begin_peer_resolution, resolve_endpoint_identity,
@@ -96,7 +96,7 @@ fn on_endpoint_added(trigger: On<Add, UdpEndpoint>, mut commands: Commands) {
     });
 }
 
-fn on_endpoint_bound(trigger: On<Add, UdpLocalAddr>, mut commands: Commands) {
+fn on_endpoint_bound(trigger: On<Insert, UdpLocalAddr>, mut commands: Commands) {
     let endpoint = trigger.entity;
     commands.queue(move |world: &mut World| {
         if world.get::<UdpLobbyEndpoint>(endpoint).is_none() {
@@ -105,7 +105,10 @@ fn on_endpoint_bound(trigger: On<Add, UdpLocalAddr>, mut commands: Commands) {
         let Some(address) = world.get::<UdpLocalAddr>(endpoint).map(|address| address.0) else {
             return;
         };
-        if resolve_endpoint_identity(world, endpoint, PeerId::Raw(address)).is_none() {
+        let candidate = world
+            .get::<LocalId>(endpoint)
+            .map_or_else(|| peer_id_from_socket(b"udp", address), |local| local.0);
+        if resolve_endpoint_identity(world, endpoint, candidate).is_none() {
             return;
         }
         world
@@ -136,15 +139,7 @@ fn on_dial(
     mut commands: Commands,
 ) {
     let peer = trigger.peer;
-    let address = if trigger.context.is_empty() {
-        // Socket-ID bootstrap convenience, until the opaque identity cutover.
-        match peer {
-            PeerId::Raw(address) => Some(address),
-            _ => None,
-        }
-    } else {
-        context_address(&trigger.context)
-    };
+    let address = context_address(&trigger.context);
     let Some(address) = address else {
         warn!(?peer, "UDP discovery needs a valid UDP dial context");
         return;
@@ -186,4 +181,47 @@ fn on_dial(
         io.register_link(address, link);
     }
     debug!(?peer, %address, ?link, "lobby dialed a UDP peer");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::net::{Ipv4Addr, SocketAddr};
+    use lightyear_p2p::LobbyPlugin;
+
+    #[test]
+    fn native_context_updates_preserve_chosen_and_default_endpoint_ids() {
+        let original = SocketAddr::from((Ipv4Addr::LOCALHOST, 4100));
+        let changed = SocketAddr::from((Ipv4Addr::LOCALHOST, 4101));
+        for requested in [None, Some(PeerId(91))] {
+            let mut app = App::new();
+            app.add_plugins(LobbyPlugin::default());
+            app.add_observer(on_endpoint_bound);
+            let endpoint = app
+                .world_mut()
+                .spawn((UdpEndpoint::new(original), UdpLobbyEndpoint))
+                .id();
+            if let Some(alias) = requested {
+                app.world_mut().entity_mut(endpoint).insert(LocalId(alias));
+            }
+            app.world_mut()
+                .entity_mut(endpoint)
+                .insert(UdpLocalAddr(original));
+            let alias = requested.unwrap_or_else(|| peer_id_from_socket(b"udp", original));
+            assert_eq!(app.world().resource::<Lobby>().local(), Some(alias));
+            assert_eq!(
+                context_address(app.world().resource::<Lobby>().local_dial_context()),
+                Some(original),
+            );
+            app.world_mut()
+                .entity_mut(endpoint)
+                .insert(UdpLocalAddr(changed));
+            assert_eq!(app.world().resource::<Lobby>().local(), Some(alias));
+            assert_eq!(app.world().get::<LocalId>(endpoint), Some(&LocalId(alias)));
+            assert_eq!(
+                context_address(app.world().resource::<Lobby>().local_dial_context()),
+                Some(changed),
+            );
+        }
+    }
 }

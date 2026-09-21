@@ -630,7 +630,7 @@ impl<Ctx> Server<Ctx> {
             .conn_cache
             .clients
             .get_mut(&id)
-            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+            .ok_or(Error::ClientNotFound(id::PeerId(id)))?;
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
@@ -653,7 +653,7 @@ impl<Ctx> Server<Ctx> {
             .conn_cache
             .clients
             .get_mut(&id)
-            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+            .ok_or(Error::ClientNotFound(id::PeerId(id)))?;
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = Packet::write_payload(
@@ -682,7 +682,7 @@ impl<Ctx> Server<Ctx> {
             .conn_cache
             .clients
             .get_mut(&id)
-            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+            .ok_or(Error::ClientNotFound(id::PeerId(id)))?;
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
@@ -707,6 +707,9 @@ impl<Ctx> Server<Ctx> {
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
         let entity = entity_mut.id();
+        if token.client_id == 0 {
+            return Err(Error::ReservedClientId);
+        }
 
         if self.cfg.expected_addresses.is_empty() {
             return Err(Error::MissingExpectedAddresses);
@@ -739,7 +742,7 @@ impl<Ctx> Server<Ctx> {
                 token.server_to_client_key,
                 entity,
             )?;
-            return Err(Error::ClientIdInUse(id::PeerId::Netcode(token.client_id)));
+            return Err(Error::ClientIdInUse(id::PeerId(token.client_id)));
         }
         let entry = TokenEntry {
             time: self.time,
@@ -749,9 +752,7 @@ impl<Ctx> Server<Ctx> {
                 .try_into()?,
         };
         if !self.token_entries.find_or_insert(entry) {
-            return Err(Error::ConnectTokenInUse(id::PeerId::Netcode(
-                token.client_id,
-            )));
+            return Err(Error::ConnectTokenInUse(id::PeerId(token.client_id)));
         };
         if self.num_connected_clients() >= self.cfg.max_clients {
             self.send_netcode_packet(
@@ -759,19 +760,19 @@ impl<Ctx> Server<Ctx> {
                 token.server_to_client_key,
                 entity,
             )?;
-            return Err(Error::ServerIsFull(id::PeerId::Netcode(token.client_id)));
+            return Err(Error::ServerIsFull(id::PeerId(token.client_id)));
         };
         if let Some(denied_reason) = self
             .cfg
             .connection_request_handler
-            .handle_request(id::PeerId::Netcode(token.client_id))
+            .handle_request(id::PeerId(token.client_id))
         {
             self.send_netcode_packet(
                 DeniedPacket::create(denied_reason),
                 token.server_to_client_key,
                 entity,
             )?;
-            return Err(Error::Denied(id::PeerId::Netcode(token.client_id)));
+            return Err(Error::Denied(id::PeerId(token.client_id)));
         }
 
         let Ok(challenge_token_encrypted) = ChallengeToken {
@@ -779,7 +780,7 @@ impl<Ctx> Server<Ctx> {
             user_data: token.user_data,
         }
         .encrypt(self.challenge_sequence, &self.challenge_key) else {
-            return Err(Error::ConnectTokenEncryptionFailure(id::PeerId::Netcode(
+            return Err(Error::ConnectTokenEncryptionFailure(id::PeerId(
                 token.client_id,
             )));
         };
@@ -820,15 +821,15 @@ impl<Ctx> Server<Ctx> {
         let id: ClientId = challenge_token.client_id;
         // avoid borrow-checker by directly using `conn_cache.clients`
         let Some(client) = self.conn_cache.clients.get(&id) else {
-            return Err(Error::UnknownClient(id::PeerId::Netcode(id)));
+            return Err(Error::UnknownClient(id::PeerId(id)));
         };
         if client.entity != entity {
-            return Err(Error::ClientIdInUse(id::PeerId::Netcode(id)));
+            return Err(Error::ClientIdInUse(id::PeerId(id)));
         }
         if client.is_connected() {
             // TODO: most of the time this error can happen because we receive older 'ConnectionResponse' messages
             // even though the client is already connected. Should we just ignore this error?
-            // return Err(Error::ClientIdInUse(id::ClientId::Netcode(id)));
+            // return Err(Error::ClientIdInUse(id::PeerId(id)));
             return Ok(());
         };
 
@@ -838,7 +839,7 @@ impl<Ctx> Server<Ctx> {
                 client.send_key,
                 entity,
             )?;
-            return Err(Error::ServerIsFull(id::PeerId::Netcode(id)));
+            return Err(Error::ServerIsFull(id::PeerId(id)));
         }
 
         let client = self.conn_cache.clients.get_mut(&id).unwrap();
@@ -880,7 +881,7 @@ impl<Ctx> Server<Ctx> {
     // fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
     //     for id in self.conn_cache.ids() {
     //         let Some(client) = self.conn_cache.clients.get_mut(&id) else {
-    //             self.handle_client_error(Error::ClientNotFound(id::PeerId::Netcode(id)));
+    //             self.handle_client_error(Error::ClientNotFound(id::PeerId(id)));
     //             continue;
     //         };
     //         if !client.is_connected() {
@@ -899,7 +900,7 @@ impl<Ctx> Server<Ctx> {
     /// Send keep-alives to a given client
     pub(crate) fn send_keepalives(&mut self, id: ClientId, sender: &mut LinkSender) -> Result<()> {
         let Some(client) = self.conn_cache.clients.get_mut(&id) else {
-            return Err(Error::ClientNotFound(id::PeerId::Netcode(id)));
+            return Err(Error::ClientNotFound(id::PeerId(id)));
         };
         if !client.is_connected() {
             return Ok(());
@@ -946,7 +947,7 @@ impl<Ctx> Server<Ctx> {
                     self.conn_cache
                         .clients
                         .get(&client_id)
-                        .ok_or(Error::ClientNotFound(id::PeerId::Netcode(client_id)))?
+                        .ok_or(Error::ClientNotFound(id::PeerId(client_id)))?
                         .receive_key,
                     self.conn_cache.replay_protection.get_mut(&client_id),
                 )
@@ -1026,13 +1027,13 @@ impl<Ctx> Server<Ctx> {
             return Err(Error::SizeMismatch(MAX_PACKET_SIZE, buf.len()));
         }
         let Some(conn) = self.conn_cache.clients.get_mut(&client_id) else {
-            return Err(Error::ClientNotFound(id::PeerId::Netcode(client_id)));
+            return Err(Error::ClientNotFound(id::PeerId(client_id)));
         };
         if !conn.is_connected() {
             // since there is no way to obtain a client index of clients that are not connected,
             // there is no straight-forward way for a user to send a packet to a non-connected client.
             // still, in case a user somehow manages to obtain such index, we'll return an error.
-            return Err(Error::ClientNotConnected(id::PeerId::Netcode(client_id)));
+            return Err(Error::ClientNotConnected(id::PeerId(client_id)));
         }
         if !conn.is_confirmed() {
             // send a keep-alive packet to the client to confirm the connection
@@ -1253,7 +1254,7 @@ mod tests {
             inner.writer.extend_from_slice(&[5]);
             inner
                 .client_errors
-                .push(Error::ClientIdInUse(id::PeerId::Netcode(1)));
+                .push(Error::ClientIdInUse(id::PeerId(1)));
             inner
                 .cfg
                 .context
@@ -1338,6 +1339,88 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_request_rejects_reserved_client_id() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let mut request = connection_request(&[addr], None);
+        // Simulate an authenticated token from an older issuer that minted zero.
+        let mut private =
+            ConnectTokenPrivate::read_from(&mut io::Cursor::new(&request.token_data[..])).unwrap();
+        private.client_id = 0;
+        private
+            .write_to(&mut io::Cursor::new(&mut request.token_data[..]))
+            .unwrap();
+        let config = ServerConfig::default().expected_addresses([addr]);
+        let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let mut command_queue = CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut command_queue, &world);
+            assert!(matches!(
+                server.process_connection_request(request, &mut commands.entity(client)),
+                Err(Error::ReservedClientId)
+            ));
+        }
+        command_queue.apply(&mut world);
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.client_ids().next().is_none());
+    }
+
+    #[test]
+    fn authenticated_handshake_preserves_max_client_id() {
+        let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let token = ConnectToken::build(
+            [addr].as_slice(),
+            TEST_PROTOCOL_ID,
+            u64::MAX,
+            TEST_PRIVATE_KEY,
+        )
+        .generate()
+        .unwrap();
+        let Packet::Request(mut request) = RequestPacket::create(
+            token.protocol_id,
+            token.expire_timestamp,
+            token.nonce,
+            token.private_data,
+        ) else {
+            unreachable!()
+        };
+        request.decrypt_token_data(TEST_PRIVATE_KEY).unwrap();
+        let config = ServerConfig::default().expected_addresses([addr]);
+        let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let mut command_queue = CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut command_queue, &world);
+            server
+                .process_connection_request(request, &mut commands.entity(client))
+                .unwrap();
+        }
+        command_queue.apply(&mut world);
+        let challenge = ChallengeToken {
+            client_id: u64::MAX,
+            user_data: [0; USER_DATA_BYTES],
+        }
+        .encrypt(0, &server.challenge_key)
+        .unwrap();
+        server
+            .process_connection_response(
+                ResponsePacket {
+                    sequence: 0,
+                    token: challenge,
+                },
+                client,
+            )
+            .unwrap();
+        assert_eq!(
+            server.connected_client_ids().collect::<Vec<_>>(),
+            [u64::MAX]
+        );
+        assert_eq!(server.client_entity(u64::MAX), Some(client));
+    }
+
+    #[test]
     fn duplicate_pending_token_id_does_not_replace_crypto_owner() {
         let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
         let (mut server, mut world, first) = process_request(&[addr], &[addr], None);
@@ -1351,10 +1434,7 @@ mod tests {
                     &mut commands.entity(second),
                 )
                 .unwrap_err();
-            assert!(matches!(
-                error,
-                Error::ClientIdInUse(id::PeerId::Netcode(1))
-            ));
+            assert!(matches!(error, Error::ClientIdInUse(id::PeerId(1))));
         }
         command_queue.apply(&mut world);
         assert_eq!(server.client_entity(1), Some(first));
@@ -1489,7 +1569,7 @@ mod tests {
             );
             assert!(matches!(
                 errors.as_slice(),
-                [Error::ClientIdInUse(id::PeerId::Netcode(1))]
+                [Error::ClientIdInUse(id::PeerId(1))]
             ));
             assert_eq!(
                 intruder.state(),

@@ -57,7 +57,7 @@ fn main() {
             let client = app
                 .world_mut()
                 .spawn(ExampleClient {
-                    client_id: cli.client_id().unwrap_or(0),
+                    client_id: cli.client_id().unwrap_or(1),
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
                     conditioner: None,
@@ -116,7 +116,7 @@ fn main() {
             let client = app
                 .world_mut()
                 .spawn(ExampleClient {
-                    client_id: cli.client_id().unwrap_or(0),
+                    client_id: cli.client_id().unwrap_or(1),
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
                     conditioner: None,

@@ -395,7 +395,7 @@ mod tests {
 
     fn connect_client(app: &mut App, peer: u64) -> Entity {
         app.world_mut()
-            .spawn((Client, RemoteId(PeerId::Local(peer)), Connected))
+            .spawn((Client, RemoteId(PeerId(peer)), Connected))
             .id()
     }
 
@@ -416,7 +416,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(client)
-            .insert((RemoteId(PeerId::Local(1)), Connected));
+            .insert((RemoteId(PeerId(1)), Connected));
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Client(client));
 
@@ -447,7 +447,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Client,
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(73)),
                 Connected,
                 LinkOf { endpoint: server },
                 HostClient { buffer: Vec::new() },
@@ -492,10 +492,10 @@ mod tests {
         app.world_mut().entity_mut(second).insert(P2P::Joined);
         app.world_mut()
             .entity_mut(first)
-            .insert((RemoteId(PeerId::Local(1)), Connected));
+            .insert((RemoteId(PeerId(1)), Connected));
         app.world_mut()
             .entity_mut(second)
-            .insert((RemoteId(PeerId::Local(2)), Connected));
+            .insert((RemoteId(PeerId(2)), Connected));
         app.update();
         assert_eq!(
             mode(&app),
@@ -532,7 +532,7 @@ mod tests {
         let mut app = test_app();
         let peer = app
             .world_mut()
-            .spawn((P2P::Candidate, RemoteId(PeerId::Local(1)), Connected))
+            .spawn((P2P::Candidate, RemoteId(PeerId(1)), Connected))
             .id();
         let client = connect_client(&mut app, 2);
         let server = start_server(&mut app);
@@ -552,7 +552,7 @@ mod tests {
     fn inactive_p2p_links_do_not_activate_or_conflict_with_conventional_topology() {
         let mut app = test_app();
         app.world_mut()
-            .spawn((P2P::Inactive, RemoteId(PeerId::Local(1)), Connected));
+            .spawn((P2P::Inactive, RemoteId(PeerId(1)), Connected));
         let client = connect_client(&mut app, 2);
 
         app.update();
@@ -563,7 +563,7 @@ mod tests {
     fn unready_conventional_roles_do_not_conflict_with_p2p() {
         let mut app = test_app();
         app.world_mut()
-            .spawn((P2P::Candidate, RemoteId(PeerId::Local(1)), Connected));
+            .spawn((P2P::Candidate, RemoteId(PeerId(1)), Connected));
         app.world_mut().spawn(Client);
         app.world_mut().spawn(Server::default());
 
@@ -618,7 +618,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Client,
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(73)),
                 Connected,
                 HostClient { buffer: Vec::new() },
             ))

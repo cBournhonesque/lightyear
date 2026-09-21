@@ -11,7 +11,7 @@ use alloc::sync::Arc;
 use anyhow::Context;
 use async_compat::Compat;
 use core::net::SocketAddr;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
@@ -54,34 +54,44 @@ struct ClientIds(Arc<RwLock<HashSet<u64>>>);
 /// Update the list of connected client ids when a client disconnects
 fn handle_disconnect_event(
     trigger: On<Add, Disconnected>,
-    query: Query<&RemoteId, With<ClientOf>>,
+    query: Query<
+        &RemoteId,
+        (
+            With<ClientOf>,
+            With<lightyear::netcode::server_plugin::TokenUserData>,
+        ),
+    >,
     client_ids: Res<ClientIds>,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
     };
-    if let PeerId::Netcode(client_id) = remote_id.0 {
-        info!(
-            "Client disconnected: {}. Removing from ClientIds.",
-            client_id
-        );
-        client_ids.0.write().unwrap().remove(&client_id);
-    }
+    let client_id = remote_id.0 .0;
+    info!(
+        "Client disconnected: {}. Removing from ClientIds.",
+        client_id
+    );
+    client_ids.0.write().remove(&client_id);
 }
 
 /// Update the list of connected client ids when a client connects
 fn handle_connect_event(
     trigger: On<Add, Connected>,
-    query: Query<&RemoteId, With<ClientOf>>,
+    query: Query<
+        &RemoteId,
+        (
+            With<ClientOf>,
+            With<lightyear::netcode::server_plugin::TokenUserData>,
+        ),
+    >,
     client_ids: Res<ClientIds>,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
     };
-    if let PeerId::Netcode(client_id) = remote_id.0 {
-        info!("Client connected: {}. Adding to ClientIds.", client_id);
-        client_ids.0.write().unwrap().insert(client_id);
-    }
+    let client_id = remote_id.0 .0;
+    info!("Client connected: {}. Adding to ClientIds.", client_id);
+    client_ids.0.write().insert(client_id);
 }
 
 /// Start a detached task that listens for incoming TCP connections and sends `ConnectToken`s to clients
@@ -106,7 +116,7 @@ fn start_netcode_authentication_task(
                 // assign a new client_id
                 let client_id = loop {
                     let client_id = rand::random();
-                    if !client_ids.read().unwrap().contains(&client_id) {
+                    if client_id != 0 && !client_ids.read().contains(&client_id) {
                         break client_id;
                     }
                 };

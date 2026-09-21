@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use bevy_app::{App, FixedFirst, Plugin, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
@@ -13,7 +12,6 @@ use lightyear_core::prelude::{LocalTimeline, Tick, TimelineSystems};
 use lightyear_link::prelude::{Unlink, UnlinkReason};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
-use lightyear_serde::ToBytes;
 use lightyear_sync::prelude::SyncedLocalTimeline;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
@@ -500,19 +498,14 @@ enum AdvanceResult {
 
 /// Hash a roster independently of Link entity allocation and local/remote ordering.
 fn roster_hash(local_id: PeerId, remote_ids: &[PeerId]) -> u64 {
-    let mut encoded_peers = Vec::with_capacity(remote_ids.len() + 1);
-    for peer_id in core::iter::once(&local_id).chain(remote_ids) {
-        let mut encoded = Vec::with_capacity(peer_id.bytes_len());
-        peer_id
-            .to_bytes(&mut encoded)
-            .expect("serializing a PeerId into memory cannot fail");
-        encoded_peers.push(encoded);
-    }
-    encoded_peers.sort_unstable();
+    let mut peers = SmallVec::<[PeerId; 5]>::with_capacity(remote_ids.len() + 1);
+    peers.push(local_id);
+    peers.extend_from_slice(remote_ids);
+    peers.sort_unstable();
 
     let mut hasher = seahash::SeaHasher::new();
-    for encoded in encoded_peers {
-        hasher.write(&encoded);
+    for peer in peers {
+        hasher.write(&peer.0.to_be_bytes());
     }
     hasher.finish()
 }
@@ -584,6 +577,10 @@ fn start_session(
         tracing::warn!("P2PStart requires every candidate Link to have a LocalId");
         return;
     };
+    if local_id == PeerId::SERVER {
+        tracing::warn!("P2PStart requires an ordinary nonzero LocalId");
+        return;
+    }
     if candidates
         .iter()
         .any(|(_, candidate_local_id, _, _)| *candidate_local_id != Some(local_id))
@@ -601,6 +598,10 @@ fn start_session(
             tracing::warn!("P2PStart requires every candidate Link to have a RemoteId");
             return;
         };
+        if remote_id == PeerId::SERVER {
+            tracing::warn!("P2PStart requires ordinary nonzero RemoteIds");
+            return;
+        }
         if remote_id == local_id {
             tracing::warn!(
                 ?local_id,
@@ -845,8 +846,31 @@ fn drive_session(
 mod tests {
     use super::*;
 
+    #[test]
+    fn reserved_local_or_remote_ids_cannot_start_a_session() {
+        for (local, remote) in [(PeerId::SERVER, PeerId(1)), (PeerId(1), PeerId::SERVER)] {
+            let mut app = App::new();
+            app.init_resource::<P2PSession>();
+            app.init_resource::<Time<Real>>();
+            app.init_resource::<NetworkingMetadata>();
+            app.add_observer(start_session);
+            // Even an application-inserted Connected marker cannot put SERVER in the roster.
+            let entity = app
+                .world_mut()
+                .spawn((P2P::Inactive, LocalId(local), RemoteId(remote), Connected))
+                .id();
+            app.world_mut().trigger(P2PStart);
+            app.world_mut().flush();
+            assert_eq!(
+                app.world().resource::<P2PSession>().state(),
+                P2PSessionState::Stopped
+            );
+            assert_eq!(app.world().get::<P2P>(entity), Some(&P2P::Inactive));
+        }
+    }
+
     fn peer(index: u64) -> PeerId {
-        PeerId::Entity(index)
+        PeerId(index + 1)
     }
 
     fn admitted_peer(world: &mut World, local: PeerId, remote: PeerId) -> Entity {

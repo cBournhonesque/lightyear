@@ -165,11 +165,11 @@ fn test_buffer_inputs_with_delay() {
     );
 }
 
-/// `authorize_controlled_targets` exempts host-client inputs (`RemoteId::is_local`):
+/// `authorize_controlled_targets` exempts host-client inputs (`HostClient`):
 /// they are trusted in-process and must not be filtered against `ControlledByRemote`.
 /// The host-client drives an entity with **no** `ControlledBy`; an observer chained
 /// after the helper must still see the host-client's input target (the helper
-/// skipped it). Were the `is_local` guard dropped, the target would be stripped
+/// skipped it). Were the `HostClient` guard dropped, the target would be stripped
 /// (the host-client controls nothing) and the observer would see nothing.
 #[test]
 fn test_authorize_controlled_targets_exempts_host_client() {
@@ -178,6 +178,7 @@ fn test_authorize_controlled_targets_exempts_host_client() {
     use bevy::ecs::system::{Query, ResMut};
     use bevy::prelude::Entity;
     use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_core::id::{LocalId, PeerId, RemoteId};
     use lightyear_inputs::input_message::{InputMessage, InputTarget};
     use lightyear_inputs::prelude::server::{InputSystems, authorize_controlled_targets};
     use lightyear_messages::prelude::MessageReceiver;
@@ -201,7 +202,20 @@ fn test_authorize_controlled_targets_exempts_host_client() {
         }
     }
 
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
+    let mut config = StepperConfig::host_server();
+    config.init = false;
+    let mut stepper = ClientServerStepper::from_config(config);
+    let host_id = PeerId(73);
+    stepper.host_client_mut().insert(LocalId(host_id));
+    stepper.init();
+    assert_eq!(
+        stepper.host_client().get::<LocalId>(),
+        Some(&LocalId(host_id))
+    );
+    assert_eq!(
+        stepper.host_client().get::<RemoteId>(),
+        Some(&RemoteId(host_id))
+    );
     stepper.server_app.init_resource::<ObservedTargets>();
     stepper.server_app.add_systems(
         bevy::app::PreUpdate,
@@ -239,6 +253,6 @@ fn test_authorize_controlled_targets_exempts_host_client() {
             .0
             .contains(&server_entity),
         "the host-client's input target was stripped (or never reached validation); \
-         the is_local exemption is broken",
+         the HostClient exemption is broken",
     );
 }

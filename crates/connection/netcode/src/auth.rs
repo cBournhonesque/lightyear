@@ -34,6 +34,7 @@ pub enum Authentication {
         /// Socket authorization address embedded in the token, not a transport dial target.
         /// Configure the client's native transport destination separately.
         server_addr: SocketAddr,
+        /// Authoritative numeric identity; zero is reserved for the server role.
         client_id: u64,
         private_key: Key,
         protocol_id: u64,
@@ -74,7 +75,7 @@ impl Authentication {
                 ConnectToken::build(
                     SocketAddr::from_str("0.0.0.0:0").unwrap(),
                     0,
-                    0,
+                    1,
                     generate_key(),
                 )
                 .timeout_seconds(client_timeout_secs)

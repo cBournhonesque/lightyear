@@ -3,8 +3,8 @@
 //! A [`UdpEndpoint`](crate::endpoint::UdpEndpoint) owns one non-blocking UDP socket whose bound
 //! address is reported by [`UdpLocalAddr`]. It is the address
 //! other peers reach this one at, and it fans out to one child [`Link`] per remote address, related
-//! to it through [`LinkOf`](lightyear_link::prelude::LinkOf). This is what gives a peer a single stable identity: the socket it is
-//! reachable on, regardless of how many peers it talks to.
+//! to it through [`LinkOf`](lightyear_link::prelude::LinkOf). Native addresses remain routing
+//! facts, separate from the opaque connection identity inherited from a lobby endpoint.
 //!
 //! The endpoint is not tied to any role. A game server and a P2P peer both use it; only the markers
 //! layered on top differ — `ServerUdpIo` (available with `server`) adds the server role.
@@ -12,8 +12,8 @@
 //! # Addressing
 //!
 //! Child links are created for inbound datagrams, because UDP has no connection to accept: the
-//! source address of a datagram *is* the peer. A peer that dials another one therefore reaches it
-//! without any handshake, and sending back uses the same address the datagram came from.
+//! source address selects the native route. A peer that dials another one therefore reaches it
+//! without a transport handshake, and sending back uses the same address the datagram came from.
 //!
 //! A link the caller creates for a peer it dialed must be registered with
 //! [`UdpEndpoint::register_link`](crate::endpoint::UdpEndpoint::register_link), or the peer's first reply will spawn a second link for the same
@@ -31,7 +31,9 @@ use bytes::BufMut;
 use core::net::SocketAddr;
 use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_core::buffer_pool::BufferPool;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
+#[cfg(test)]
+use lightyear_core::id::PeerId;
+use lightyear_core::id::{LocalId, RemoteId, peer_id_from_socket};
 use lightyear_core::time::Instant;
 use lightyear_link::endpoint::EndpointLinkPlugin;
 use lightyear_link::prelude::{Endpoint, LinkOf};
@@ -132,13 +134,13 @@ impl UdpEndpointPlugin {
             };
             let Some(local) = world
                 .get::<UdpLocalAddr>(endpoint)
-                .map(|addr| LocalId(PeerId::Raw(addr.0)))
+                .map(|addr| LocalId(peer_id_from_socket(b"udp", addr.0)))
             else {
                 return;
             };
             let Some(remote) = world
                 .get::<UdpPeerAddr>(entity)
-                .map(|addr| RemoteId(PeerId::Raw(addr.0)))
+                .map(|addr| RemoteId(peer_id_from_socket(b"udp", addr.0)))
             else {
                 return;
             };
@@ -422,11 +424,14 @@ mod tests {
         assert!(app.world().get::<Connected>(child).is_some());
         assert_eq!(
             app.world().get::<LocalId>(child),
-            Some(&LocalId(PeerId::Server))
+            Some(&LocalId(PeerId::SERVER))
         );
         assert_eq!(
             app.world().get::<RemoteId>(child),
-            Some(&RemoteId(PeerId::Raw(peer.local_addr().unwrap())))
+            Some(&RemoteId(peer_id_from_socket(
+                b"udp",
+                peer.local_addr().unwrap()
+            )))
         );
         assert_eq!(
             app.world_mut()

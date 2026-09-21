@@ -27,7 +27,7 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
-use lightyear_connection::host::HostServer;
+use lightyear_connection::host::{HostClient, HostServer};
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
@@ -167,7 +167,7 @@ impl InputValidationAppExt for App {
 /// app.add_input_validator(my_validator.after(authorize_controlled_targets::<MySequence>));
 /// ```
 ///
-/// - Host-client inputs (`RemoteId::is_local`) are trusted in-process and
+/// - Host-client inputs (entities with [`HostClient`]) are trusted in-process and
 ///   skipped.
 /// - `InputTarget::PreSpawned` is identified by a hash, not an entity id, so it
 ///   is passed through here (binding a prespawn to an owner is out of scope).
@@ -175,14 +175,15 @@ pub fn authorize_controlled_targets<S: ActionStateSequence>(
     mut receivers: Query<
         (
             &RemoteId,
+            Has<HostClient>,
             Option<&ControlledByRemote>,
             &mut MessageReceiver<InputMessage<S>>,
         ),
         With<Connected>,
     >,
 ) {
-    for (client_id, controlled_by_remote, mut receiver) in receivers.iter_mut() {
-        if client_id.is_local() {
+    for (client_id, is_host_client, controlled_by_remote, mut receiver) in receivers.iter_mut() {
+        if is_host_client {
             continue;
         }
         receiver.retain_messages(|message| {
@@ -310,6 +311,7 @@ fn receive_input_message<S: ActionStateSequence>(
             &LinkOf,
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
+            Has<HostClient>,
             Option<&InputRebroadcaster<S::Action>>,
         ),
         // We also receive inputs from the HostClient, in case we want the HostClient's inputs to be
@@ -327,7 +329,7 @@ fn receive_input_message<S: ActionStateSequence>(
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
+    receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, is_host_client, rebroadcaster)| {
 
         let server_entity = link_of.endpoint;
         let tick = timeline.tick();
@@ -338,7 +340,7 @@ fn receive_input_message<S: ActionStateSequence>(
             let mut message = message;
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
-            if client_id.is_local() && !config.rebroadcast_inputs {
+            if is_host_client && !config.rebroadcast_inputs {
                 error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", DebugName::type_name::<S::Action>().shortname());
                 return Ok(())
             }

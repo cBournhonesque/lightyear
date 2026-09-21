@@ -42,7 +42,7 @@ Then:
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
 - Build and run the server without GUI support: `cargo run --no-default-features --features=server -- server`
-- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
+- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client`
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
@@ -54,6 +54,25 @@ those example/demo packages.
 
 Larger interactive applications, including the projectiles networking test bed,
 live in [`demos/`](../demos/README.md).
+
+Client IDs must be nonzero. A host client gets its own nonzero local alias by default;
+use `host-client -c ID` only when you want to choose it explicitly.
+
+### P2P transports
+
+P2P examples accept `--transport udp`, `--transport websocket`, or `--transport webtransport`.
+Each peer advertises its native endpoint separately from its opaque routing alias.
+WebSocket uses plain local connections. WebTransport generates a certificate per peer
+and prints its SHA-256 digest at startup. To join a WebTransport seed, copy that digest:
+
+```sh
+cargo run --no-default-features --features=p2p -- p2p --transport webtransport --port 6100
+cargo run --no-default-features --features=p2p -- p2p --transport webtransport --port 6101 --peer 127.0.0.1:6100 --peer-certificate-digest <64-hex-digit-seed-digest>
+```
+
+The certificate pin is needed only for the seed; lobby discovery carries native
+addresses and certificate pins for other members. Restarting the seed generates
+a new certificate, so use its newly printed digest.
 
 ### Testing in wasm with webtransport
 

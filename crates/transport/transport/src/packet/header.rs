@@ -1,7 +1,5 @@
 use alloc::{vec, vec::Vec};
 use bevy_platform::hash::FixedHasher;
-#[cfg(feature = "test_utils")]
-use core::convert::TryInto;
 use core::time::Duration;
 use indexmap::IndexMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -38,13 +36,11 @@ pub(crate) struct PacketHeader {
 
 impl ToBytes for PacketHeader {
     fn bytes_len(&self) -> usize {
-        1 + self.packet_id.bytes_len()
-            + self.last_ack_packet_id.bytes_len()
-            + 4
-            + self.tick.bytes_len()
+        Self::BYTES
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        buffer.write_all(Self::WIRE_PREFIX)?;
         buffer.write_u8(self.packet_type as u8)?;
         buffer.write_u16(self.packet_id.0)?;
         buffer.write_u16(self.last_ack_packet_id.0)?;
@@ -57,45 +53,34 @@ impl ToBytes for PacketHeader {
     where
         Self: Sized,
     {
-        let packet_type = buffer.read_u8()?;
-        let packet_id = buffer.read_u16()?;
-        let last_ack_packet_id = buffer.read_u16()?;
-        let ack_bitfield = buffer.read_u32()?;
-        let tick = buffer.read_u32()?;
-        Ok(Self {
-            packet_type: PacketType::try_from(packet_type)?,
-            packet_id: PacketId(packet_id),
-            last_ack_packet_id: PacketId(last_ack_packet_id),
-            ack_bitfield,
-            tick: Tick(tick),
-        })
+        let header = Self::read_from_prefix(buffer.remaining_slice())?;
+        buffer.set_position(buffer.position() + Self::BYTES as u64);
+        Ok(header)
     }
 }
 
 impl PacketHeader {
-    /// Number of bytes written by [`PacketHeader::to_bytes`].
-    pub(crate) const BYTES: usize = 13;
+    /// Application wire version, independent of the netcode connection/token protocol.
+    pub(crate) const WIRE_PREFIX: &'static [u8; 3] = b"LY\x01";
+    /// Number of bytes written by [`PacketHeader::to_bytes`], including the wire prefix.
+    pub(crate) const BYTES: usize = Self::WIRE_PREFIX.len() + 1 + 2 + 2 + 4 + 4;
     /// Offset of the packet type byte inside the serialized header.
-    pub(crate) const PACKET_TYPE_OFFSET: usize = 0;
+    pub(crate) const PACKET_TYPE_OFFSET: usize = Self::WIRE_PREFIX.len();
 
-    /// Parses a packet header from the start of a borrowed packet payload without taking ownership
-    /// of the payload or constructing a [`Reader`].
+    /// Parses a packet header without taking ownership or allocating.
     ///
-    /// This is used by allocation-sensitive tests that parse a sent packet from `&[u8]` and then
-    /// return the original `Vec<u8>` to `PacketBuilder`'s buffer pool. Normal receive code should
-    /// keep using [`PacketHeader::from_bytes`], which advances a `Reader` past the header.
-    #[cfg(feature = "test_utils")]
-    #[doc(hidden)]
+    /// Validate the application wire prefix before reading any header fields. In particular,
+    /// legacy packets begin with a packet type rather than `LY` and cannot pass this gate.
     pub(crate) fn read_from_prefix(bytes: &[u8]) -> Result<Self, SerializationError> {
-        if bytes.len() < Self::BYTES {
-            return Err(SerializationError::InvalidValue);
-        }
+        let mut fields = bytes
+            .strip_prefix(Self::WIRE_PREFIX)
+            .ok_or(SerializationError::InvalidValue)?;
         Ok(Self {
-            packet_type: PacketType::try_from(bytes[Self::PACKET_TYPE_OFFSET])?,
-            packet_id: PacketId(u16::from_be_bytes(bytes[1..3].try_into().unwrap())),
-            last_ack_packet_id: PacketId(u16::from_be_bytes(bytes[3..5].try_into().unwrap())),
-            ack_bitfield: u32::from_be_bytes(bytes[5..9].try_into().unwrap()),
-            tick: Tick(u32::from_be_bytes(bytes[9..13].try_into().unwrap())),
+            packet_type: PacketType::try_from(fields.read_u8()?)?,
+            packet_id: PacketId(fields.read_u16()?),
+            last_ack_packet_id: PacketId(fields.read_u16()?),
+            ack_bitfield: fields.read_u32()?,
+            tick: Tick(fields.read_u32()?),
         })
     }
 
@@ -476,11 +461,46 @@ mod tests {
         let mut writer = Vec::new();
         header.to_bytes(&mut writer)?;
         assert_eq!(writer.len(), header.bytes_len());
+        assert_eq!(
+            writer,
+            [b'L', b'Y', 1, 0, 0, 27, 0, 13, 0, 0, 0, 3, 0, 0, 0, 6]
+        );
+        assert!(PacketType::try_from(writer[0]).is_err());
+        assert_eq!(PacketHeader::read_from_prefix(&writer)?, header);
 
         let mut reader = writer.into();
         let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())
+    }
+
+    #[test]
+    fn incompatible_or_truncated_headers_are_rejected_without_consuming_fields() {
+        let header =
+            PacketHeaderManager::default().preview_send_packet_header(PacketType::Data, Tick(7));
+        let mut packet = Vec::new();
+        header.to_bytes(&mut packet).unwrap();
+        for end in 0..PacketHeader::BYTES {
+            assert!(PacketHeader::read_from_prefix(&packet[..end]).is_err());
+        }
+        packet.extend_from_slice(&[0; 64]);
+        let legacy = packet[PacketHeader::WIRE_PREFIX.len()..].to_vec();
+        let mut wrong_version = packet.clone();
+        wrong_version[PacketHeader::WIRE_PREFIX.len() - 1] = 2;
+        let mut wrong_magic = packet;
+        wrong_magic[0] = b'X';
+        for incompatible in [legacy, wrong_version, wrong_magic] {
+            assert!(matches!(
+                PacketHeader::read_from_prefix(&incompatible),
+                Err(SerializationError::InvalidValue)
+            ));
+            let mut reader = Reader::from(incompatible);
+            assert!(matches!(
+                PacketHeader::from_bytes(&mut reader),
+                Err(SerializationError::InvalidValue)
+            ));
+            assert_eq!(reader.position(), 0);
+        }
     }
 
     #[test]

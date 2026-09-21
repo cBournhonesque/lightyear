@@ -23,6 +23,7 @@ bytes.workspace = true
 chrono.workspace = true
 fixed.workspace = true
 tracing.workspace = true
+sha2.workspace = true
 
 # bevy
 bevy_app = { workspace = true, features = ["bevy_reflect"] }

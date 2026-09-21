@@ -428,7 +428,7 @@ impl ClientServerStepper {
             server_addr: self.server_addr,
             protocol_id: Default::default(),
             private_key: Default::default(),
-            client_id: client_id as u64,
+            client_id: client_id as u64 + 1,
         };
 
         if client_type == ClientType::Host {
@@ -756,8 +756,11 @@ impl ClientServerStepper {
         };
 
         for (entity, remote_id) in &links {
-            if let Some(PeerId::Netcode(client_id)) = remote_id
-                && let Some(slot) = self.client_of_entities.get_mut((*client_id) as usize)
+            if let Some(PeerId(client_id)) = remote_id
+                && let Some(index) = client_id
+                    .checked_sub(1)
+                    .and_then(|id| usize::try_from(id).ok())
+                && let Some(slot) = self.client_of_entities.get_mut(index)
             {
                 *slot = *entity;
             }

@@ -424,13 +424,10 @@ mod tests {
         assert!(packet.payload.len() < original_len);
         assert_eq!(packet.payload.capacity(), original_capacity);
         assert_eq!(packet.payload.as_ref().as_ptr(), original_pointer);
-        assert_eq!(
-            PacketType::try_from(packet.payload.as_ref()[PacketHeader::PACKET_TYPE_OFFSET])
-                .unwrap(),
-            PacketType::DataCompressed
-        );
-        let decompressed =
-            decompress_payload(&packet.payload.as_ref()[HEADER_BYTES..], config).unwrap();
+        let mut reader = lightyear_serde::reader::Reader::from(packet.payload.freeze());
+        let header = <PacketHeader as lightyear_serde::ToBytes>::from_bytes(&mut reader).unwrap();
+        assert_eq!(header.get_packet_type(), PacketType::DataCompressed);
+        let decompressed = decompress_payload(reader.remaining_slice(), config).unwrap();
         assert_eq!(decompressed, original_body);
     }
 
@@ -457,13 +454,16 @@ mod tests {
     #[cfg(feature = "compression_lz4")]
     #[test]
     fn lz4_decompression_respects_configured_size_cap() {
-        let compressed = lz4_flex::block::compress_prepend_size(&[3u8; 32]);
+        let mut scratch = CompressionScratch::default();
+        let compressed = scratch
+            .compress(&[3u8; 32], CompressionAlgorithm::Lz4)
+            .unwrap();
         let config = CompressionConfig {
             max_decompressed_payload_size: 8,
             ..CompressionConfig::LZ4
         };
 
-        let err = decompress_payload(&compressed, config).unwrap_err();
+        let err = decompress_payload(compressed, config).unwrap_err();
 
         assert!(matches!(
             err,

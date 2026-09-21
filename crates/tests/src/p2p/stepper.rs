@@ -46,7 +46,7 @@ pub(crate) fn next_base_port() -> u16 {
     20_000 + NEXT.fetch_add(100, Ordering::Relaxed)
 }
 
-/// The single address a peer is reachable at, which is also its identity.
+/// The native address at which a peer is reachable.
 pub(crate) fn peer_addr(base_port: u16, slot: u8) -> SocketAddr {
     SocketAddr::new(
         Ipv4Addr::LOCALHOST.into(),
@@ -56,8 +56,15 @@ pub(crate) fn peer_addr(base_port: u16, slot: u8) -> SocketAddr {
     )
 }
 
-pub(crate) fn peer_id(base_port: u16, slot: u8) -> PeerId {
-    PeerId::Raw(peer_addr(base_port, slot))
+pub(crate) fn peer_id(transport: TestTransport, base_port: u16, slot: u8) -> PeerId {
+    let domain: &[u8] = match transport {
+        TestTransport::Udp => b"udp",
+        #[cfg(feature = "p2p_websocket")]
+        TestTransport::WebSocket => b"websocket",
+        #[cfg(feature = "p2p_webtransport")]
+        TestTransport::WebTransport => b"webtransport",
+    };
+    lightyear_core::id::peer_id_from_socket(domain, peer_addr(base_port, slot))
 }
 
 pub(crate) fn lobby_id() -> LobbyId {
@@ -208,15 +215,42 @@ impl Stepper {
 
     /// Tells `slot` to dial the given peers first. Every other peer must be reached by announcement.
     pub(crate) fn bootstrap(&mut self, base_port: u16, slot: u8, remotes: &[u8]) {
-        let peers: Vec<PeerId> = remotes
+        #[cfg(feature = "p2p_webtransport")]
+        if self.transport == TestTransport::WebTransport {
+            self.wait_until(|stepper| {
+                remotes.iter().all(|remote| {
+                    !stepper.peers[*remote as usize]
+                        .lobby()
+                        .local_dial_context()
+                        .is_empty()
+                })
+            });
+        }
+        let peers: Vec<_> = remotes
             .iter()
-            .map(|remote| peer_id(base_port, *remote))
+            .map(|remote| {
+                let address = peer_addr(base_port, *remote);
+                let context = match self.transport {
+                    TestTransport::Udp => lightyear_udp::lobby::dial_context(address),
+                    #[cfg(feature = "p2p_websocket")]
+                    TestTransport::WebSocket => lightyear::websocket::lobby::dial_context(
+                        address,
+                        lightyear::websocket::client::WebSocketScheme::Plain,
+                    ),
+                    #[cfg(feature = "p2p_webtransport")]
+                    TestTransport::WebTransport => self.peers[*remote as usize]
+                        .lobby()
+                        .local_dial_context()
+                        .clone(),
+                };
+                (peer_id(self.transport, base_port, *remote), context)
+            })
             .collect();
         self.peers[slot as usize]
             .app
             .world_mut()
             .resource_mut::<Lobby>()
-            .add_bootstrap(peers);
+            .add_bootstrap_with_context(peers);
     }
 
     /// Re-arms every peer this peer wanted but could not reach.
@@ -281,7 +315,7 @@ impl Stepper {
 /// Proves that the first Connected observer sees chosen identities, not socket placeholders.
 pub(crate) fn chosen_identity_admission(transport: TestTransport) {
     let base_port = next_base_port();
-    let ids = [PeerId::Local(41), PeerId::Local(73)];
+    let ids = [PeerId(41), PeerId(73)];
     let mut stepper = Stepper {
         peers: [
             LobbyIdPolicy::Pinned(Some(lobby_id())),
@@ -341,6 +375,7 @@ pub(crate) fn explicit_retry_reconnects_members(
     is_dialer: fn(&World, Entity) -> bool,
 ) {
     stepper.bootstrap(base_port, 0, &[1]);
+    let transport = stepper.transport;
     stepper.wait_until(|stepper| {
         stepper
             .peers
@@ -351,7 +386,7 @@ pub(crate) fn explicit_retry_reconnects_members(
     let assert_links = |stepper: &mut Stepper| -> [Entity; 2] {
         core::array::from_fn(|slot| {
             let peer = &mut stepper.peers[slot];
-            let remote = peer_id(base_port, 1 - slot as u8);
+            let remote = peer_id(transport, base_port, 1 - slot as u8);
             assert!(!peer.in_session(), "recovery must not require admission");
             assert_eq!(peer.lobby().members().collect::<Vec<_>>(), vec![remote]);
             assert_eq!(
@@ -419,12 +454,12 @@ pub(crate) fn explicit_retry_reconnects_members(
             );
             assert_eq!(
                 peer.lobby().members().collect::<Vec<_>>(),
-                vec![peer_id(base_port, 1 - slot as u8)],
+                vec![peer_id(transport, base_port, 1 - slot as u8)],
                 "transport loss must preserve lobby membership"
             );
         }
 
-        let remote = peer_id(base_port, 1 - retrying as u8);
+        let remote = peer_id(transport, base_port, 1 - retrying as u8);
         {
             let mut lobby = stepper.peers[retrying]
                 .app

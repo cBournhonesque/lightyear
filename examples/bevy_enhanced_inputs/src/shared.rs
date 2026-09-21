@@ -22,12 +22,12 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
 };
 
 pub(crate) fn initial_player_position(peer_id: PeerId) -> Vec2 {
-    let slot = (peer_id.to_bits() % 6) as f32;
+    let slot = (peer_id.0 % 6) as f32;
     Vec2::new((slot - 2.5) * 90.0, 0.0)
 }
 
 pub(crate) fn color_from_id(peer_id: PeerId) -> Color {
-    let h = (((peer_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let h = (((peer_id.0.wrapping_mul(30)) % 360) as f32) / 360.0;
     Color::hsl(h, 0.8, 0.5)
 }
 

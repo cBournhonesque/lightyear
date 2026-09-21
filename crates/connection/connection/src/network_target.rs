@@ -844,7 +844,7 @@ mod tests {
     }
 
     fn peer(id: u64) -> PeerId {
-        PeerId::Netcode(id)
+        PeerId(id)
     }
 
     fn assert_entities(actual: &EntityHashSet, expected: &[Entity]) {

@@ -19,7 +19,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/4ef661e6-b2e3-4b99-b1
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
 - Run the server without a gui: `cargo run --no-default-features --features=server -- server`
-- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
+- Each client starts a standby game server. Select a player as host in the lobby UI to switch to that server; its advertised native address is sent with the game-start message.
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.

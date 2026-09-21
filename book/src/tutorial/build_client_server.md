@@ -50,12 +50,41 @@ disconnecting; spawn a new entity to use another backend. Conflicting backend ma
 
 Remote peer IDs are unique across all endpoints in the same Bevy `World`. A backend registers the
 resolved identity before adding `Connected`, so connection observers can immediately route to it.
-A second connection claiming an occupied ID is rejected without notifying `Connected` observers.
-Normal disconnect or despawn releases the binding.
+Authenticated, P2P, and explicitly requested duplicate IDs are rejected without notifying
+`Connected` observers. An unrequested default/debug ID may select a free local alias after a
+collision; it never renames the incumbent or establishes cross-peer agreement. Normal disconnect
+or despawn releases the binding.
 
 For netcode, a preinserted `LocalId` is an expectation, not an override of the token. Manual
 authentication can validate it before the handshake. Opaque tokens keep that ID encrypted, so their
 expected ID is checked after authentication but before `Connected`.
+
+### Numeric routing aliases
+
+`PeerId(pub u64)` is opaque. `PeerId::SERVER` is zero, reserved for the appropriate side of an
+explicit client/server connection; ordinary peers use `1..=u64::MAX`. Netcode token client IDs and
+Steam IDs retain their numeric values. Applications and token minters using client ID zero must
+migrate; it is rejected, not silently remapped. Host clients also use nonzero aliases: identify
+their role with `HostClient`, never with a particular number.
+
+The former enum variants and `to_bits()`/`is_local()` methods are removed. Use `.0` for the numeric
+alias and transport-owned components for native identities, addresses, and display. Do not decode
+an alias into a dial target or use it as a persistent account/player ID. Replicon `NetworkId` uses
+the final admitted numeric alias directly.
+
+Socket projections use `peer_id_from_socket` with domain `b"udp"`, `b"websocket"`, or
+`b"webtransport"`. The canonical input is family byte 4 or 6, IP octets, big-endian port, and for
+IPv6 a big-endian scope ID. IPv4-mapped IPv6 normalizes to IPv4; flow labels are excluded.
+`peer_id_from_native` hashes `b"lightyear-peer-id-v1\0"`, the domain length as a big-endian u64,
+the domain, and canonical identity bytes using SHA-256. Its first eight bytes form a big-endian
+alias; zero maps to one. For example, UDP `127.0.0.1:4100` projects to `0xd1c76592148b73b6`.
+Retain the full native identity; a projection is neither authentication nor collision agreement.
+
+This is an incompatible application wire change. Every Lightyear network application packet now
+starts with `4c 59 01`, including non-netcode/P2P traffic; old headers are rejected before message
+decoding. `PeerId::ToBytes` is one big-endian u64 without a variant tag; Serde represents the
+underlying u64 using the selected serializer's integer encoding. Upgrade all peers together.
+The existing socket-mode netcode token encoding is unchanged.
 
 ### P2P discovery admission
 

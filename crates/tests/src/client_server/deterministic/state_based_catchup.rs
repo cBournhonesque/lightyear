@@ -237,7 +237,7 @@ fn activate_physics_when_bundle_lands(
     // Avian can depend on insertion order for internal proxy/body ordering.
     // The deterministic example activates players in this game-defined order;
     // keep the regression test on the same path.
-    ready.sort_by_key(|(_, peer_id)| peer_id.to_bits());
+    ready.sort_by_key(|(_, peer_id)| peer_id.0);
 
     for (entity, _id) in ready {
         commands.entity(entity).insert((
@@ -1283,13 +1283,13 @@ fn test_state_based_catchup_two_clients() {
     // Spawn player entities on the server (gated = catch-up required).
     let server_player_a = spawn_player_on_server(
         &mut stepper.server_app,
-        PeerId::Netcode(0),
+        PeerId(1),
         Vec2::new(-20.0, 0.0),
         true,
     );
     let server_player_b = spawn_player_on_server(
         &mut stepper.server_app,
-        PeerId::Netcode(1),
+        PeerId(2),
         Vec2::new(20.0, 0.0),
         true,
     );
@@ -1334,8 +1334,8 @@ fn test_state_based_catchup_two_clients() {
         .fold(server_tick, |min_tick, tick| {
             if tick.0 < min_tick.0 { tick } else { min_tick }
         });
-    let peer_a = PeerId::Netcode(0);
-    let peer_b = PeerId::Netcode(1);
+    let peer_a = PeerId(1);
+    let peer_b = PeerId(2);
     let server_pos_a = fixed_position_at(stepper.server_app.world(), peer_a, compare_tick);
     let server_pos_b = fixed_position_at(stepper.server_app.world(), peer_b, compare_tick);
 
@@ -1401,8 +1401,8 @@ fn test_state_based_catchup_late_join_after_movement() {
     stepper.start();
     stepper.connect_single(0);
 
-    let peer_a = PeerId::Netcode(0);
-    let peer_b = PeerId::Netcode(1);
+    let peer_a = PeerId(1);
+    let peer_b = PeerId(2);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
     configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
@@ -1445,8 +1445,8 @@ fn test_state_based_catchup_late_join_while_first_client_holds_input() {
     stepper.start();
     stepper.connect_single(0);
 
-    let peer_a = PeerId::Netcode(0);
-    let peer_b = PeerId::Netcode(1);
+    let peer_a = PeerId(1);
+    let peer_b = PeerId(2);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
     configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
@@ -1487,8 +1487,8 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     stepper.start();
     stepper.connect_single(0);
 
-    let peer_a = PeerId::Netcode(0);
-    let peer_b = PeerId::Netcode(1);
+    let peer_a = PeerId(1);
+    let peer_b = PeerId(2);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
     configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
@@ -1549,8 +1549,8 @@ fn test_state_based_catchup_reconnect_after_all_clients_disconnect() {
     stepper.start();
     stepper.connect_all();
 
-    let peer_a = PeerId::Netcode(0);
-    let peer_b = PeerId::Netcode(1);
+    let peer_a = PeerId(1);
+    let peer_b = PeerId(2);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
     let server_player_b =

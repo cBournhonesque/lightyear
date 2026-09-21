@@ -1,10 +1,11 @@
-//! Module to handle the various possible ClientIds
+//! Opaque routing aliases and explicitly specified native identity projections.
 use core::fmt::{Display, Formatter};
 use core::net::SocketAddr;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use bevy_derive::Deref;
 use bevy_ecs::component::Component;
@@ -35,188 +36,128 @@ impl Display for RemoteId {
     }
 }
 
-/// A stable identity for a peer on a Link.
+/// An opaque, World-wide routing alias, not an account or transport address.
 ///
-/// The derived order is what P2P code uses to turn a set of peers into a deterministic roster:
-/// every peer sorts the same way, so slot assignment needs no coordination between peers. Variants
-/// are ordered before payloads, which is fine for any single-transport roster; mixing transports in
-/// one roster would sort by transport first.
+/// Zero is reserved for the client/server server sentinel. Ordinary peers use `1..=u64::MAX`.
+/// Native numeric IDs are preserved; larger native identities require an explicit projection.
+/// Ordering is numeric, so every member of a P2P cohort assigns the same deterministic slots.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Reflect,
 )]
-pub enum PeerId {
-    Entity(u64),
-    /// A raw connection where the IO Link is used to associate a long-term id.
-    /// The id is the SocketAddr of the link.
-    #[reflect(ignore)]
-    Raw(SocketAddr),
-    /// A client id that is unique between netcode connections
-    Netcode(u64),
-    /// The client id of a steam user
-    Steam(u64),
-    /// A local client to use when running in HostServer mode
-    Local(u64),
-    /// Refers to the server
-    Server,
-}
+#[serde(transparent)]
+pub struct PeerId(pub u64);
 
 impl ToBytes for PeerId {
     fn bytes_len(&self) -> usize {
-        match self {
-            PeerId::Entity(_) => 1 + 8,
-            PeerId::Raw(socket_addr) => {
-                // 1 byte for variant + address bytes + 2 bytes for port
-                match socket_addr {
-                    SocketAddr::V4(_) => 1 + 4 + 2,
-                    SocketAddr::V6(_) => 1 + 16 + 2,
-                }
-            }
-            PeerId::Netcode(_) => 1 + 8,
-            PeerId::Steam(_) => 1 + 8,
-            PeerId::Local(_) => 1 + 8,
-            PeerId::Server => 1,
-        }
+        8
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        match self {
-            PeerId::Entity(id) => {
-                buffer.write_u8(0)?;
-                buffer.write_u64(*id)?;
-            }
-            PeerId::Raw(socket) => {
-                match socket {
-                    SocketAddr::V4(v4) => {
-                        buffer.write_u8(1)?;
-                        // Write IPv4 bytes
-                        for byte in v4.ip().octets().iter() {
-                            buffer.write_u8(*byte)?;
-                        }
-                        // Write port
-                        buffer.write_u16(v4.port())?;
-                    }
-                    SocketAddr::V6(v6) => {
-                        buffer.write_u8(2)?;
-                        // Write IPv6 bytes
-                        for segment in v6.ip().segments().iter() {
-                            buffer.write_u16(*segment)?;
-                        }
-                        // Write port
-                        buffer.write_u16(v6.port())?;
-                    }
-                }
-            }
-            PeerId::Netcode(id) => {
-                buffer.write_u8(3)?;
-                buffer.write_u64(*id)?;
-            }
-            PeerId::Steam(id) => {
-                buffer.write_u8(4)?;
-                buffer.write_u64(*id)?;
-            }
-            PeerId::Local(id) => {
-                buffer.write_u8(5)?;
-                buffer.write_u64(*id)?;
-            }
-            PeerId::Server => {
-                buffer.write_u8(6)?;
-            }
-        }
+        buffer.write_u64(self.0)?;
         Ok(())
     }
 
-    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
-    where
-        Self: Sized,
-    {
-        match buffer.read_u8()? {
-            0 => Ok(PeerId::Entity(buffer.read_u64()?)),
-            1 => {
-                // Read IPv4 address
-                let a = buffer.read_u8()?;
-                let b = buffer.read_u8()?;
-                let c = buffer.read_u8()?;
-                let d = buffer.read_u8()?;
-                let port = buffer.read_u16()?;
-                let addr = SocketAddr::new(
-                    core::net::IpAddr::V4(core::net::Ipv4Addr::new(a, b, c, d)),
-                    port,
-                );
-                Ok(PeerId::Raw(addr))
-            }
-            2 => {
-                // Read IPv6 address
-                let mut segments = [0u16; 8];
-                for segment in &mut segments {
-                    *segment = buffer.read_u16()?;
-                }
-                let port = buffer.read_u16()?;
-                let addr = SocketAddr::new(
-                    core::net::IpAddr::V6(core::net::Ipv6Addr::from(segments)),
-                    port,
-                );
-                Ok(PeerId::Raw(addr))
-            }
-            3 => Ok(PeerId::Netcode(buffer.read_u64()?)),
-            4 => Ok(PeerId::Steam(buffer.read_u64()?)),
-            5 => Ok(PeerId::Local(buffer.read_u64()?)),
-            6 => Ok(PeerId::Server),
-            _ => Err(SerializationError::InvalidValue),
-        }
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+        Ok(Self(buffer.read_u64()?))
     }
 }
 
 impl PeerId {
-    // TODO: add impl From<ClientId> for u64?
-    /// Convert a ClientId to a u64 representation
-    pub fn to_bits(&self) -> u64 {
-        match self {
-            PeerId::Entity(x) => *x,
-            PeerId::Raw(socket) => {
-                // Create a simple hash for the IP address
-                // Just for differentiation - not meant to be a secure hash
-                match socket {
-                    SocketAddr::V4(v4) => {
-                        let octets = v4.ip().octets();
-                        let mut result: u64 = 0x0200; // Prefix for IPv4
-                        result |= (octets[0] as u64) << 24;
-                        result |= (octets[1] as u64) << 16;
-                        result |= (octets[2] as u64) << 8;
-                        result |= octets[3] as u64;
-                        result |= (v4.port() as u64) << 32;
-                        result
-                    }
-                    SocketAddr::V6(v6) => {
-                        // Simple hash for IPv6 - fold the segments
-                        let segments = v6.ip().segments();
-                        let mut hash: u64 = 0x0600; // Prefix for IPv6
-                        for (i, &segment) in segments.iter().enumerate() {
-                            hash ^= (segment as u64) << ((i % 4) * 16);
-                        }
-                        hash ^= (v6.port() as u64) << 48;
-                        hash
-                    }
-                }
-            }
-            PeerId::Netcode(x) => *x,
-            PeerId::Steam(x) => *x,
-            PeerId::Local(x) => *x,
-            PeerId::Server => 1,
-        }
-    }
+    /// The server side of an explicitly client/server connection, never an ordinary peer.
+    pub const SERVER: Self = Self(0);
+}
 
-    pub fn is_local(&self) -> bool {
-        matches!(self, PeerId::Local(_))
+impl Display for PeerId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        Display::fmt(&self.0, f)
     }
 }
 
-impl core::fmt::Display for PeerId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(self, f)
-        // match self {
-        //     ClientId::Netcode(id) => write!(f, "NetcodeClientId({})", id),
-        //     ClientId::Steam(id) => write!(f, "SteamClientId({})", id),
-        //     ClientId::LocalClient => write!(f, "LocalClientId"),
-        // }
+/// Projects canonical native identity bytes into a nonzero routing alias.
+///
+/// SHA-256 input is `b"lightyear-peer-id-v1\0"`, the domain byte length as a big-endian u64,
+/// the domain, then the canonical identity bytes. Take the first eight digest bytes as a
+/// big-endian u64, mapping zero to one. Domains are protocol constants, not Rust type names.
+/// This is not authentication; retain the full native identity and reject shared-ID collisions.
+pub fn peer_id_from_native(domain: &[u8], identity: &[u8]) -> PeerId {
+    let mut hash = Sha256::new();
+    hash.update(b"lightyear-peer-id-v1\0");
+    hash.update((domain.len() as u64).to_be_bytes());
+    hash.update(domain);
+    hash.update(identity);
+    let digest = hash.finalize();
+    PeerId(u64::from_be_bytes(core::array::from_fn(|i| digest[i])).max(1))
+}
+
+/// Projects a socket routing identity without embedding its address in [`PeerId`].
+///
+/// Canonical bytes: family byte 4 or 6, network-order IP octets, big-endian port, and for
+/// IPv6 a big-endian u32 scope ID. IPv4-mapped IPv6 normalizes to IPv4; flow labels are excluded.
+/// Built-in transport domains are `b"udp"`, `b"websocket"`, and `b"webtransport"`.
+pub fn peer_id_from_socket(domain: &[u8], address: SocketAddr) -> PeerId {
+    let mut bytes = [0u8; 23];
+    let len = match address.ip().to_canonical() {
+        core::net::IpAddr::V4(ip) => {
+            bytes[0] = 4;
+            bytes[1..5].copy_from_slice(&ip.octets());
+            bytes[5..7].copy_from_slice(&address.port().to_be_bytes());
+            7
+        }
+        core::net::IpAddr::V6(ip) => {
+            bytes[0] = 6;
+            bytes[1..17].copy_from_slice(&ip.octets());
+            bytes[17..19].copy_from_slice(&address.port().to_be_bytes());
+            if let SocketAddr::V6(address) = address {
+                bytes[19..23].copy_from_slice(&address.scope_id().to_be_bytes());
+            }
+            23
+        }
+    };
+    peer_id_from_native(domain, &bytes[..len])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routing_wire_is_fixed_big_endian_without_a_variant_tag() {
+        let id = PeerId(0x0102_0304_0506_0708);
+        let mut bytes = alloc::vec::Vec::new();
+        id.to_bytes(&mut bytes).unwrap();
+        assert_eq!(bytes, [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(PeerId::from_bytes(&mut Reader::from(bytes)).unwrap(), id);
+        assert_eq!(
+            PeerId::from_bytes(&mut Reader::from(alloc::vec![255; 8])).unwrap(),
+            PeerId(u64::MAX)
+        );
+        assert_eq!(
+            PeerId::from_bytes(&mut Reader::from(alloc::vec![0; 8])).unwrap(),
+            PeerId::SERVER
+        );
+    }
+
+    #[test]
+    fn socket_projection_has_canonical_domain_separated_vectors() {
+        let address: SocketAddr = "127.0.0.1:4100".parse().unwrap();
+        let expected = PeerId(0xd1c7_6592_148b_73b6);
+        assert_eq!(peer_id_from_socket(b"udp", address), expected);
+        assert_eq!(
+            peer_id_from_socket(b"udp", "[::ffff:127.0.0.1]:4100".parse().unwrap()),
+            expected
+        );
+        assert_ne!(peer_id_from_socket(b"websocket", address), expected);
+        let ip = "fe80::1".parse().unwrap();
+        let scoped = SocketAddr::V6(core::net::SocketAddrV6::new(ip, 4100, 0, 3));
+        let changed_flow = SocketAddr::V6(core::net::SocketAddrV6::new(ip, 4100, 42, 3));
+        let changed_scope = SocketAddr::V6(core::net::SocketAddrV6::new(ip, 4100, 0, 4));
+        assert_eq!(
+            peer_id_from_socket(b"udp", scoped),
+            peer_id_from_socket(b"udp", changed_flow)
+        );
+        assert_ne!(
+            peer_id_from_socket(b"udp", scoped),
+            peer_id_from_socket(b"udp", changed_scope)
+        );
     }
 }

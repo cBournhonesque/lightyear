@@ -8,11 +8,13 @@
 //! Every example lobby uses the same [`P2P_LOBBY_ID`], so no lobby id ever has
 //! to be exchanged out of band.
 
+use core::fmt::Write as _;
 use core::net::{Ipv4Addr, SocketAddr};
 use core::time::Duration;
 
 use bevy::prelude::*;
 use clap::ValueEnum;
+use lightyear::core::id::peer_id_from_socket;
 use lightyear::p2p::Lobby;
 use lightyear::prelude::client::ClientPlugins;
 use lightyear::prelude::*;
@@ -40,8 +42,8 @@ pub const P2P_LOBBY_ID: LobbyId = LobbyId::from_bytes([0; 32]);
 
 /// Which transport a P2P example peer listens on and dials others with.
 ///
-/// Every variant is an endpoint other peers can connect to; the lobby treats
-/// the endpoint's socket address as the peer's identity in all three cases.
+/// Every variant exposes a dialable endpoint. Its native address is advertised
+/// separately from the opaque routing alias.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum P2PTransport {
     /// Raw UDP datagrams. Native targets only.
@@ -87,6 +89,20 @@ pub struct P2PSettings {
     pub transport: P2PTransport,
     pub local_port: u16,
     pub seed: Option<SocketAddr>,
+    pub seed_certificate_digest: Option<[u8; 32]>,
+}
+
+/// Parse a certificate pin supplied out of band by a WebTransport seed.
+pub(crate) fn parse_certificate_digest(value: &str) -> Result<[u8; 32], String> {
+    if value.len() != 64 || !value.is_ascii() {
+        return Err("certificate digest must contain exactly 64 hexadecimal digits".into());
+    }
+    let mut digest = [0; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| "certificate digest must contain only hexadecimal digits")?;
+    }
+    Ok(digest)
 }
 
 /// Present until the discovered roster is complete and the session starts.
@@ -172,9 +188,7 @@ pub(crate) fn spawn_connections(
 ) {
     validate_settings(settings.expected_players);
     let conditioner = RecvLinkConditioner::new(conditioner.clone());
-    // Bind localhost explicitly: the bound address is this peer's lobby identity
-    // (`PeerId::Raw`), so it must be an address other peers can dial back. An
-    // unspecified address would be unusable as an identity.
+    // Advertise a dialable native address; the routing alias never contains it.
     let bind = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), settings.local_port);
     match settings.transport {
         #[cfg(all(feature = "udp", not(target_family = "wasm")))]
@@ -199,6 +213,12 @@ pub(crate) fn spawn_connections(
         #[cfg(not(target_family = "wasm"))]
         P2PTransport::WebTransport => {
             let certificate = Identity::self_signed(["localhost", "127.0.0.1", "::1"]).unwrap();
+            let hash = certificate.certificate_chain().as_slice()[0].hash();
+            let mut digest = String::with_capacity(64);
+            for byte in hash.as_ref() {
+                write!(&mut digest, "{byte:02x}").expect("writing to a String cannot fail");
+            }
+            info!("P2P WebTransport certificate digest: {digest}");
             app.world_mut().spawn((
                 Endpoint::new(Some(conditioner)),
                 WebTransportEndpoint {
@@ -212,9 +232,33 @@ pub(crate) fn spawn_connections(
         _ => panic!("P2P endpoints are not supported on wasm"),
     }
     if let Some(seed) = settings.seed {
+        let (domain, context): (&[u8], _) = match settings.transport {
+            #[cfg(all(feature = "udp", not(target_family = "wasm")))]
+            P2PTransport::Udp => (b"udp", lightyear_udp::lobby::dial_context(seed)),
+            #[cfg(not(target_family = "wasm"))]
+            P2PTransport::WebSocket => (
+                b"websocket",
+                lightyear::websocket::lobby::dial_context(
+                    seed,
+                    lightyear::websocket::prelude::client::WebSocketScheme::Plain,
+                ),
+            ),
+            #[cfg(not(target_family = "wasm"))]
+            P2PTransport::WebTransport => (
+                b"webtransport",
+                lightyear::webtransport::lobby::dial_context(
+                    seed,
+                    &settings.seed_certificate_digest.expect(
+                        "WebTransport --peer requires --peer-certificate-digest from the seed",
+                    ),
+                ),
+            ),
+            #[cfg(target_family = "wasm")]
+            _ => panic!("P2P endpoints are not supported on wasm"),
+        };
         app.world_mut()
             .resource_mut::<Lobby>()
-            .add_bootstrap([PeerId::Raw(seed)]);
+            .add_bootstrap_with_context([(peer_id_from_socket(domain, seed), context)]);
     }
     app.insert_resource(AwaitingP2PStart);
     app.add_systems(Update, start_when_lobby_ready);

@@ -38,8 +38,8 @@ mod shared;
 pub const HOST_SERVER_PORT: u16 = 5050;
 const HOST_SERVER_PORT_RANGE: u16 = 1000;
 
-pub fn host_server_port(host: PeerId) -> u16 {
-    HOST_SERVER_PORT + (host.to_bits() % u64::from(HOST_SERVER_PORT_RANGE)) as u16
+fn host_server_port(account_id: u64) -> u16 {
+    HOST_SERVER_PORT + (account_id % u64::from(HOST_SERVER_PORT_RANGE)) as u16
 }
 
 fn main() {
@@ -112,11 +112,16 @@ fn main() {
             // Use a deterministic per-client port so multiple local clients do not all bind
             // HOST_SERVER_PORT and accidentally connect back to their own standby server.
             #[cfg(feature = "client")]
-            Some(Mode::Client { client_id }) => host_server_port(PeerId::Netcode(
-                client_id.expect("You need to specify a client_id via `-c ID`"),
-            )),
+            Some(Mode::Client { client_id }) => {
+                host_server_port(client_id.expect("You need to specify a client_id via `-c ID`"))
+            }
             _ => panic!("Only server or client mode is supported in this example"),
         };
+        #[cfg(feature = "client")]
+        app.insert_resource(client::GameServerAddr(core::net::SocketAddr::new(
+            core::net::Ipv4Addr::LOCALHOST.into(),
+            port,
+        )));
         let server = app
             .world_mut()
             .spawn(ExampleServer {

@@ -52,7 +52,7 @@ The axes are intentionally independent. Some combinations are mainly educational
 
 - Server with a window: `cargo run -p projectiles -- --headless=false server`
 - Client with id 1: `cargo run -p projectiles -- client -c 1`
-- Host client: `cargo run -p projectiles -- host-client -c 0`
+- Host client: `cargo run -p projectiles -- host-client`
 - Headless server with the built-in bot client: `cargo run -p projectiles --no-default-features --features=server,client,webtransport,netcode -- server`
 - Headless server without the bot: `cargo run -p projectiles --no-default-features --features=server,webtransport,netcode -- server`
 

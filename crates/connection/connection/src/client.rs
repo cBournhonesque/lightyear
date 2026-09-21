@@ -247,7 +247,7 @@ mod tests {
     fn stale_disconnect_preserves_replacement_peer_lookup() {
         let mut world = World::new();
         world.init_resource::<NetworkingMetadata>();
-        let peer = PeerId::Local(1);
+        let peer = PeerId(1);
         let old = world.spawn((RemoteId(peer), Connected)).id();
         world.entity_mut(old).remove::<Connected>();
         let replacement = world.spawn((RemoteId(peer), Connected)).id();
@@ -275,9 +275,7 @@ mod tests {
         let mut world = World::new();
         let client = world.spawn(Client).id();
         let client_of = world.spawn((ClientOf, Connecting)).id();
-        let connected_client_of = world
-            .spawn((ClientOf, RemoteId(PeerId::Local(0)), Connected))
-            .id();
+        let connected_client_of = world.spawn((ClientOf, RemoteId(PeerId(1)), Connected)).id();
 
         let mut query = world.query::<ClientState>();
 

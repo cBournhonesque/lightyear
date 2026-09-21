@@ -73,7 +73,7 @@ pub(crate) fn prespawn_hash(
 
     // The same small integer mixer is deterministic in every process and does
     // not depend on Rust's randomized HashMap state.
-    let mut hash = shooter.to_bits() ^ (fire_tick.0 as u64).rotate_left(21);
+    let mut hash = shooter.0 ^ (fire_tick.0 as u64).rotate_left(21);
     hash ^= trajectory_tag;
     hash = hash.wrapping_mul(0x9e37_79b9_7f4a_7c15);
     hash ^ representation_tag
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn prespawn_signature_is_stable_and_separates_shots() {
-        let shooter = PeerId::Local(7);
+        let shooter = PeerId(7);
         let tick = Tick(42);
         let base = prespawn_hash(
             shooter,
@@ -107,7 +107,7 @@ mod tests {
         assert_ne!(
             base,
             prespawn_hash(
-                PeerId::Local(8),
+                PeerId(8),
                 tick,
                 TrajectoryKind::Linear,
                 RepresentationKind::StateEntity,

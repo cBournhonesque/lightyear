@@ -95,7 +95,7 @@ fn activate_physics_when_bundle_lands(
     // are inserted into its internal structures. Late-joining clients can
     // receive replicated players in a different order from the server, so
     // activate every ready player in a stable game-defined order.
-    ready.sort_by_key(|(_, player_id)| player_id.to_bits());
+    ready.sort_by_key(|(_, player_id)| player_id.0);
     for (entity, player_id) in ready {
         info!(
             "Client: activating physics for player {:?} (deterministic snapshot landed)",

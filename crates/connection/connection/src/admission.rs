@@ -1,7 +1,7 @@
-//! Backend ownership and World-wide remote identity admission.
+//! World-wide remote identity admission and default connection support.
 //!
-//! Backends claim ownership when their marker is inserted and call [`admit`] only after resolving
-//! both identities. A connection entity cannot change backend, even after disconnecting.
+//! Explicit backends opt out of default admission with [`NoDefaultConnection`] and call
+//! [`admit`] after resolving both identities and completing authentication.
 use alloc::{format, string::String};
 use bevy_app::{App, Plugin};
 use bevy_ecs::{lifecycle::HookContext, prelude::*, world::DeferredWorld};
@@ -41,6 +41,7 @@ pub fn is_default_connection(world: &World, entity: Entity) -> bool {
 ///
 /// Requested IDs stay local to this World; this does not negotiate identities with the peer.
 /// Client/server roles default to the server sentinel; explicitly configured debug IDs are preserved.
+/// An occupied, unrequested non-P2P debug alias may fall back locally; shared or requested IDs never do.
 pub fn apply_default_ids(
     world: &mut World,
     entity: Entity,
@@ -52,18 +53,40 @@ pub fn apply_default_ids(
     }
     let endpoint = world.get::<LinkOf>(entity).map(|link| link.endpoint);
     let mut local = world.get::<LocalId>(entity).copied().unwrap_or(local);
-    let mut remote = world.get::<RemoteId>(entity).copied().unwrap_or(remote);
-    if world.get::<P2P>(entity).is_none() {
+    let requested_remote = world.get::<RemoteId>(entity).copied();
+    let mut remote = requested_remote.unwrap_or(remote);
+    let p2p = world.get::<P2P>(entity).is_some();
+    if !p2p {
         if endpoint.is_some_and(|endpoint| world.get::<Server>(endpoint).is_some()) {
             world.entity_mut(entity).insert(ClientOf);
             if world.get::<LocalId>(entity).is_none() {
-                local = LocalId(PeerId::Server);
+                local = LocalId(PeerId::SERVER);
             }
-        } else if world.get::<Client>(entity).is_some() && world.get::<RemoteId>(entity).is_none() {
-            remote = RemoteId(PeerId::Server);
+        } else if world.get::<Client>(entity).is_some() && requested_remote.is_none() {
+            remote = RemoteId(PeerId::SERVER);
         }
     }
+    if !p2p && requested_remote.is_none() && remote.0 != PeerId::SERVER {
+        remote.0 = free_local_alias(world, entity, remote.0);
+    }
     admit(world, entity, local, remote, ())
+}
+
+/// Find a free local-only label, preserving the candidate unless it collides.
+pub(crate) fn free_local_alias(world: &World, entity: Entity, candidate: PeerId) -> PeerId {
+    debug_assert_ne!(candidate, PeerId::SERVER);
+    let Some(metadata) = world.get_resource::<NetworkingMetadata>() else {
+        return candidate;
+    };
+    let mut alias = candidate;
+    while metadata
+        .peer_map
+        .get(&alias)
+        .is_some_and(|owner| *owner != entity)
+    {
+        alias.0 = alias.0.wrapping_add(1).max(1);
+    }
+    alias
 }
 
 /// Connection lifecycle support installed by transports that support default admission.
@@ -127,6 +150,24 @@ pub fn admit<B: Bundle>(
     remote: RemoteId,
     components: B,
 ) -> bool {
+    let p2p = world.get::<P2P>(entity).is_some();
+    let server_child = world.get::<ClientOf>(entity).is_some()
+        || world
+            .get::<LinkOf>(entity)
+            .is_some_and(|link| world.get::<Server>(link.endpoint).is_some());
+    let host = server_child && world.get::<Client>(entity).is_some();
+    let local_server = !p2p && !host && server_child;
+    let remote_server = !p2p && !host && !server_child && world.get::<Client>(entity).is_some();
+    if (local.0 == PeerId::SERVER && !local_server)
+        || (remote.0 == PeerId::SERVER && !remote_server)
+    {
+        reject(
+            world,
+            entity,
+            String::from("Peer ID zero is reserved for the client/server server role"),
+        );
+        return false;
+    }
     world.init_resource::<NetworkingMetadata>();
     if let Some(owner) = world
         .resource::<NetworkingMetadata>()
@@ -206,19 +247,18 @@ mod tests {
     use super::*;
     use bevy_app::App;
     use lightyear_core::id::PeerId;
-    use lightyear_link::prelude::{LinkOf, Server};
 
     #[test]
     fn default_client_preserves_explicit_debug_identities() {
         let mut world = World::new();
-        let local = LocalId(PeerId::Entity(1));
-        let remote = RemoteId(PeerId::Entity(2));
+        let local = LocalId(PeerId(1));
+        let remote = RemoteId(PeerId(2));
         let entity = world.spawn((Client, local, remote)).id();
         assert!(apply_default_ids(
             &mut world,
             entity,
-            LocalId(PeerId::Entity(3)),
-            RemoteId(PeerId::Server),
+            LocalId(PeerId(3)),
+            RemoteId(PeerId::SERVER),
         ));
         assert_eq!(world.get::<LocalId>(entity), Some(&local));
         assert_eq!(world.get::<RemoteId>(entity), Some(&remote));
@@ -235,31 +275,19 @@ mod tests {
     fn p2p_requested_ids_are_preserved_and_conflicts_rejected() {
         let mut world = World::new();
         let entity = world
-            .spawn((
-                P2P::default(),
-                LocalId(PeerId::Local(10)),
-                RemoteId(PeerId::Local(20)),
-            ))
+            .spawn((P2P::default(), LocalId(PeerId(10)), RemoteId(PeerId(20))))
             .id();
-        let fallback_local = LocalId(PeerId::Local(1));
-        let fallback_remote = RemoteId(PeerId::Local(2));
+        let fallback_local = LocalId(PeerId(1));
+        let fallback_remote = RemoteId(PeerId(2));
         assert!(apply_default_ids(
             &mut world,
             entity,
             fallback_local,
             fallback_remote
         ));
-        assert_eq!(
-            world.get::<LocalId>(entity),
-            Some(&LocalId(PeerId::Local(10)))
-        );
-        assert_eq!(
-            world.get::<RemoteId>(entity),
-            Some(&RemoteId(PeerId::Local(20)))
-        );
-        let duplicate = world
-            .spawn((P2P::default(), RemoteId(PeerId::Local(20))))
-            .id();
+        assert_eq!(world.get::<LocalId>(entity), Some(&LocalId(PeerId(10))));
+        assert_eq!(world.get::<RemoteId>(entity), Some(&RemoteId(PeerId(20))));
+        let duplicate = world.spawn((P2P::default(), RemoteId(PeerId(20)))).id();
         assert!(!apply_default_ids(
             &mut world,
             duplicate,
@@ -272,7 +300,7 @@ mod tests {
             world
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Local(20)),
+                .get(&PeerId(20)),
             Some(&entity)
         );
     }
@@ -282,13 +310,12 @@ mod tests {
         let mut world = World::new();
         let endpoint = world.spawn(Server::default()).id();
         let entity = world.spawn(LinkOf { endpoint }).id();
-        assert!(is_default_connection(&world, entity));
         world.entity_mut(endpoint).insert(NoDefaultConnection);
         assert!(!apply_default_ids(
             &mut world,
             entity,
-            LocalId(PeerId::Local(1)),
-            RemoteId(PeerId::Local(2)),
+            LocalId(PeerId(1)),
+            RemoteId(PeerId(2)),
         ));
         assert!(world.get::<Connected>(entity).is_none());
         assert!(world.get::<ClientOf>(entity).is_none());
@@ -306,8 +333,8 @@ mod tests {
         mut admissions: ResMut<Admissions>,
     ) {
         let (local, remote, connecting) = query.get(trigger.entity).unwrap();
-        assert_eq!(local.0, PeerId::Local(10));
-        assert_eq!(remote.0, PeerId::Local(20));
+        assert_eq!(local.0, PeerId(10));
+        assert_eq!(remote.0, PeerId(20));
         assert!(!connecting);
         assert_eq!(metadata.peer_map.get(&remote.0), Some(&trigger.entity));
         admissions.0 += 1;
@@ -339,16 +366,16 @@ mod tests {
         assert!(admit(
             app.world_mut(),
             left,
-            LocalId(PeerId::Local(10)),
-            RemoteId(PeerId::Local(20)),
-            ()
+            LocalId(PeerId(10)),
+            RemoteId(PeerId(20)),
+            (),
         ));
         assert!(!admit(
             app.world_mut(),
             right,
-            LocalId(PeerId::Local(30)),
-            RemoteId(PeerId::Local(20)),
-            ()
+            LocalId(PeerId(30)),
+            RemoteId(PeerId(20)),
+            (),
         ));
         app.world_mut().flush();
         assert_eq!(app.world().resource::<Admissions>().0, 1);
@@ -361,7 +388,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Local(20)),
+                .get(&PeerId(20)),
             Some(&left)
         );
     }
@@ -370,13 +397,13 @@ mod tests {
     fn removal_and_despawn_release_only_the_current_owner() {
         let mut world = World::new();
         let old = world.spawn_empty().id();
-        let remote = PeerId::Local(20);
+        let remote = PeerId(20);
         assert!(admit(
             &mut world,
             old,
-            LocalId(PeerId::Local(10)),
+            LocalId(PeerId(10)),
             RemoteId(remote),
-            ()
+            (),
         ));
         world.entity_mut(old).remove::<Connected>();
         assert!(
@@ -389,9 +416,9 @@ mod tests {
         assert!(admit(
             &mut world,
             replacement,
-            LocalId(PeerId::Local(10)),
+            LocalId(PeerId(10)),
             RemoteId(remote),
-            ()
+            (),
         ));
         world.despawn(old);
         assert_eq!(
@@ -414,31 +441,31 @@ mod tests {
         let server = world
             .spawn((Server::default(), crate::server::Started))
             .id();
-        let remote_server = world.spawn_empty().id();
+        let remote_server = world.spawn(Client).id();
         assert!(!admit(
             &mut world,
             remote_server,
-            LocalId(PeerId::Local(10)),
-            RemoteId(PeerId::Server),
-            ()
+            LocalId(PeerId(10)),
+            RemoteId(PeerId::SERVER),
+            (),
         ));
         assert_eq!(
             world
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&server)
         );
         world.despawn(server);
         assert!(admit(
             &mut world,
             remote_server,
-            LocalId(PeerId::Local(10)),
-            RemoteId(PeerId::Server),
-            ()
+            LocalId(PeerId(10)),
+            RemoteId(PeerId::SERVER),
+            (),
         ));
         let second_server = world.spawn(Server::default()).id();
-        assert!(!crate::server::start_server(&mut world, second_server));
+        assert!(!start_server(&mut world, second_server));
         world.flush();
         assert!(world.get::<crate::server::Stopped>(second_server).is_some());
         assert!(world.get::<Disconnected>(second_server).is_some());
@@ -446,8 +473,114 @@ mod tests {
             world
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&remote_server)
         );
+    }
+
+    #[test]
+    fn local_fallback_wraps_without_reassigning_shared_or_requested_aliases() {
+        let mut world = World::new();
+        let owner = world.spawn_empty().id();
+        assert!(admit(
+            &mut world,
+            owner,
+            LocalId(PeerId(5)),
+            RemoteId(PeerId(u64::MAX)),
+            (),
+        ));
+        let debug = world.spawn_empty().id();
+        assert!(apply_default_ids(
+            &mut world,
+            debug,
+            LocalId(PeerId(6)),
+            RemoteId(PeerId(u64::MAX))
+        ));
+        assert_eq!(world.get::<RemoteId>(debug), Some(&RemoteId(PeerId(1))));
+        assert_eq!(
+            world
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .get(&PeerId(u64::MAX)),
+            Some(&owner)
+        );
+        let requested = world.spawn(RemoteId(PeerId(u64::MAX))).id();
+        assert!(!apply_default_ids(
+            &mut world,
+            requested,
+            LocalId(PeerId(7)),
+            RemoteId(PeerId(8))
+        ));
+        let shared = world.spawn(P2P::default()).id();
+        assert!(!apply_default_ids(
+            &mut world,
+            shared,
+            LocalId(PeerId(7)),
+            RemoteId(PeerId(u64::MAX))
+        ));
+        assert!(world.get::<Connected>(requested).is_none());
+        assert!(world.get::<Connected>(shared).is_none());
+        world.despawn(debug);
+        let replacement = world.spawn_empty().id();
+        assert!(apply_default_ids(
+            &mut world,
+            replacement,
+            LocalId(PeerId(6)),
+            RemoteId(PeerId(u64::MAX))
+        ));
+        assert_eq!(
+            world.get::<RemoteId>(replacement),
+            Some(&RemoteId(PeerId(1)))
+        );
+    }
+
+    #[test]
+    fn reserved_identity_requires_the_corresponding_non_p2p_server_role() {
+        let mut world = World::new();
+        let bare = world.spawn_empty().id();
+        assert!(!admit(
+            &mut world,
+            bare,
+            LocalId(PeerId(5)),
+            RemoteId(PeerId::SERVER),
+            (),
+        ));
+        let client = world.spawn(Client).id();
+        assert!(!admit(
+            &mut world,
+            client,
+            LocalId(PeerId::SERVER),
+            RemoteId(PeerId(5)),
+            (),
+        ));
+        assert!(admit(
+            &mut world,
+            client,
+            LocalId(PeerId(5)),
+            RemoteId(PeerId::SERVER),
+            (),
+        ));
+        let endpoint = world.spawn(Server::default()).id();
+        let child = world.spawn((ClientOf, LinkOf { endpoint })).id();
+        assert!(admit(
+            &mut world,
+            child,
+            LocalId(PeerId::SERVER),
+            RemoteId(PeerId(6)),
+            (),
+        ));
+        for (local, remote) in [(PeerId::SERVER, PeerId(7)), (PeerId(7), PeerId::SERVER)] {
+            let p2p = world
+                .spawn((P2P::default(), ClientOf, LinkOf { endpoint }))
+                .id();
+            assert!(!admit(
+                &mut world,
+                p2p,
+                LocalId(local),
+                RemoteId(remote),
+                (),
+            ));
+            assert!(world.get::<Connected>(p2p).is_none());
+        }
     }
 }

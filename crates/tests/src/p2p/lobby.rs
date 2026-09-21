@@ -38,9 +38,12 @@ fn two_peers_discover_each_other_over_udp_and_start_a_session() {
     // The endpoint knows its own identity before any remote link is admitted.
     assert_eq!(
         stepper.peers[0].lobby().waiting().collect::<Vec<_>>(),
-        vec![peer_id(base_port, 1)]
+        vec![peer_id(TestTransport::Udp, base_port, 1)]
     );
-    assert_eq!(stepper.peers[0].lobby().roster(), [peer_id(base_port, 0)]);
+    assert_eq!(
+        stepper.peers[0].lobby().roster(),
+        [peer_id(TestTransport::Udp, base_port, 0)]
+    );
 
     stepper.start_session_when_ready(&[0, 1]);
     stepper.wait_for_session(&[0, 1]);
@@ -54,13 +57,14 @@ fn two_peers_discover_each_other_over_udp_and_start_a_session() {
         assert_eq!(second.id(), Some(lobby_id()));
 
         // Both derived the same two-member roster, so `P2PStart` froze the same cohort and the
-        // session's roster hash agreed. Each peer's identity is its endpoint address, so the two
-        // sides of the roster are the same two `PeerId::Raw` values.
+        // session's roster hash agreed. Both sides resolve the same opaque UDP endpoint aliases.
         assert_eq!(first.roster(), second.roster());
-        assert_eq!(
-            first.roster(),
-            vec![peer_id(base_port, 0), peer_id(base_port, 1)]
-        );
+        let mut expected = vec![
+            peer_id(TestTransport::Udp, base_port, 0),
+            peer_id(TestTransport::Udp, base_port, 1),
+        ];
+        expected.sort_unstable();
+        assert_eq!(first.roster(), expected);
 
         assert_eq!(first.connected_members().count(), 1);
         assert!(first.waiting().next().is_none(), "nobody is left waiting");
@@ -106,7 +110,7 @@ fn the_two_peers_agree_on_slots() {
 fn a_third_peer_is_discovered_and_dialed_without_being_configured() {
     // Only peer 0 is seeded. Peers 1 and 2 are never told about each other — not their addresses,
     // not that they exist. The Link between them can only come from peer 0 announcing who it knows,
-    // and the address to dial comes from the announced `PeerId` itself.
+    // and the address to dial comes from the announced native dial context.
     let base_port = next_base_port();
     let mut stepper = Stepper::new(
         TestTransport::Udp,
@@ -129,12 +133,12 @@ fn a_third_peer_is_discovered_and_dialed_without_being_configured() {
         // minus the local peer.
         for other in slots.into_iter().filter(|other| *other != slot) {
             assert!(
-                lobby.is_member(peer_id(base_port, other)),
+                lobby.is_member(peer_id(TestTransport::Udp, base_port, other)),
                 "peer {slot} should know peer {other} as a member"
             );
         }
         assert!(
-            !lobby.is_member(peer_id(base_port, slot)),
+            !lobby.is_member(peer_id(TestTransport::Udp, base_port, slot)),
             "peer {slot} should not list itself as a member"
         );
         assert_eq!(
@@ -185,28 +189,28 @@ fn a_peer_pinned_to_another_lobby_is_excluded_from_discovery() {
     // contributes nothing to the roster, and is never advertised onward.
     assert_eq!(
         stepper.peers[0].lobby().members().collect::<Vec<_>>(),
-        vec![peer_id(base_port, 1)]
+        vec![peer_id(TestTransport::Udp, base_port, 1)]
     );
     assert_eq!(stepper.peers[0].lobby().id(), Some(lobby_id()));
     assert_eq!(stepper.peers[1].lobby().id(), Some(lobby_id()));
-    assert!(
-        !stepper.peers[0]
-            .lobby()
-            .roster()
-            .contains(&peer_id(base_port, 2))
-    );
-    assert!(
-        !stepper.peers[1]
-            .lobby()
-            .roster()
-            .contains(&peer_id(base_port, 2))
-    );
+    assert!(!stepper.peers[0].lobby().roster().contains(&peer_id(
+        TestTransport::Udp,
+        base_port,
+        2
+    )));
+    assert!(!stepper.peers[1].lobby().roster().contains(&peer_id(
+        TestTransport::Udp,
+        base_port,
+        2
+    )));
     assert!(stepper.peers[2].lobby().members().next().is_none());
 
     // The lobby leaves the stranger's Link alone: what to do with a connected peer from another
     // lobby is the application's decision.
     assert!(
-        stepper.peers[0].lobby().is_connected(peer_id(base_port, 2)),
+        stepper.peers[0]
+            .lobby()
+            .is_connected(peer_id(TestTransport::Udp, base_port, 2)),
         "the lobby does not unlink a peer from another lobby"
     );
 }
@@ -230,8 +234,16 @@ fn an_unreachable_peer_stays_unconfirmed_and_is_retried() {
         "nothing replied, so the peer was never confirmed"
     );
     // A native UDP route is not proof of a remote peer identity.
-    assert!(!stepper.peers[0].lobby().is_connected(peer_id(base_port, 9)));
-    assert!(!stepper.peers[0].lobby().is_member(peer_id(base_port, 9)));
+    assert!(
+        !stepper.peers[0]
+            .lobby()
+            .is_connected(peer_id(TestTransport::Udp, base_port, 9))
+    );
+    assert!(
+        !stepper.peers[0]
+            .lobby()
+            .is_member(peer_id(TestTransport::Udp, base_port, 9))
+    );
 
     assert_eq!(stepper.peers[0].connected_links(), 0);
     stepper.peers[0]

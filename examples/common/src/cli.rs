@@ -151,6 +151,7 @@ impl Cli {
             #[cfg(feature = "p2p")]
             Some(Mode::P2P {
                 peer,
+                peer_certificate_digest,
                 players,
                 port,
                 transport,
@@ -164,6 +165,7 @@ impl Cli {
                         transport,
                         local_port: port,
                         seed: peer,
+                        seed_certificate_digest: peer_certificate_digest,
                     },
                 );
                 app
@@ -234,6 +236,7 @@ impl Cli {
             #[cfg(feature = "p2p")]
             Some(Mode::P2P {
                 peer,
+                peer_certificate_digest,
                 players,
                 port,
                 transport,
@@ -246,6 +249,7 @@ impl Cli {
                         transport,
                         local_port: port,
                         seed: peer,
+                        seed_certificate_digest: peer_certificate_digest,
                     },
                 );
             }
@@ -296,6 +300,11 @@ impl Cli {
                     .world_mut()
                     .spawn((Client, Name::new("HostClient"), LinkOf { endpoint: server }))
                     .id();
+                if let Some(client_id) = client_id {
+                    app.world_mut()
+                        .entity_mut(client)
+                        .insert(LocalId(PeerId(client_id)));
+                }
                 // Start the server before connecting the host client so connection setup sees
                 // the server entity.
                 app.add_systems(Startup, (start, connect).chain());
@@ -310,7 +319,7 @@ pub enum Mode {
     #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
     /// Runs the app in client mode
     Client {
-        #[arg(short, long, default_value = None)]
+        #[arg(short, long, default_value = None, value_parser = clap::value_parser!(u64).range(1..))]
         client_id: Option<u64>,
     },
     #[cfg(feature = "p2p")]
@@ -327,6 +336,9 @@ pub enum Mode {
         /// peers can join. All example lobbies share the same lobby id.
         #[arg(long)]
         peer: Option<core::net::SocketAddr>,
+        /// SHA-256 certificate digest printed by a WebTransport seed (64 hex digits).
+        #[arg(long, requires = "peer", value_parser = p2p::parse_certificate_digest)]
+        peer_certificate_digest: Option<[u8; 32]>,
         /// Number of players in the session (2 through 4).
         ///
         /// Only gates the session start barrier; the roster itself is
@@ -347,14 +359,14 @@ pub enum Mode {
     /// Creates two bevy apps: a client app and a server app.
     /// Data gets passed between the two via channels.
     Separate {
-        #[arg(short, long, default_value = None)]
+        #[arg(short, long, default_value = None, value_parser = clap::value_parser!(u64).range(1..))]
         client_id: Option<u64>,
     },
     #[cfg(all(feature = "client", feature = "server"))]
     /// Run the app in host-client mode.
     /// The client and the server will run inside the same app. The peer acts both as a client and a server.
     HostClient {
-        #[arg(short, long, default_value = None)]
+        #[arg(short, long, default_value = None, value_parser = clap::value_parser!(u64).range(1..))]
         client_id: Option<u64>,
     },
 }
@@ -391,6 +403,7 @@ impl Default for Mode {
             } else if #[cfg(feature = "p2p")] {
                 Mode::P2P {
                     peer: None,
+                    peer_certificate_digest: None,
                     players: 2,
                     port: DEFAULT_P2P_PORT,
                     transport: P2PTransport::default(),
@@ -425,7 +438,7 @@ impl Default for Cli {
 pub fn cli() -> Cli {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
-            let client_id = rand::random::<u64>();
+            let client_id = rand::random::<u64>().max(1);
             Cli {
                 headless: None,
                 mode: Some(Mode::Client {

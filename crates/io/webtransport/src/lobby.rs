@@ -1,7 +1,8 @@
 //! Glue between [`lightyear_p2p::Lobby`] and WebTransport links.
 //!
 //! Dial contexts carry a socket target and certificate hash independently of the peer's alias.
-//! Both dialed and accepted links exchange the existing lobby self-announcement before admission;
+//! Every dial requires a nonempty native context. Both dialed and accepted links exchange the
+//! existing lobby self-announcement before admission;
 //! an accepted session's ephemeral address is never a public peer identity. The announcement
 //! rejects identity conflicts; it does not authenticate the association between an alias and a
 //! transport certificate.
@@ -12,7 +13,7 @@ use core::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_connection::client::{Client, Connect, Connected, Disconnected};
 use lightyear_connection::p2p::P2P;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
+use lightyear_core::id::{LocalId, PeerId, RemoteId, peer_id_from_socket};
 use lightyear_link::prelude::{Link, LinkOf, LinkStart, Linked, Unlinked};
 use lightyear_p2p::{
     DialContext, DialPeer, Lobby, PendingLobbyPeer, begin_peer_resolution,
@@ -26,8 +27,7 @@ use crate::{WebTransportLocalAddr, WebTransportPeerAddr};
 
 /// Dials WebTransport links for a [`Lobby`] through a [`WebTransportEndpoint`].
 ///
-/// The endpoint publishes its bound socket and certificate hash so chosen non-socket aliases
-/// can be discovered and dialed as well.
+/// The endpoint publishes its bound socket and certificate hash independently of its opaque alias.
 #[derive(Default)]
 pub struct WebTransportLobbyPlugin;
 
@@ -134,9 +134,10 @@ fn on_endpoint_added(
 /// Resolves identity once; a later address update changes only the dial context.
 fn prepare_endpoint(world: &mut World, endpoint: Entity) -> Option<PeerId> {
     let address = world.get::<WebTransportLocalAddr>(endpoint)?.0;
-    let candidate = world
-        .get::<LocalId>(endpoint)
-        .map_or(PeerId::Raw(address), |local| local.0);
+    let candidate = world.get::<LocalId>(endpoint).map_or_else(
+        || peer_id_from_socket(b"webtransport", address),
+        |local| local.0,
+    );
     let local = resolve_endpoint_identity(world, endpoint, candidate)?;
     if world
         .get::<PublishedContext>(endpoint)
@@ -173,20 +174,10 @@ fn on_dial(
     mut commands: Commands,
 ) {
     let peer = trigger.peer;
-    let target = if trigger.context.is_empty() {
-        match peer {
-            // Bootstrap without a hash retains the client's configured native TLS policy.
-            PeerId::Raw(address) => Some((address, String::new())),
-            _ => None,
-        }
-    } else {
-        decode_context(&trigger.context).map(|(address, digest)| (address, to_hex(digest)))
-    };
+    let target =
+        decode_context(&trigger.context).map(|(address, digest)| (address, to_hex(digest)));
     let Some((address, certificate_digest)) = target else {
-        warn!(
-            ?peer,
-            "no usable WebTransport dial context or bootstrap socket"
-        );
+        warn!(?peer, "no usable WebTransport dial context");
         return;
     };
     let Ok(endpoint) = endpoints.single() else {
@@ -353,12 +344,12 @@ mod tests {
                 },
                 WebTransportLocalAddr(address),
                 LobbyEndpoint,
-                LocalId(PeerId::Local(91)),
+                LocalId(PeerId(91)),
                 NoDefaultConnection,
             ))
             .id();
         let dial = DialPeer {
-            peer: PeerId::Local(92),
+            peer: PeerId(92),
             context: dial_context(SocketAddr::from((Ipv4Addr::LOCALHOST, 4101)), &[37; 32]),
         };
         for _ in 0..3 {
@@ -381,7 +372,7 @@ mod tests {
         let world = app.world_mut();
         let mut pending = world.query::<(&PendingLobbyPeer, &WebTransportClientIo)>();
         let (pending, _) = pending.single(world).unwrap();
-        assert_eq!(pending.expected_remote(), Some(PeerId::Local(92)));
+        assert_eq!(pending.expected_remote(), Some(PeerId(92)));
     }
 
     #[test]
@@ -416,7 +407,7 @@ mod tests {
         app.add_observer(on_endpoint_ready);
         app.add_observer(on_accepted_link);
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 4100));
-        let alias = PeerId::Netcode(91);
+        let alias = PeerId(91);
         let endpoint = app
             .world_mut()
             .spawn((
@@ -459,6 +450,11 @@ mod tests {
             .insert(WebTransportLocalAddr(changed));
         assert_eq!(app.world().resource::<Lobby>().local(), Some(alias));
         assert_eq!(app.world().get::<LocalId>(endpoint), Some(&LocalId(alias)));
+        assert_eq!(
+            decode_context(app.world().resource::<Lobby>().local_dial_context())
+                .map(|(address, _)| address),
+            Some(changed),
+        );
         assert!(app.world().get::<PendingLobbyPeer>(link).is_some());
         assert!(app.world().get::<RemoteId>(link).is_none());
     }

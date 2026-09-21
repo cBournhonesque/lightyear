@@ -406,7 +406,7 @@ mod tests {
             buffer
                 .push(
                     TestEvent,
-                    PeerId::Local(1),
+                    PeerId(1),
                     Tick(1),
                     ChannelKind::of::<TestChannel>(),
                     None,
@@ -417,7 +417,7 @@ mod tests {
         let error = buffer
             .push(
                 TestEvent,
-                PeerId::Local(1),
+                PeerId(1),
                 Tick(2),
                 ChannelKind::of::<TestChannel>(),
                 None,

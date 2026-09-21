@@ -72,7 +72,7 @@ pub(crate) fn get_settings() -> MySettings {
             },
             client: ClientSettings {
                 inspector: true,
-                client_id: 0,
+                client_id: 1,
                 client_port: 0, // 0 means that the OS will assign a random port
                 server_addr: Ipv4Addr::LOCALHOST,
                 server_port: 5000, // change the port depending on the transport used

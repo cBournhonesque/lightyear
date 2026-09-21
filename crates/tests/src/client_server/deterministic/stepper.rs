@@ -120,7 +120,7 @@ impl DetStepper {
             server_addr: DET_SERVER_ADDR,
             protocol_id: Default::default(),
             private_key: Default::default(),
-            client_id: client_id as u64,
+            client_id: client_id as u64 + 1,
         };
 
         let mut sync = SyncConfig::default();

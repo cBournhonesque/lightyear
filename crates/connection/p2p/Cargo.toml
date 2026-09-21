@@ -22,7 +22,6 @@ lightyear_connection = { workspace = true, features = ["client"] }
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_messages = { workspace = true, features = ["client"] }
-lightyear_serde.workspace = true
 lightyear_sync = { workspace = true, features = ["client"] }
 lightyear_transport = { workspace = true, features = ["client"] }
 

@@ -150,10 +150,5 @@ fn client_id(local_id: Option<PeerId>, remote_id: Option<PeerId>, is_server: boo
 }
 
 fn peer_numeric_id(peer_id: PeerId) -> Option<u64> {
-    match peer_id {
-        PeerId::Entity(id) | PeerId::Netcode(id) | PeerId::Steam(id) | PeerId::Local(id) => {
-            Some(id)
-        }
-        PeerId::Raw(_) | PeerId::Server => None,
-    }
+    (peer_id != PeerId::SERVER).then_some(peer_id.0)
 }

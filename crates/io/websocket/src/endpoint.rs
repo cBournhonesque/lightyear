@@ -16,7 +16,9 @@ use lightyear_aeronet::endpoint::EndpointAeronetPlugin;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_connection::p2p::P2P;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
+#[cfg(test)]
+use lightyear_core::id::PeerId;
+use lightyear_core::id::{LocalId, RemoteId, peer_id_from_socket};
 use lightyear_link::endpoint::{Endpoint, LinkOf};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::info;
@@ -99,8 +101,8 @@ impl WebSocketEndpointPlugin {
                 return;
             };
             let endpoint = link_of.endpoint;
-            let local = LocalId(PeerId::Raw(local_addr.0));
-            let remote = RemoteId(PeerId::Raw(peer_addr.0));
+            let local = LocalId(peer_id_from_socket(b"websocket", local_addr.0));
+            let remote = RemoteId(peer_id_from_socket(b"websocket", peer_addr.0));
             commands.queue(move |world: &mut World| {
                 #[cfg(feature = "lobby")]
                 if world.get::<crate::lobby::LobbyEndpoint>(endpoint).is_some() {
@@ -205,7 +207,7 @@ mod tests {
         assert!(app.world().get::<Connected>(link).is_some());
         assert_eq!(
             app.world().get::<RemoteId>(link).unwrap().0,
-            PeerId::Raw(peer)
+            peer_id_from_socket(b"websocket", peer)
         );
     }
 
@@ -350,11 +352,12 @@ mod tests {
                 assert!(app.world().get::<ClientOf>(accepted).is_some());
                 assert_eq!(
                     client_app.world().get::<RemoteId>(client).unwrap().0,
-                    PeerId::Server
+                    PeerId::SERVER
                 );
                 assert_eq!(
                     app.world().get::<RemoteId>(accepted).unwrap().0,
-                    PeerId::Raw(
+                    peer_id_from_socket(
+                        b"websocket",
                         client_app
                             .world()
                             .get::<WebSocketLocalAddr>(client)

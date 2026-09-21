@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lobby children receive P2P roles before default admission; explicit backends and opt-outs are not admitted by the default path.
 - UDP bind and dial inputs now belong to `UdpIo::new(bind, peer)` and `UdpEndpoint::new(bind)`, not shared address components. Read `UdpLocalAddr` for the actual bound address and use `UdpPeerAddr` for child routes.
 - `UdpIo::default()` is removed; default endpoints bind to `0.0.0.0:0`.
+- Socket-derived debug aliases use domain-separated opaque `PeerId` projections; native socket facts remain in `UdpLocalAddr` and `UdpPeerAddr`.
+- Lobby discovery requires a UDP dial context. Endpoint aliases stay frozen when the advertised native address changes.
 
 ## v0.21.0 (2025-07-03)
 

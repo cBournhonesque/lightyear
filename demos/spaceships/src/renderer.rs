@@ -576,7 +576,7 @@ fn emit_bullet_visual_state(
             local_tick = tick.0 as i64,
             entity = ?entity,
             owner = ?marker.owner,
-            owner_bits = marker.owner.to_bits(),
+            owner_bits = marker.owner.0,
             origin_tick = lifetime.origin_tick.0 as i64,
             position = ?position,
             transform = ?transform.translation.truncate(),

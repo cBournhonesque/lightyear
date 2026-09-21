@@ -163,7 +163,7 @@ pub enum ClientState {
 /// # let addr =  SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
 /// # let mut link = Link::default();
 /// # let mut server = Server::new(0, [0; 32]).unwrap();
-/// # let token_bytes = server.token(0, addr).generate().unwrap().try_into_bytes().unwrap();
+/// # let token_bytes = server.token(1, addr).generate().unwrap().try_into_bytes().unwrap();
 /// let mut client = Client::new(&token_bytes).unwrap();
 /// client.connect();
 /// ```
@@ -237,7 +237,7 @@ impl Client {
     /// # use lightyear_netcode::{generate_key, ConnectToken, client::Client};
     /// // Generate a connection token for the client
     /// let private_key = generate_key();
-    /// let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
+    /// let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 1, private_key)
     ///     .generate()
     ///     .unwrap()
     ///     .try_into_bytes()
@@ -261,7 +261,7 @@ impl<Ctx> Client<Ctx> {
     /// ```ignore
     /// # use lightyear_netcode::{generate_key, client::{ClientConfig, ClientState}, ConnectToken, NetcodeClient};
     /// # let private_key = generate_key();
-    /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 0, private_key)
+    /// # let token_bytes = ConnectToken::build("127.0.0.1:0", 0, 1, private_key)
     /// #    .generate()
     /// #    .unwrap()
     /// #    .try_into_bytes()
@@ -419,6 +419,10 @@ impl<Ctx> Client<Ctx> {
                 None
             }
             (Packet::KeepAlive(pkt), ClientState::SendingChallengeResponse) => {
+                if pkt.client_id == 0 {
+                    self.reset(ClientState::ConnectionDenied);
+                    return Err(Error::ReservedClientId);
+                }
                 debug!("client received connection keep-alive packet from server");
                 self.set_state(ClientState::Connected);
                 self.id = pkt.client_id;
@@ -629,6 +633,30 @@ impl<Ctx> Client<Ctx> {
 mod tests {
     use super::*;
     use lightyear_link::Link;
+
+    #[test]
+    fn authenticated_client_id_preserves_max_and_rejects_zero() {
+        let token = ConnectToken::build("127.0.0.1:5000", 1, u64::MAX, [42; 32])
+            .generate()
+            .unwrap()
+            .try_into_bytes()
+            .unwrap();
+        let mut client = Client::new(&token).unwrap();
+        client.set_state(ClientState::SendingChallengeResponse);
+        client
+            .process_packet(KeepAlivePacket::create(u64::MAX))
+            .unwrap();
+        assert!(client.is_connected());
+        assert_eq!(client.id(), u64::MAX);
+
+        let mut client = Client::new(&token).unwrap();
+        client.set_state(ClientState::SendingChallengeResponse);
+        assert!(matches!(
+            client.process_packet(KeepAlivePacket::create(0)),
+            Err(Error::ReservedClientId)
+        ));
+        assert_eq!(client.state(), ClientState::ConnectionDenied);
+    }
 
     #[test]
     fn timeout_ends_handshake_without_implicit_address_failover() {

@@ -148,7 +148,7 @@ fn emit_bullet_post_update_state(
             local_tick = tick.0 as i64,
             entity = ?entity,
             owner = ?marker.owner,
-            owner_bits = marker.owner.to_bits(),
+            owner_bits = marker.owner.0,
             origin_tick = lifetime.origin_tick.0 as i64,
             position = ?position,
             velocity = ?velocity,
@@ -170,7 +170,7 @@ fn emit_bullet_post_update_state(
 }
 
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let h = (((client_id.0.wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
@@ -303,7 +303,7 @@ pub fn shared_player_firing(
         player,
     ) in q
         .iter_mut()
-        .sort_by_key::<&Player, _>(|player| player.client_id.to_bits())
+        .sort_by_key::<&Player, _>(|player| player.client_id.0)
     {
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
         // relying on a frame-edge `just_pressed`, and the weapon cooldown already
@@ -419,7 +419,7 @@ pub fn shared_player_firing(
 }
 
 fn bullet_prespawn_hash(owner: PeerId, tick: Tick) -> u64 {
-    let mut x = owner.to_bits() ^ ((tick.0 as u64) << 32) ^ tick.0 as u64;
+    let mut x = owner.0 ^ ((tick.0 as u64) << 32) ^ tick.0 as u64;
     // SplitMix64 finalizer: stable, cheap, and sufficient for example-level
     // prespawn identity where the inputs are already unique.
     x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -513,7 +513,7 @@ fn track_bullet_lifecycle_added(
             local_tick = tick.0 as i64,
             entity = ?entity,
             owner = ?marker.owner,
-            owner_bits = marker.owner.to_bits(),
+            owner_bits = marker.owner.0,
             origin_tick = lifetime.origin_tick.0 as i64,
             position = ?position,
             is_predicted = is_predicted,
@@ -537,11 +537,7 @@ fn track_bullet_lifecycle_removed(
     for entity in removed.read() {
         let identity = registry.bullets.remove(&entity);
         let (owner, owner_bits, origin_tick) = match identity {
-            Some((owner, origin_tick)) => (
-                Some(owner),
-                Some(owner.to_bits()),
-                Some(origin_tick.0 as i64),
-            ),
+            Some((owner, origin_tick)) => (Some(owner), Some(owner.0), Some(origin_tick.0 as i64)),
             None => (None, None, None),
         };
         lightyear_debug_event!(
@@ -599,7 +595,7 @@ fn detect_duplicate_bullets(
     ) in &bullets
     {
         groups
-            .entry((marker.owner.to_bits(), lifetime.origin_tick.0))
+            .entry((marker.owner.0, lifetime.origin_tick.0))
             .or_default()
             .push(BulletDuplicateState {
                 entity,
@@ -932,7 +928,7 @@ mod tests {
         let mut history = ConfirmedHistory::<Weapon>::default();
         history.insert(
             Tick(435),
-            Some(Weapon {
+            lightyear::core::history_buffer::HistoryState::Updated(Weapon {
                 last_fire_tick: Tick(435),
                 cooldown: 12,
                 bullet_speed: 500.0,
@@ -955,7 +951,7 @@ mod tests {
         let mut history = ConfirmedHistory::<Weapon>::default();
         history.insert(
             Tick(383),
-            Some(Weapon {
+            lightyear::core::history_buffer::HistoryState::Updated(Weapon {
                 last_fire_tick: Tick(383),
                 cooldown: 12,
                 bullet_speed: 500.0,
@@ -970,7 +966,7 @@ mod tests {
 
     #[test]
     fn bullet_prespawn_hash_is_stable_and_distinguishes_owner_and_tick() {
-        let owner = PeerId::Netcode(31);
+        let owner = PeerId(31);
 
         assert_eq!(
             bullet_prespawn_hash(owner, Tick(435)),
@@ -982,7 +978,7 @@ mod tests {
         );
         assert_ne!(
             bullet_prespawn_hash(owner, Tick(435)),
-            bullet_prespawn_hash(PeerId::Netcode(32), Tick(435))
+            bullet_prespawn_hash(PeerId(32), Tick(435))
         );
     }
 }

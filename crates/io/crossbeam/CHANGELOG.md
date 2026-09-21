@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Crossbeam admits default debug connections without Raw plugins, using per-link native entity IDs when no IDs are configured.
+- Crossbeam admits default debug connections without Raw plugins, using nonzero opaque local entity labels when no IDs are configured.
 - Multiple default clients can share a server without colliding on dummy address identities.
 - Unlink drops the channel ends so both peers observe disconnection.
 - Channel links no longer require or publish fake network addresses.

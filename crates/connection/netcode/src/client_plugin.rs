@@ -95,8 +95,7 @@ impl NetcodeClient {
     }
 
     pub fn id(&self) -> PeerId {
-        // TODO: returns PeerId::Entity if not connected.
-        PeerId::Netcode(self.inner.id())
+        PeerId(self.inner.id())
     }
 }
 
@@ -201,8 +200,10 @@ impl NetcodeClientPlugin {
             .is_some_and(|requested| *requested != local)
             || world
                 .get::<RemoteId>(entity)
-                .is_some_and(|requested| requested.0 != PeerId::Server);
-        if mismatch {
+                .is_some_and(|requested| requested.0 != PeerId::SERVER);
+        if local.0 == PeerId::SERVER {
+            reject(world, entity, format!("{}", Error::ReservedClientId));
+        } else if mismatch {
             reject(
                 world,
                 entity,
@@ -211,7 +212,7 @@ impl NetcodeClientPlugin {
                     local.0
                 ),
             );
-        } else if admit(world, entity, local, RemoteId(PeerId::Server), ()) {
+        } else if admit(world, entity, local, RemoteId(PeerId::SERVER), ()) {
             return;
         }
         if let Some(mut client) = world.get_mut::<NetcodeClient>(entity) {
@@ -234,7 +235,7 @@ impl NetcodeClientPlugin {
                     .and_then(|client| client.token_client_id);
                 if let (Some(token_id), Some(requested)) = (token_id, world.get::<LocalId>(entity))
                 {
-                    if requested.0 != PeerId::Netcode(token_id) {
+                    if requested.0 != PeerId(token_id) {
                         let reason = format!(
                             "requested local ID {:?} does not match netcode token ID {token_id}",
                             requested.0
@@ -316,6 +317,22 @@ mod tests {
     use crate::token::ChallengeToken;
 
     #[test]
+    fn manual_authentication_rejects_reserved_client_id() {
+        assert!(matches!(
+            NetcodeClient::new(
+                Authentication::Manual {
+                    server_addr: "127.0.0.1:5000".parse().unwrap(),
+                    client_id: 0,
+                    private_key: [0; crate::PRIVATE_KEY_BYTES],
+                    protocol_id: 1,
+                },
+                NetcodeConfig::default(),
+            ),
+            Err(Error::ReservedClientId)
+        ));
+    }
+
+    #[test]
     fn opaque_token_checks_requested_id_before_admission() {
         let token =
             crate::ConnectToken::build("127.0.0.1:5000", 1, 7, [0; crate::PRIVATE_KEY_BYTES])
@@ -329,7 +346,7 @@ mod tests {
             .world_mut()
             .spawn((
                 NetcodeClient::new(Authentication::Token(token), NetcodeConfig::default()).unwrap(),
-                LocalId(PeerId::Netcode(8)),
+                LocalId(PeerId(8)),
             ))
             .id();
         app.world_mut().flush();
@@ -361,10 +378,7 @@ mod tests {
                 .inner
                 .is_disconnected()
         );
-        assert_eq!(
-            app.world().get::<LocalId>(entity).unwrap().0,
-            PeerId::Netcode(8)
-        );
+        assert_eq!(app.world().get::<LocalId>(entity).unwrap().0, PeerId(8));
         assert!(matches!(
             app.world().get::<Disconnected>(entity).unwrap().reason,
             DisconnectedReason::TransportError(_)
@@ -388,7 +402,7 @@ mod tests {
                     NetcodeConfig::default(),
                 )
                 .unwrap(),
-                LocalId(PeerId::Netcode(8)),
+                LocalId(PeerId(8)),
             ))
             .id();
         app.world_mut().flush();
@@ -404,10 +418,7 @@ mod tests {
         );
         assert!(app.world().get::<Connected>(entity).is_none());
         assert!(app.world().get::<Connecting>(entity).is_none());
-        assert_eq!(
-            app.world().get::<LocalId>(entity).unwrap().0,
-            PeerId::Netcode(8)
-        );
+        assert_eq!(app.world().get::<LocalId>(entity).unwrap().0, PeerId(8));
         assert!(matches!(
             app.world().get::<Disconnected>(entity).unwrap().reason,
             DisconnectedReason::TransportError(_)

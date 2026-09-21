@@ -107,9 +107,8 @@ pub enum PeerState {
 /// Transport-defined bytes that tell a peer how to dial whoever they describe.
 ///
 /// The lobby treats this as opaque: only the transport's lobby glue knows how to produce it and how
-/// to read it. It exists because an identity and an address are different facts — a transport that
-/// addresses peers by key (rather than by a socket address that is already the [`PeerId`]) has to
-/// publish that key, and the lobby is what carries the publication.
+/// to read it. A [`PeerId`] is an opaque numeric alias, never a native address or key. The transport
+/// publishes its native dial target here unless the application supplies it out of band.
 ///
 /// Reference-counted, so cloning it costs nothing: an announce is cloned once per Link before it is
 /// sent, and every entry of [`LobbyAnnounce::known`] holds one. Nothing here is trusted — see
@@ -143,9 +142,8 @@ pub struct LobbyAnnounce {
     /// sender's own entry is learned like any other.
     ///
     /// Per-peer contexts are what make an announce *hop* work: the peer that introduces two others
-    /// is the only one holding the key for the introduced peer, so it has to pass it along. A peer
-    /// with no context carries an empty one, and a transport that can derive a target from the
-    /// [`PeerId`] alone does not need one at all.
+    /// is the only one holding the native target for the introduced peer, so it has to pass it along.
+    /// A peer with no context carries an empty one; dialing it requires an out-of-band target.
     ///
     /// A `SmallVec` rather than a `Vec` because the message is cloned once per Link before being
     /// serialized (`MessageSender::send` takes its message by value), and a lobby is a handful of
@@ -156,37 +154,20 @@ pub struct LobbyAnnounce {
 
 /// Emitted when the lobby wants a Link to a peer it has not dialed yet.
 ///
-/// The transport glue turns this into a Link. `peer` is the lobby's own vocabulary — a [`PeerId`] —
-/// and turning it into whatever the transport actually dials is the glue's job, because the lobby
-/// never names a transport.
+/// The transport glue turns this into a Link. `peer` is an opaque numeric alias, not a socket
+/// address or native key. The glue obtains the native dial target from [`Self::context`] or an
+/// out-of-band mapping supplied by the application; it cannot recover an address from the alias.
 ///
-/// # Resolving a peer to a dial target
-///
-/// An identity and an address are different facts, and only the transport knows how they relate.
-/// Three shapes, in increasing order of what the transport must supply:
-///
-/// 1. **The id is the address.** A transport that identifies a peer by its socket address uses
-///    [`PeerId::Raw`], so `peer` already *is* the target and the glue needs nothing else. This is
-///    what default socket connections do: they identify the remote as `PeerId::Raw(peer_addr)`.
-/// 2. **The address is derivable.** A transport whose addressing is a function of its own
-///    configuration computes the target from `peer` plus that configuration — a UDP mesh that
-///    derives ports from a base port and the peer's slot, for instance.
-/// 3. **The address is supplied out of band.** When neither holds — a peer known only by an
-///    unguessable key — the application must be told where that peer is, and the glue keeps that
-///    mapping. `lightyear_iroh`'s `IrohLobbyAddrs` is this case: an Iroh endpoint id carries no
-///    address, so an invite's addresses are inserted there.
-///
-/// The lobby cannot help with 2 or 3 and does not try to. What it does guarantee is that it never
-/// emits this for a peer that is already linked, already dialed, or known to be in another lobby
-/// ([`Lobby::retry`] re-arms a peer, which is the only way it is emitted twice) — so a glue may
-/// dial on every event without defending against repeats.
+/// The lobby never names a transport. It carries contexts unchanged and never emits this for a
+/// peer that is already linked, already dialed, or known to be in another lobby ([`Lobby::retry`]
+/// re-arms a peer, which is the only way it is emitted twice).
 #[derive(Event, Debug, Clone)]
 pub struct DialPeer {
     /// The peer to reach, in the lobby's vocabulary. See the type docs for how a transport turns
     /// this into its own dial target.
     pub peer: PeerId,
-    /// Transport-defined bytes from the peer's own announce, needed to dial it when the [`PeerId`]
-    /// alone is not a target. Empty when the lobby has never heard one.
+    /// Transport-defined native dialing facts from the peer's own announce.
+    /// Empty when the lobby has never heard one; an out-of-band target is then required.
     pub context: DialContext,
 }
 
@@ -283,6 +264,14 @@ pub fn resolve_endpoint_identity(
         return None;
     }
     let local = world.get::<LocalId>(endpoint).map_or(candidate, |id| id.0);
+    if local == PeerId::SERVER {
+        reject(
+            world,
+            endpoint,
+            String::from("Reserved lobby endpoint self-ID"),
+        );
+        return None;
+    }
     if world
         .get::<EndpointLobbyIdentity>(endpoint)
         .is_some_and(|id| id.0 != local)
@@ -332,7 +321,9 @@ pub fn begin_peer_resolution(
         reject_lobby_peer(world, entity, "Lobby endpoint identity is unresolved");
         return false;
     };
-    if world.get::<LocalId>(endpoint).map(|id| id.0) != Some(local)
+    if local == PeerId::SERVER
+        || expected == Some(PeerId::SERVER)
+        || world.get::<LocalId>(endpoint).map(|id| id.0) != Some(local)
         || world.get_resource::<Lobby>().and_then(Lobby::local) != Some(local)
         || world
             .get::<LinkOf>(entity)
@@ -556,16 +547,16 @@ impl Lobby {
     ///
     /// This is the invite case: the application read endpoint ids out of a URL (or its own config)
     /// and hands them over. Each becomes [`PeerState::Wanted`] and is dialed by
-    /// the lobby's dial emitter, so the application never creates Links itself.
+    /// the lobby's dial emitter, so the application never creates Links itself. Native dial targets
+    /// must already be available out of band. The reserved [`PeerId::SERVER`] is ignored.
     pub fn add_bootstrap(&mut self, peers: impl IntoIterator<Item = PeerId>) {
         self.add_bootstrap_with_context(peers.into_iter().map(|peer| (peer, DialContext::new())));
     }
 
-    /// [`add_bootstrap`](Self::add_bootstrap) for a transport whose targets need more than the
-    /// [`PeerId`].
+    /// [`add_bootstrap`](Self::add_bootstrap) with transport-defined native dial targets.
     ///
-    /// A seed is reached before any announce can arrive, so a transport that cannot derive a target
-    /// from the id alone — one that needs a certificate digest, say — has no other way to learn it.
+    /// A seed is reached before any announce can arrive, so its native address or key must come
+    /// from this context or an out-of-band mapping, never from the opaque [`PeerId`].
     pub fn add_bootstrap_with_context(
         &mut self,
         peers: impl IntoIterator<Item = (PeerId, DialContext)>,
@@ -664,6 +655,9 @@ impl Lobby {
     /// any Link has told us which id is ours. Settling it here drops any such trace of ourselves,
     /// so we are never advertised, dialed, or counted as a member.
     fn mark_local(&mut self, local: PeerId) -> bool {
+        if local == PeerId::SERVER {
+            return false;
+        }
         if let Some(current) = self.local {
             return current == local;
         }
@@ -675,7 +669,7 @@ impl Lobby {
 
     /// Records that the Link to `peer` is up.
     fn mark_linked(&mut self, peer: PeerId) {
-        if self.local == Some(peer) {
+        if peer == PeerId::SERVER || self.local == Some(peer) {
             return;
         }
         let mut changed = false;
@@ -721,7 +715,7 @@ impl Lobby {
     /// A context we already hold is never overwritten by an empty one: the peer that introduced two
     /// others may have a key where a later announce does not, and losing it would strand a dial.
     fn learn(&mut self, peer: PeerId, context: DialContext) {
-        if self.local == Some(peer) {
+        if peer == PeerId::SERVER || self.local == Some(peer) {
             return;
         }
         match self.peers.entry(peer) {
@@ -781,7 +775,7 @@ impl Lobby {
 
     /// Records an announce received on the Link identified by `from`.
     fn accept_announce(&mut self, from: PeerId, announce: LobbyAnnounce) {
-        if self.local == Some(from) {
+        if from == PeerId::SERVER || self.local == Some(from) {
             return;
         }
 
@@ -981,6 +975,15 @@ fn accept_link_announce(world: &mut World, entity: Entity, message: LobbyAnnounc
         return;
     }
     let from = message.from;
+    if from == PeerId::SERVER
+        || message
+            .known
+            .iter()
+            .any(|(peer, _)| *peer == PeerId::SERVER)
+    {
+        reject_lobby_peer(world, entity, "Reserved peer ID in lobby announcement");
+        return;
+    }
     if let Some(pending) = world.get::<PendingLobbyPeer>(entity).copied() {
         if pending.expected.is_some_and(|expected| expected != from)
             || from == pending.local
@@ -1050,7 +1053,7 @@ fn on_link_connected(
     let Ok((remote_id, local_id)) = links.get(trigger.entity) else {
         return;
     };
-    if !lobby.mark_local(local_id.0) {
+    if remote_id.0 == PeerId::SERVER || !lobby.mark_local(local_id.0) {
         let entity = trigger.entity;
         commands.queue(move |world: &mut World| {
             reject_lobby_peer(world, entity, "Connected Link conflicts with lobby self-ID");
@@ -1481,10 +1484,126 @@ mod tests {
         );
     }
 
-    /// A stand-in peer. The lobby never inspects a `PeerId`, so any variant does; `Entity` is what
-    /// the transports that address peers by an index use.
+    #[test]
+    fn reserved_endpoint_identity_is_rejected_without_replacing_a_chosen_alias() {
+        for requested in [None, Some(PeerId::SERVER)] {
+            let mut world = World::new();
+            world.insert_resource(pinned());
+            let endpoint = world.spawn_empty().id();
+            if let Some(requested) = requested {
+                world.entity_mut(endpoint).insert(LocalId(requested));
+            }
+            let candidate = if requested.is_some() {
+                PeerId(7)
+            } else {
+                PeerId::SERVER
+            };
+            assert_eq!(
+                resolve_endpoint_identity(&mut world, endpoint, candidate),
+                None
+            );
+            assert!(world.get::<Disconnected>(endpoint).is_some());
+            assert_eq!(world.resource::<Lobby>().local(), None);
+        }
+
+        let mut world = World::new();
+        world.insert_resource(pinned());
+        let chosen = PeerId(u64::MAX);
+        let endpoint = world.spawn(LocalId(chosen)).id();
+        assert_eq!(
+            resolve_endpoint_identity(&mut world, endpoint, PeerId::SERVER),
+            Some(chosen)
+        );
+        assert_eq!(world.resource::<Lobby>().local(), Some(chosen));
+    }
+
+    #[test]
+    fn reserved_dial_target_is_rejected_before_sending_an_announce() {
+        let (mut app, endpoint) = admission_app();
+        let entity = app
+            .world_mut()
+            .spawn((P2P::Inactive, LinkOf { endpoint }))
+            .id();
+        assert!(!begin_peer_resolution(
+            app.world_mut(),
+            entity,
+            endpoint,
+            Some(PeerId::SERVER)
+        ));
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert!(app.world().get::<PendingLobbyPeer>(entity).is_none());
+        assert!(
+            app.world()
+                .get::<MessageSender<LobbyAnnounce>>(entity)
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn unsolicited_reserved_sender_cannot_be_admitted() {
+        let (mut app, endpoint) = admission_app();
+        let entity = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(
+            app.world_mut(),
+            entity,
+            announce_from(PeerId::SERVER, b"native", &[]),
+        );
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert!(app.world().get::<RemoteId>(entity).is_none());
+        assert!(
+            app.world()
+                .resource::<NetworkingMetadata>()
+                .peer_map
+                .is_empty()
+        );
+        assert_eq!(app.world().resource::<Lobby>().roster(), vec![peer(0)]);
+    }
+
+    #[test]
+    fn connected_snapshot_cannot_introduce_a_reserved_peer() {
+        let (mut app, endpoint) = admission_app();
+        let entity = pending_link(app.world_mut(), endpoint, None);
+        accept_link_announce(app.world_mut(), entity, announce_from(peer(1), b"", &[]));
+        accept_link_announce(
+            app.world_mut(),
+            entity,
+            announce_from(peer(1), b"", &[PeerId::SERVER]),
+        );
+        assert!(app.world().get::<Connected>(entity).is_none());
+        assert!(app.world().get::<Disconnected>(entity).is_some());
+        assert!(
+            !app.world()
+                .resource::<Lobby>()
+                .peers()
+                .any(|(peer, _)| peer == PeerId::SERVER)
+        );
+        assert!(
+            !app.world()
+                .resource::<Lobby>()
+                .to_dial()
+                .contains(&PeerId::SERVER)
+        );
+    }
+
+    #[test]
+    fn bootstrap_never_dials_the_reserved_server_alias() {
+        let mut lobby = pinned();
+        lobby.mark_local(peer(0));
+        lobby.add_bootstrap([PeerId::SERVER, PeerId(u64::MAX)]);
+        assert_eq!(lobby.to_dial(), vec![PeerId(u64::MAX)]);
+        assert!(!known_ids(&lobby.announce().unwrap()).contains(&PeerId::SERVER));
+    }
+
+    /// A nonzero stand-in alias for a zero-based fixture index.
     fn peer(n: u8) -> PeerId {
-        PeerId::Entity(u64::from(n))
+        PeerId(u64::from(n) + 1)
     }
 
     fn id() -> LobbyId {

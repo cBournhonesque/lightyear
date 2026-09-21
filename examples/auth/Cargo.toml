@@ -30,6 +30,7 @@ async-compat.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 rand.workspace = true
+parking_lot.workspace = true
 tokio = { "workspace" = true, features = ["net", "io-util"] }
 
 [lints]

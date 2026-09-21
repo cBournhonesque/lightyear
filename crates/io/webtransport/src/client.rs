@@ -15,7 +15,11 @@ use core::net::SocketAddr;
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::admission::{DefaultConnectionPlugin, apply_default_ids};
 use lightyear_connection::p2p::P2P;
-use lightyear_core::id::{LocalId, PeerId, RemoteId};
+#[cfg(target_family = "wasm")]
+use lightyear_core::id::PeerId;
+#[cfg(not(target_family = "wasm"))]
+use lightyear_core::id::peer_id_from_socket;
+use lightyear_core::id::{LocalId, RemoteId};
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 #[cfg(all(not(target_family = "wasm"), feature = "dangerous-configuration"))]
 use tracing::warn;
@@ -128,13 +132,16 @@ impl WebTransportClientPlugin {
             let (Some(local_addr), Some(peer_addr)) = (local_addr, peer_addr) else {
                 return;
             };
-            (PeerId::Raw(local_addr.0), PeerId::Raw(peer_addr.0))
+            (
+                peer_id_from_socket(b"webtransport", local_addr.0),
+                peer_id_from_socket(b"webtransport", peer_addr.0),
+            )
         };
         // Browsers do not expose socket addresses. These are local debug routing labels only.
         #[cfg(target_family = "wasm")]
         let (local, remote) = {
             let _ = (local_addr, peer_addr);
-            (PeerId::Entity(entity.to_bits()), PeerId::Server)
+            (PeerId(entity.to_bits().max(1)), PeerId::SERVER)
         };
         commands.queue(move |world: &mut World| {
             apply_default_ids(world, entity, LocalId(local), RemoteId(remote));

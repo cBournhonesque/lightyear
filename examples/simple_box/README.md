@@ -16,7 +16,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
 - Run the server without a gui: `cargo run --no-default-features --features=server -- server`
 - Run a headless client without a gui: `cargo run --no-default-features --features=client,netcode,webtransport -- client -c 1`
-- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
+- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client`
 
 ### P2P mode
 

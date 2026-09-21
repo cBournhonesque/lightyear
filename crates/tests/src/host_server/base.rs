@@ -4,7 +4,7 @@ use lightyear::prelude::InterpolationTimeline;
 use lightyear_connection::client::{Connect, Connected, Connecting};
 use lightyear_connection::host::{HostClient, HostServer};
 use lightyear_connection::server::{Start, Started};
-use lightyear_core::id::{LocalId, RemoteId};
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::Linked;
 use lightyear_messages::MessageManager;
 use lightyear_messages::prelude::{EventSender, MessageReceiver, MessageSender};
@@ -58,8 +58,21 @@ fn test_setup_host_server() {
     assert!(!stepper.host_client().contains::<ReplicationSender>());
     assert!(!stepper.host_client().contains::<ReplicationReceiver>());
     assert!(stepper.host_client().contains::<Connected>());
-    assert!(stepper.host_client().contains::<LocalId>());
-    assert!(stepper.host_client().contains::<RemoteId>());
+    let host_id = stepper.host_client().get::<LocalId>().unwrap().0;
+    assert_ne!(host_id, PeerId::SERVER);
+    assert_eq!(
+        stepper.host_client().get::<RemoteId>(),
+        Some(&RemoteId(host_id))
+    );
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .resource::<lightyear::prelude::NetworkingMetadata>()
+            .peer_map
+            .get(&host_id),
+        stepper.host_client_entity.as_ref(),
+    );
 
     assert!(stepper.server().contains::<HostServer>());
     assert!(stepper.server().contains::<Started>());

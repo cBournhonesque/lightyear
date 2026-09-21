@@ -37,7 +37,8 @@ pub use connection::SteamConnectionPlugin;
 /// `remote` is the authenticated incoming Steam identity, or the authenticated P2P dial target.
 /// It is `None` for outgoing socket sessions: Aeronet currently does not expose their remote Steam
 /// identity. Their native socket target remains in `SteamClientIo` and the Steam
-/// connection backend uses the role-relative server routing ID, not an invented Steam identity.
+/// connection backend uses the role-relative server routing ID for C/S connections only.
+/// Address-target P2P sessions cannot authenticate a routing alias and are rejected.
 #[cfg(any(feature = "client", feature = "p2p", feature = "server"))]
 #[derive(bevy_ecs::prelude::Component, Debug, Clone, Copy)]
 pub struct SteamSessionFacts {

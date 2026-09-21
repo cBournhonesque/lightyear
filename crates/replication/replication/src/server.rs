@@ -71,6 +71,7 @@ impl Plugin for RepliconServerPlugin {
 
 /// When `Connected` is added to a remote client link entity, insert replicon's
 /// `ConnectedClient` and `NetworkId` so replicon's packet path can target it.
+/// Central admission has already installed the final alias before adding `Connected`.
 ///
 /// Host-clients intentionally do not become replicon `ConnectedClient`s because they share the
 /// same world as the server and may otherwise collide with a real remote client's `NetworkId`.
@@ -90,10 +91,9 @@ fn on_client_connected(
             error!(?entity, min_mtu, "link MTU cannot carry fragment packets");
             continue;
         };
-        commands.entity(entity).insert((
-            ConnectedClient { max_size },
-            NetworkId::new(remote_id.to_bits()),
-        ));
+        commands
+            .entity(entity)
+            .insert((ConnectedClient { max_size }, NetworkId::new(remote_id.0.0)));
     }
 
     for entity in hosts.iter() {
@@ -251,7 +251,7 @@ mod tests {
         let entity = app
             .world_mut()
             .spawn((
-                RemoteId(PeerId::Netcode(1)),
+                RemoteId(PeerId(1)),
                 ClientOf,
                 Link::default().with_mtu(LinkMtu::new(min_mtu)),
                 Connected,

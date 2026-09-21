@@ -123,7 +123,7 @@ pub(crate) fn handle_connections(
         // spawn the player with ActionState - the client will add their own InputMap
         let player_ent = commands
             .spawn((
-                Player::new(client_id, pick_player_name(client_id.to_bits())),
+                Player::new(client_id, pick_player_name(client_id.0)),
                 Score(0),
                 Name::new("Player"),
                 ActionState::<PlayerActions>::default(),
@@ -275,8 +275,8 @@ mod tests {
 
     #[test]
     fn handle_hit_event_updates_scores_on_player_entities() {
-        let shooter = PeerId::Netcode(31);
-        let victim = PeerId::Netcode(32);
+        let shooter = PeerId(31);
+        let victim = PeerId(32);
 
         let mut app = App::new();
         app.add_message::<BulletHitMessage>();

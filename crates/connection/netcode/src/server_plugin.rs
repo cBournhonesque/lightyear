@@ -1,6 +1,6 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES, server::MAX_CLIENTS};
 use alloc::{sync::Arc, vec::Vec};
-use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
     entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
@@ -21,6 +21,10 @@ use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
+
+/// Retire accepted entities only after the frame's deferred link-state cleanup has settled.
+#[derive(Component)]
+struct RetireNetcodeLink;
 
 /// An error encountered while processing incoming netcode traffic for a server-side client link.
 #[derive(Message, Debug)]
@@ -188,15 +192,21 @@ impl NetcodeServerPlugin {
             }
             return;
         }
-        let local = LocalId(PeerId::Server);
-        let remote = RemoteId(PeerId::Netcode(id));
+        let local = LocalId(PeerId::SERVER);
+        let remote = RemoteId(PeerId(id));
         let mismatch = world
             .get::<LocalId>(entity)
             .is_some_and(|requested| *requested != local)
             || world
                 .get::<RemoteId>(entity)
                 .is_some_and(|requested| *requested != remote);
-        if mismatch {
+        if id == 0 {
+            reject(
+                world,
+                entity,
+                alloc::format!("{}", crate::error::Error::ReservedClientId),
+            );
+        } else if mismatch {
             reject(
                 world,
                 entity,
@@ -253,12 +263,9 @@ impl NetcodeServerPlugin {
                     unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
                 client_query.iter_many_unique_mut(unique_slice).for_each(
                     |(entity, mut link, remote_id, connected, disconnecting)| {
-                        // TODO: we can be here while the link has been established, but the client is not yet connected
-                        //  so the PeerId is not Netcode! I think we should just error?
-
                         // If the client was connected, it has a Netcode client_id
                         if connected.is_some() {
-                            if let Some(PeerId::Netcode(client_id)) = remote_id.map(|x| x.0) {
+                            if let Some(client_id) = remote_id.map(|id| id.0.0) {
                                 for _ in 0..link.send.len() {
                                     if let Some(payload) = link.send.pop() {
                                         netcode_server
@@ -413,11 +420,12 @@ impl NetcodeServerPlugin {
                                 id
                             );
                             // first disconnect to trigger observers
-                            c.entity(entity)
-                                .try_insert(Disconnected {
+                            c.entity(entity).try_insert((
+                                Disconnected {
                                     reason: DisconnectedReason::ByPeer(None),
-                                })
-                                .despawn();
+                                },
+                                RetireNetcodeLink,
+                            ));
                         });
                     if stopping {
                         // after we sent disconnection packets, we can stop the server transport
@@ -471,7 +479,13 @@ impl NetcodeServerPlugin {
         {
             // Transport failure can precede netcode's timeout. Retire the entity as well as
             // its session, since that timeout can no longer perform the cleanup.
-            commands.entity(trigger.entity).try_despawn();
+            commands.entity(trigger.entity).insert(RetireNetcodeLink);
+        }
+    }
+
+    fn retire_links(links: Query<Entity, With<RetireNetcodeLink>>, mut commands: Commands) {
+        for entity in &links {
+            commands.entity(entity).despawn();
         }
     }
 
@@ -493,11 +507,8 @@ impl NetcodeServerPlugin {
             let unique_slice =
                 unsafe { UniqueEntitySlice::from_slice_unchecked(server.collection()) };
             link_query.iter_many_unique_mut(unique_slice).try_for_each(
-                |(entity, mut link, remote_peer_id)| {
-                    let PeerId::Netcode(client_id) = remote_peer_id.0 else {
-                        error!("Client {:?} is not a Netcode client", remote_peer_id);
-                        return Err(crate::error::Error::UnknownClient(remote_peer_id.0));
-                    };
+                |(entity, mut link, remote_peer_id)| -> Result {
+                    let client_id = remote_peer_id.0.0;
                     // this will make sure that `netcode.on_disconnect` is called, so the entity will get disconnected
                     // in the next frame from the `receive` system.
                     netcode_server.inner.disconnect(client_id, &mut link.send)?;
@@ -518,6 +529,16 @@ mod tests {
     #[test]
     fn duplicate_global_admission_removes_netcode_session() {
         let mut app = App::new();
+        app.set_error_handler(|error, _| panic!("lifecycle command failed: {error}"));
+        // A transport closes its link in response to Unlink. Its deferred state cleanup must
+        // complete before netcode retires the accepted entity.
+        app.add_observer(|event: On<Unlink>, mut commands: Commands| {
+            commands
+                .entity(event.entity)
+                .insert(lightyear_link::Unlinked {
+                    reason: event.reason.clone(),
+                });
+        });
         app.init_resource::<Time<Real>>();
         app.add_plugins(NetcodeServerPlugin);
         #[derive(Resource, Default)]
@@ -550,8 +571,8 @@ mod tests {
         assert!(admit(
             app.world_mut(),
             incumbent,
-            LocalId(PeerId::Server),
-            RemoteId(PeerId::Netcode(7)),
+            LocalId(PeerId(1)),
+            RemoteId(PeerId(7)),
             (),
         ));
         let incoming = app
@@ -588,7 +609,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Netcode(7)),
+                .get(&PeerId(7)),
             Some(&incumbent),
         );
         assert!(app.world().get::<Connected>(incumbent).is_some());
@@ -636,6 +657,7 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSystems::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(ConnectionSystems::Send));
+        app.add_systems(Last, Self::retire_links);
 
         app.add_message::<NetcodeServerError>();
 

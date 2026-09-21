@@ -573,7 +573,7 @@ mod tests {
     use lightyear_core::id::PeerId;
 
     fn peer(id: u64) -> PeerId {
-        PeerId::Entity(id)
+        PeerId(id)
     }
 
     #[test]

@@ -465,7 +465,7 @@ mod tests {
             Link::default(),
             transport,
             MessageSender::<M>::default(),
-            RemoteId(PeerId::Local(0)),
+            RemoteId(PeerId(1)),
             Linked,
             Connected,
         ));
@@ -527,7 +527,7 @@ mod tests {
 
         let entity_mut = app.world_mut().spawn((
             MessageReceiver::<M>::default(),
-            RemoteId(PeerId::Local(0)),
+            RemoteId(PeerId(1)),
             Connected,
         ));
 
@@ -580,7 +580,7 @@ mod tests {
                 transport,
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(5).into()),
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Linked,
                 Connected,
             ))
@@ -637,7 +637,7 @@ mod tests {
                 transport,
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(10).into()),
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Linked,
                 Connected,
             ))
@@ -679,7 +679,7 @@ mod tests {
                 transport,
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(1).into()),
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Linked,
                 Connected,
             ))
@@ -712,7 +712,7 @@ mod tests {
                 Link::default(),
                 transport,
                 MessageSender::<M>::default(),
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Linked,
                 Connected,
             ))
@@ -741,7 +741,7 @@ mod tests {
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(5).into()),
                 HostClient { buffer: Vec::new() },
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Connected,
             ))
             .id();
@@ -790,7 +790,7 @@ mod tests {
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(5).into()),
                 HostClient { buffer: Vec::new() },
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Connected,
             ))
             .id();
@@ -825,7 +825,7 @@ mod tests {
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(0).into()),
                 HostClient { buffer: Vec::new() },
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Connected,
             ))
             .id();
@@ -891,7 +891,7 @@ mod tests {
                 Link::default(),
                 Transport::default(),
                 EventSender::<E>::default(),
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Linked,
                 Connected,
             ))
@@ -945,7 +945,7 @@ mod tests {
                 transport,
                 EventSender::<E>::default(),
                 TestTimeline(Tick(2).into()),
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(1)),
                 Linked,
                 Connected,
             ))
@@ -973,6 +973,9 @@ mod tests {
     #[test]
     fn host_client_timeline_event_waits_and_then_triggers() {
         let mut app = message_test_app(true);
+        app.add_observer(|event: On<RemoteEvent<E>>| {
+            assert_eq!(event.from, PeerId(73));
+        });
         app.world_mut()
             .resource_mut::<LocalTimeline>()
             .apply_delta(6);
@@ -982,7 +985,7 @@ mod tests {
                 EventSender::<E>::default(),
                 TestTimeline(Tick(2).into()),
                 HostClient { buffer: Vec::new() },
-                RemoteId(PeerId::Local(0)),
+                RemoteId(PeerId(73)),
                 Connected,
             ))
             .id();
@@ -1014,7 +1017,7 @@ mod tests {
             .spawn((
                 MessageReceiver::<M>::default(),
                 TestTimeline(Tick(4).into()),
-                RemoteId(PeerId::Local(1)),
+                RemoteId(PeerId(1)),
                 Connected,
             ))
             .id();
@@ -1023,7 +1026,7 @@ mod tests {
             .spawn((
                 MessageReceiver::<M>::default(),
                 TestTimeline(Tick(9).into()),
-                RemoteId(PeerId::Local(2)),
+                RemoteId(PeerId(2)),
                 Connected,
             ))
             .id();
@@ -1070,7 +1073,7 @@ mod tests {
                 MessageReceiver::<M>::default(),
                 PendingTimelineEvents::<E>::default(),
                 TestTimeline(Tick(1).into()),
-                RemoteId(PeerId::Local(1)),
+                RemoteId(PeerId(1)),
                 Connected,
             ))
             .id();
@@ -1098,7 +1101,7 @@ mod tests {
             .unwrap()
             .push(
                 E(1),
-                PeerId::Local(1),
+                PeerId(1),
                 Tick(20),
                 ChannelKind::of::<TestChannel>(),
                 None,
@@ -1256,7 +1259,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(entity)
-            .insert((RemoteId(PeerId::Local(1)), Connected));
+            .insert((RemoteId(PeerId(1)), Connected));
         app.world_mut().run_schedule(PostUpdate);
         loopback_link_payload(&mut app, entity);
         app.world_mut().run_schedule(PreUpdate);
@@ -1440,7 +1443,7 @@ mod tests {
         // Admission occurs after the receive phase and lifts the preadmission cap.
         app.world_mut()
             .entity_mut(entity)
-            .insert((RemoteId(PeerId::Local(1)), Connected))
+            .insert((RemoteId(PeerId(1)), Connected))
             .remove::<crate::PreadmissionMessage>();
         app.world_mut().run_schedule(PreUpdate);
         assert_eq!(

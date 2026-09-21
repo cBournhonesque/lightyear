@@ -65,7 +65,7 @@ pub fn start_server(world: &mut World, entity: Entity) -> bool {
     if let Some(owner) = world
         .resource::<NetworkingMetadata>()
         .peer_map
-        .get(&PeerId::Server)
+        .get(&PeerId::SERVER)
         .copied()
         && owner != entity
     {
@@ -82,7 +82,7 @@ pub fn start_server(world: &mut World, entity: Entity) -> bool {
     world
         .resource_mut::<NetworkingMetadata>()
         .peer_map
-        .insert(PeerId::Server, entity);
+        .insert(PeerId::SERVER, entity);
     world
         .entity_mut(entity)
         .remove::<(Starting, Stopped, Stopping, Disconnected)>();
@@ -105,11 +105,11 @@ impl Started {
         assert!(
             metadata
                 .peer_map
-                .get(&PeerId::Server)
+                .get(&PeerId::SERVER)
                 .is_none_or(|owner| *owner == context.entity),
             "Server route is already registered; use start_server to reject conflicting starts"
         );
-        metadata.peer_map.insert(PeerId::Server, context.entity);
+        metadata.peer_map.insert(PeerId::SERVER, context.entity);
         trace!("Started added: removing Starting/Stopped");
         world
             .commands()
@@ -207,8 +207,8 @@ impl ConnectionPlugin {
 }
 
 fn clear_server_mapping(peer_map: &mut HashMap<PeerId, Entity>, entity: Entity) {
-    if peer_map.get(&PeerId::Server) == Some(&entity) {
-        peer_map.remove(&PeerId::Server);
+    if peer_map.get(&PeerId::SERVER) == Some(&entity) {
+        peer_map.remove(&PeerId::SERVER);
     }
 }
 
@@ -255,7 +255,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&server)
         );
 
@@ -265,7 +265,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&server)
         );
 
@@ -275,7 +275,7 @@ mod tests {
             !app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .contains_key(&PeerId::Server)
+                .contains_key(&PeerId::SERVER)
         );
     }
 
@@ -289,7 +289,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&server)
         );
 
@@ -299,7 +299,7 @@ mod tests {
             !app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .contains_key(&PeerId::Server)
+                .contains_key(&PeerId::SERVER)
         );
     }
 
@@ -316,7 +316,7 @@ mod tests {
              disconnected: Query<(), With<Disconnected>>,
              mut ready: ResMut<ReadyServers>| {
                 assert_eq!(
-                    metadata.peer_map.get(&PeerId::Server),
+                    metadata.peer_map.get(&PeerId::SERVER),
                     Some(&trigger.entity)
                 );
                 assert!(!disconnected.contains(trigger.entity));
@@ -341,7 +341,7 @@ mod tests {
             app.world()
                 .resource::<NetworkingMetadata>()
                 .peer_map
-                .get(&PeerId::Server),
+                .get(&PeerId::SERVER),
             Some(&incumbent)
         );
 
