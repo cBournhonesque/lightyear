@@ -88,6 +88,8 @@ use avian3d::{math::*, physics_transform::*, prelude::*};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
+#[cfg(feature = "2d")]
+use bevy_math::Quat;
 use bevy_transform::components::GlobalTransform;
 use bevy_transform::systems::{
     mark_dirty_trees, propagate_parent_transforms, sync_simple_transforms,
@@ -213,15 +215,15 @@ const DEFAULT_LINEAR_VELOCITY_ROLLBACK_TOLERANCE: f32 = 0.15;
 const DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE: f32 = 0.15;
 
 fn position_should_rollback(confirmed: &Position, predicted: &Position) -> bool {
-    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).length() >= Real::from(DEFAULT_ROLLBACK_TOLERANCE)
 }
 
 fn rotation_should_rollback(confirmed: &Rotation, predicted: &Rotation) -> bool {
-    confirmed.angle_between(*predicted) >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+    confirmed.angle_between(*predicted) >= Real::from(DEFAULT_ROLLBACK_TOLERANCE)
 }
 
 fn linear_velocity_should_rollback(confirmed: &LinearVelocity, predicted: &LinearVelocity) -> bool {
-    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_LINEAR_VELOCITY_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).length() >= Real::from(DEFAULT_LINEAR_VELOCITY_ROLLBACK_TOLERANCE)
 }
 
 #[cfg(all(feature = "2d", not(feature = "3d")))]
@@ -229,7 +231,7 @@ fn angular_velocity_should_rollback(
     confirmed: &AngularVelocity,
     predicted: &AngularVelocity,
 ) -> bool {
-    (confirmed.0 - predicted.0).abs() >= Scalar::from(DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).abs() >= Real::from(DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE)
 }
 
 #[cfg(all(feature = "3d", not(feature = "2d")))]
@@ -237,8 +239,7 @@ fn angular_velocity_should_rollback(
     confirmed: &AngularVelocity,
     predicted: &AngularVelocity,
 ) -> bool {
-    (confirmed.0 - predicted.0).length()
-        >= Scalar::from(DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE)
+    (confirmed.0 - predicted.0).length() >= Real::from(DEFAULT_ANGULAR_VELOCITY_ROLLBACK_TOLERANCE)
 }
 
 /// Linear interpolation for `LinearVelocity`.
@@ -252,7 +253,7 @@ fn linear_velocity_correction(
     other: LinearVelocity,
     t: f32,
 ) -> LinearVelocity {
-    let u = Scalar::from(t);
+    let u = Real::from(t);
     LinearVelocity(start.0 * (1.0 - u) + other.0 * u)
 }
 
@@ -265,7 +266,7 @@ fn angular_velocity_correction(
     other: AngularVelocity,
     t: f32,
 ) -> AngularVelocity {
-    let u = Scalar::from(t);
+    let u = Real::from(t);
     AngularVelocity(start.0 * (1.0 - u) + other.0 * u)
 }
 
@@ -663,8 +664,8 @@ impl LightyearAvianPlugin {
 
             #[cfg(feature = "2d")]
             {
-                let new_position = global_translation.truncate().adjust_precision();
-                let new_rotation = Rotation::from(global_rotation.adjust_precision());
+                let new_position = global_translation.truncate().real();
+                let new_rotation = Rotation::from(global_rotation.real());
                 if position.0 != new_position {
                     position.0 = new_position;
                 }
@@ -675,8 +676,8 @@ impl LightyearAvianPlugin {
 
             #[cfg(feature = "3d")]
             {
-                let new_position = global_translation.adjust_precision();
-                let new_rotation = Rotation(global_rotation.adjust_precision());
+                let new_position = global_translation.real();
+                let new_rotation = Rotation(global_rotation.real());
                 if position.0 != new_position {
                     position.0 = new_position;
                 }
@@ -833,9 +834,8 @@ impl LightyearAvianPlugin {
                     let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| {
                         pos.f32().extend(parent_transform.translation.z)
                     });
-                    let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| {
-                        Quaternion::from(*rot).f32()
-                    });
+                    let parent_rot =
+                        parent_rot.map_or(parent_transform.rotation, |rot| Quat::from(*rot));
                     let parent_scale = parent_transform.scale;
                     let parent_transform = Transform::from_translation(parent_pos)
                         .with_rotation(parent_rot)
@@ -847,7 +847,7 @@ impl LightyearAvianPlugin {
                         Transform::from_translation(
                             pos.f32().extend(parent_transform.translation.z),
                         )
-                        .with_rotation(Quaternion::from(*rot).f32()),
+                        .with_rotation(Quat::from(*rot)),
                     )
                     .reparented_to(&GlobalTransform::from(parent_transform));
 
@@ -856,7 +856,7 @@ impl LightyearAvianPlugin {
                 }
             } else {
                 transform.translation = pos.f32().extend(transform.translation.z);
-                transform.rotation = Quaternion::from(*rot).f32();
+                transform.rotation = Quat::from(*rot);
             }
 
             #[cfg(feature = "3d")]
@@ -923,13 +923,11 @@ impl LightyearAvianPlugin {
             position.0 = rb_pos.0 + rb_rot * collider_transform.translation;
             #[cfg(feature = "2d")]
             {
-                *rotation = *rb_rot * collider_transform.rotation;
+                *rotation = *rb_rot * Rotation::from(collider_transform.rotation);
             }
             #[cfg(feature = "3d")]
             {
-                *rotation = (rb_rot.0 * collider_transform.rotation.0)
-                    .normalize()
-                    .into();
+                *rotation = (rb_rot.0 * collider_transform.rotation).normalize().into();
             }
         }
     }
@@ -1043,11 +1041,11 @@ mod mode_tests {
         // Delayed interpolation writes its sampled pose into Position/Rotation. Exercise the
         // downstream Avian sync and Bevy hierarchy propagation with an existing child collider.
         let sampled_position =
-            Position(Vector::X * Scalar::from(3.0_f32) + Vector::Y * Scalar::from(2.0_f32));
+            Position(Vector::X * Real::from(3.0_f32) + Vector::Y * Real::from(2.0_f32));
         #[cfg(all(feature = "2d", not(feature = "3d")))]
-        let sampled_rotation = Rotation::radians(Scalar::from(0.4_f32));
+        let sampled_rotation = Rotation::radians(Real::from(0.4_f32));
         #[cfg(all(feature = "3d", not(feature = "2d")))]
-        let sampled_rotation = Rotation(Quaternion::from_rotation_z(Scalar::from(0.4_f32)));
+        let sampled_rotation = Rotation(Quaternion::from_rotation_z(Real::from(0.4_f32)));
 
         *app.world_mut().get_mut::<Position>(root).unwrap() = sampled_position;
         *app.world_mut().get_mut::<Rotation>(root).unwrap() = sampled_rotation;
@@ -1145,58 +1143,58 @@ mod mode_tests {
         assert!(!prediction.should_rollback(&Position::default(), &Position::default()));
         assert!(prediction.should_rollback(
             &Position::default(),
-            &Position(Vector::X * Scalar::from(0.02_f32))
+            &Position(Vector::X * Real::from(0.02_f32))
         ));
         #[cfg(all(feature = "2d", not(feature = "3d")))]
         {
             assert!(!prediction.should_rollback(
                 &Rotation::default(),
-                &Rotation::radians(Scalar::from(0.005_f32))
+                &Rotation::radians(Real::from(0.005_f32))
             ));
             assert!(prediction.should_rollback(
                 &Rotation::default(),
-                &Rotation::radians(Scalar::from(0.02_f32))
+                &Rotation::radians(Real::from(0.02_f32))
             ));
         }
         #[cfg(all(feature = "3d", not(feature = "2d")))]
         {
             assert!(!prediction.should_rollback(
                 &Rotation::default(),
-                &Rotation(Quaternion::from_rotation_x(Scalar::from(0.005_f32)))
+                &Rotation(Quaternion::from_rotation_x(Real::from(0.005_f32)))
             ));
             assert!(prediction.should_rollback(
                 &Rotation::default(),
-                &Rotation(Quaternion::from_rotation_x(Scalar::from(0.02_f32)))
+                &Rotation(Quaternion::from_rotation_x(Real::from(0.02_f32)))
             ));
         }
         assert!(!prediction.should_rollback(
             &LinearVelocity::default(),
-            &LinearVelocity(Vector::X * Scalar::from(0.005_f32))
+            &LinearVelocity(Vector::X * Real::from(0.005_f32))
         ));
         assert!(prediction.should_rollback(
             &LinearVelocity::default(),
-            &LinearVelocity(Vector::X * Scalar::from(0.02_f32))
+            &LinearVelocity(Vector::X * Real::from(0.02_f32))
         ));
         #[cfg(all(feature = "2d", not(feature = "3d")))]
         {
             assert!(!prediction.should_rollback(
                 &AngularVelocity::default(),
-                &AngularVelocity(Scalar::from(0.005_f32))
+                &AngularVelocity(Real::from(0.005_f32))
             ));
             assert!(prediction.should_rollback(
                 &AngularVelocity::default(),
-                &AngularVelocity(Scalar::from(0.02_f32))
+                &AngularVelocity(Real::from(0.02_f32))
             ));
         }
         #[cfg(all(feature = "3d", not(feature = "2d")))]
         {
             assert!(!prediction.should_rollback(
                 &AngularVelocity::default(),
-                &AngularVelocity(Vector::X * Scalar::from(0.005_f32))
+                &AngularVelocity(Vector::X * Real::from(0.005_f32))
             ));
             assert!(prediction.should_rollback(
                 &AngularVelocity::default(),
-                &AngularVelocity(Vector::X * Scalar::from(0.02_f32))
+                &AngularVelocity(Vector::X * Real::from(0.02_f32))
             ));
         }
     }
@@ -1225,7 +1223,7 @@ mod mode_tests {
         let prediction = app.world().resource::<PredictionRegistry>();
         assert!(!prediction.should_rollback(
             &Position::default(),
-            &Position(Vector::X * Scalar::from(100.0_f32))
+            &Position(Vector::X * Real::from(100.0_f32))
         ));
     }
 }
@@ -1427,7 +1425,7 @@ mod tests {
             },
         ));
         app.interpolate_with::<Position>(InterpolationFns::no_history(|start, end, t| {
-            Position(start.0.lerp(end.0, t as Scalar))
+            Position(start.0.lerp(end.0, t as Real))
         }));
         app.finish();
 
@@ -1726,7 +1724,7 @@ mod tests_3d {
             },
         ));
         app.interpolate_with::<Position>(InterpolationFns::no_history(|start, end, t| {
-            Position(start.0.lerp(end.0, t as Scalar))
+            Position(start.0.lerp(end.0, t as Real))
         }));
         app.finish();
 

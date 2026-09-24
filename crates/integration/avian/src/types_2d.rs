@@ -1,5 +1,5 @@
 //! Implement lightyear traits for some common bevy types
-use avian2d::math::{AdjustPrecision, AsF32, Quaternion, Scalar};
+use avian2d::math::{Real, ToF32Precision, ToRealPrecision};
 use avian2d::prelude::*;
 use bevy_math::Vec3;
 use bevy_transform::components::Transform;
@@ -14,7 +14,7 @@ pub mod position {
     use super::*;
 
     pub fn lerp(start: &Position, other: &Position, t: f32) -> Position {
-        let u = Scalar::from(t);
+        let u = Real::from(t);
         let res = Position::new(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
@@ -34,7 +34,7 @@ pub mod rotation {
     use super::*;
 
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
-        let u = Scalar::from(t);
+        let u = Real::from(t);
         let shortest_angle =
             ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
         let res = Rotation::degrees(start.as_degrees() + shortest_angle * u);
@@ -65,7 +65,7 @@ pub mod linear_velocity {
     use super::*;
 
     pub fn lerp(start: &LinearVelocity, other: &LinearVelocity, t: f32) -> LinearVelocity {
-        let u = Scalar::from(t);
+        let u = Real::from(t);
         let res = LinearVelocity(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "linear velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
@@ -79,7 +79,7 @@ pub mod angular_velocity {
     use super::*;
 
     pub fn lerp(start: &AngularVelocity, other: &AngularVelocity, t: f32) -> AngularVelocity {
-        let u = Scalar::from(t);
+        let u = Real::from(t);
         let res = AngularVelocity(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "angular velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
@@ -90,6 +90,8 @@ pub mod angular_velocity {
 }
 
 pub mod position_rotation {
+    use bevy_math::Quat;
+
     use super::*;
 
     /// Interpolates `(Position, Rotation, LinearVelocity, AngularVelocity)`
@@ -121,15 +123,15 @@ pub mod position_rotation {
                 ctx.t,
             );
             let rotation = hermite_quat(
-                Quaternion::from(start.1).f32(),
-                Quaternion::from(end.1).f32(),
+                Quat::from(start.1),
+                Quat::from(end.1),
                 Vec3::Z * scalar_to_f32(start.3.0) * sample_delta_secs,
                 Vec3::Z * scalar_to_f32(end.3.0) * sample_delta_secs,
                 ctx.t,
                 true,
             );
             (
-                Position(position.truncate().adjust_precision()),
+                Position(position.truncate().real()),
                 Rotation::from(rotation),
             )
         } else {
@@ -147,7 +149,7 @@ pub mod position_rotation {
         )
     }
 
-    fn scalar_to_f32(value: Scalar) -> f32 {
+    fn scalar_to_f32(value: Real) -> f32 {
         #[allow(clippy::unnecessary_cast)]
         {
             value as f32
@@ -229,7 +231,7 @@ pub mod transform {
         }
     }
 
-    fn scalar_to_f32(value: Scalar) -> f32 {
+    fn scalar_to_f32(value: Real) -> f32 {
         #[allow(clippy::unnecessary_cast)]
         {
             value as f32
@@ -250,10 +252,10 @@ mod tests {
     ) -> (Transform, AngularVelocity, LinearVelocity) {
         (
             transform,
-            AngularVelocity(Scalar::from(angular_velocity)),
+            AngularVelocity(Real::from(angular_velocity)),
             LinearVelocity(Vector::new(
-                Scalar::from(linear_velocity.0),
-                Scalar::from(linear_velocity.1),
+                Real::from(linear_velocity.0),
+                Real::from(linear_velocity.1),
             )),
         )
     }
@@ -265,16 +267,13 @@ mod tests {
         angular_velocity: f32,
     ) -> (Position, Rotation, LinearVelocity, AngularVelocity) {
         (
-            Position(Vector::new(
-                Scalar::from(position.0),
-                Scalar::from(position.1),
-            )),
-            Rotation::radians(Scalar::from(rotation)),
+            Position(Vector::new(Real::from(position.0), Real::from(position.1))),
+            Rotation::radians(Real::from(rotation)),
             LinearVelocity(Vector::new(
-                Scalar::from(linear_velocity.0),
-                Scalar::from(linear_velocity.1),
+                Real::from(linear_velocity.0),
+                Real::from(linear_velocity.1),
             )),
-            AngularVelocity(Scalar::from(angular_velocity)),
+            AngularVelocity(Real::from(angular_velocity)),
         )
     }
 
@@ -402,15 +401,15 @@ mod tests {
     fn velocity_diff_roundtrip() {
         use lightyear_replication::diffable::Diffable;
 
-        let start = LinearVelocity(Vector::new(Scalar::from(1.0_f32), Scalar::from(-2.0_f32)));
-        let end = LinearVelocity(Vector::new(Scalar::from(8.0_f32), Scalar::from(0.5_f32)));
+        let start = LinearVelocity(Vector::new(Real::from(1.0_f32), Real::from(-2.0_f32)));
+        let end = LinearVelocity(Vector::new(Real::from(8.0_f32), Real::from(0.5_f32)));
         assert_eq!(start.diff(&start), LinearVelocity::default());
         let mut value = start.clone();
         value.apply_diff(&start.diff(&end));
         assert_eq!(value, end);
 
-        let start = AngularVelocity(Scalar::from(0.5_f32));
-        let end = AngularVelocity(Scalar::from(-4.0_f32));
+        let start = AngularVelocity(Real::from(0.5_f32));
+        let end = AngularVelocity(Real::from(-4.0_f32));
         assert_eq!(start.diff(&start), AngularVelocity::default());
         let mut value = start.clone();
         value.apply_diff(&start.diff(&end));
