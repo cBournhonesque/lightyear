@@ -203,7 +203,7 @@ impl ConnectionPlugin {
 
     /// If the underlying link fails, we also disconnect the client
     fn disconnect_if_link_fails(
-        trigger: On<Add, Unlinked>,
+        trigger: On<Add<Unlinked>>,
         query: Query<&Unlinked, (Without<Disconnected>, Without<Server>)>,
         mut commands: Commands,
     ) {

@@ -13,7 +13,7 @@ That entity will have a [`Link`] component that represents the connection to the
 However it is your responsibility to customize that connection with extra components, such as [`ReplicationSender`], to handle the replication and message sending/receiving.
 This can be done using observers:
 ```rust,ignore
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
         ReplicationSender,
         Name::from("Client"),
@@ -29,7 +29,7 @@ Only after the authentication is successful will the [`Connected`] component be 
 When that happens we can start adding game behaviour:
 ```rust,ignore
 pub(crate) fn handle_connected(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {

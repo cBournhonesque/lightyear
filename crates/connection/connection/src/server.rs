@@ -129,7 +129,7 @@ impl ConnectionPlugin {
 
     /// If the underlying link fails, we also stop the server
     fn stop_if_link_fails(
-        trigger: On<Add, Unlinked>,
+        trigger: On<Add<Unlinked>>,
         // TODO: is Start/Stop reserved for the `Server` and not the `ServerLink`?
         query: Query<(), (With<Server>, With<Started>)>,
         mut commands: Commands,

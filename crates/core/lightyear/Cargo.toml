@@ -263,4 +263,3 @@ lightyear_web.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
-features = ["lightyear_avian2d/f32", "lightyear_avian3d/f32"]

@@ -177,7 +177,7 @@ impl RemoteTimeline {
 
     /// On connection, reset the Remote timeline.
     pub(crate) fn handle_connect(
-        trigger: On<Add, Connected>,
+        trigger: On<Add<Connected>>,
         mut query: Query<&mut RemoteTimeline>,
     ) {
         if let Ok(mut timeline) = query.get_mut(trigger.entity) {

@@ -12,14 +12,17 @@ use avian2d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{
     collider_tree::{
-        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTrees, MovedProxies, ProxyId,
+        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTrees, MovedProxies,
+        MovedProxyList,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
+    dynamics::{
+        joints::joint_graph::JointGraph,
+        solver::{
+            constraint_graph::ConstraintGraph,
+            islands::{BodyIslandNode, PhysicsIslands},
+        },
     },
     prelude::*,
 };
@@ -28,14 +31,17 @@ use avian3d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{
     collider_tree::{
-        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTrees, MovedProxies, ProxyId,
+        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTrees, MovedProxies,
+        MovedProxyList,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
+    dynamics::{
+        joints::joint_graph::JointGraph,
+        solver::{
+            constraint_graph::ConstraintGraph,
+            islands::{BodyIslandNode, PhysicsIslands},
+        },
     },
     prelude::*,
 };
@@ -58,7 +64,7 @@ use obvhs::bvh2::Bvh2;
 struct ColliderTreeSnapshot {
     bvh: Bvh2,
     proxies: StableVec<ColliderTreeProxy>,
-    moved_proxies: Vec<ProxyId>,
+    moved_proxies: MovedProxyList,
 }
 
 impl ColliderTreeSnapshot {
@@ -246,7 +252,7 @@ pub(super) fn register_island_rollback(app: &mut App, rollback_sleeping: bool) {
 /// history systems record only changed components, and `insert_if_new` preserves histories already
 /// installed through an ordinary prediction marker.
 fn add_collider_rollback_histories(
-    trigger: On<Add, (ColliderTreeProxyKey, ColliderAabb, EnlargedAabb)>,
+    trigger: On<Add<(ColliderTreeProxyKey, ColliderAabb, EnlargedAabb)>>,
     colliders: Query<
         (),
         (

@@ -45,7 +45,7 @@ impl Plugin for ExampleClientPlugin {
 /// The replicated `Position` remains authoritative; this adds only the local physics data needed
 /// for predicted collision response.
 fn add_ball_physics(
-    trigger: On<Add, BallMarker>,
+    trigger: On<Add<BallMarker>>,
     mut commands: Commands,
     ball_query: Query<(), With<Predicted>>,
 ) {
@@ -87,7 +87,7 @@ fn player_movement(
 /// Predicted physics is updated at fixed ticks; interpolate its Position and Rotation
 /// for rendering between those ticks and for post-rollback visual correction.
 fn add_frame_interpolation_components(
-    trigger: On<Add, (Position, RigidBody, Predicted)>,
+    trigger: On<Add<(Position, RigidBody, Predicted)>>,
     query: Query<Entity, (With<Predicted>, With<RigidBody>)>,
     mut commands: Commands,
 ) {
@@ -98,7 +98,7 @@ fn add_frame_interpolation_components(
 
 // Prepare predicted player entities for local simulation and distinguish them visually.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut commands: Commands,
     mut player_query: Query<&mut ColorComponent, With<Predicted>>,
 ) {
@@ -115,7 +115,7 @@ pub(crate) fn handle_predicted_spawn(
 }
 
 fn handle_controlled_spawn(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     player_query: Query<&PlayerId, Without<InputMap<PlayerActions>>>,
 ) {
@@ -136,7 +136,7 @@ pub(crate) fn player_input_map() -> InputMap<PlayerActions> {
 
 // Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, ColorComponent>,
+    trigger: On<Add<ColorComponent>>,
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {

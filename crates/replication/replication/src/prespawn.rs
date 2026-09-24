@@ -68,7 +68,7 @@ impl PreSpawnedPlugin {
     /// and insert a Replicon Signature so incoming replicated entities can be
     /// matched to the local entity.
     fn register_prespawn(
-        trigger: On<Add, PreSpawned>,
+        trigger: On<Add<PreSpawned>>,
         timeline: Res<LocalTimeline>,
         query: Query<
             &PreSpawned,
@@ -150,7 +150,7 @@ impl PreSpawnedPlugin {
     /// When a prespawned entity is matched with a server entity (ConfirmHistory added),
     /// update the PreSpawnedReceiver resource.
     fn cleanup_matched_prespawn(
-        trigger: On<Add, ConfirmHistory>,
+        trigger: On<Add<ConfirmHistory>>,
         query: Query<(), With<PreSpawned>>,
         mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
@@ -357,7 +357,7 @@ impl PreSpawnedReceiver {
     }
 
     fn cleanup_removed_prespawn(
-        trigger: On<Remove, PreSpawned>,
+        trigger: On<Remove<PreSpawned>>,
         mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
         let entity = trigger.entity;
@@ -365,7 +365,7 @@ impl PreSpawnedReceiver {
     }
 
     fn cleanup_despawned_prespawn(
-        trigger: On<Despawn, (Signature, PreSpawned)>,
+        trigger: On<Despawn<(Signature, PreSpawned)>>,
         mut receiver: ResMut<PreSpawnedReceiver>,
     ) {
         let entity = trigger.entity;

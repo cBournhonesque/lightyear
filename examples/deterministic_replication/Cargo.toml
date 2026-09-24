@@ -44,7 +44,6 @@ leafwing-input-manager.workspace = true
 lightyear_avian2d = { workspace = true, features = ["deterministic", "2d"] }
 avian2d = { workspace = true, features = [
   "2d",
-  "f32",
   "parry-f32",
   "serialize",
   "enhanced-determinism",

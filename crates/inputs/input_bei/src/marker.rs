@@ -27,7 +27,7 @@ impl<C> Default for InputMarker<C> {
 /// Propagate the InputMarker component from the Context entity to the Action entities
 /// whenever an InputMarker is added to a Context entity.
 pub(crate) fn propagate_input_marker<C: Component>(
-    trigger: On<Add, InputMarker<C>>,
+    trigger: On<Add<InputMarker<C>>>,
     actions: Query<&Actions<C>>,
     mocked: Query<(), With<ExternallyMocked>>,
     mut commands: Commands,
@@ -47,7 +47,7 @@ pub(crate) fn propagate_input_marker<C: Component>(
 /// [`InputMarker`] makes a locally-controlled action available to Lightyear's input pipeline.
 /// [`Disabled`] ensures that actions created after their context was disabled are skipped too.
 pub(crate) fn add_action_markers_from_context<C: Component>(
-    trigger: On<Add, ActionOf<C>>,
+    trigger: On<Add<ActionOf<C>>>,
     action_of: Query<&ActionOf<C>, (Without<ExternallyMocked>, Allow<Disabled>)>,
     context: Query<(Has<InputMarker<C>>, Has<Disabled>), (With<C>, Allow<Disabled>)>,
     mut commands: Commands,
@@ -71,7 +71,7 @@ pub(crate) fn add_action_markers_from_context<C: Component>(
 /// If Bindings are added to an Action entity, add the InputMarker to that
 /// Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
-    trigger: On<Add, Bindings>,
+    trigger: On<Add<Bindings>>,
     action: Query<
         (),
         (

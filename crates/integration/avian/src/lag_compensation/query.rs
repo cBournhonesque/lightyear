@@ -214,9 +214,9 @@ impl LagCompensationSpatialQuery<'_, '_> {
                 };
 
                 #[cfg(all(feature = "2d", not(feature = "3d")))]
-                let dir = direction.as_vec2().adjust_precision();
+                let dir = direction.as_vec2().real();
                 #[cfg(all(feature = "3d", not(feature = "2d")))]
-                let dir = direction.as_vec3().adjust_precision();
+                let dir = direction.as_vec3().real();
 
                 if let Some((distance, normal)) = collider.cast_ray(
                     sample.position.0,

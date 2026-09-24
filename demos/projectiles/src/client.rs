@@ -63,7 +63,7 @@ impl Plugin for ExampleClientPlugin {
 /// entity at the origin. Predicted players and linear state projectiles still
 /// need a kinematic body so Avian integrates their replicated velocity.
 fn add_rigid_body_to_predicted_simulation(
-    trigger: On<Add, (Predicted, Position, LinearVelocity)>,
+    trigger: On<Add<(Predicted, Position, LinearVelocity)>>,
     simulated: Query<
         (),
         (
@@ -87,7 +87,7 @@ fn add_rigid_body_to_predicted_simulation(
 /// Seeding it from the first real sampled position makes the first segment
 /// zero-length instead of incorrectly sweeping from the world origin.
 fn seed_interpolated_projectile_sweep_start(
-    trigger: On<Add, (BulletMarker, Interpolated, Position)>,
+    trigger: On<Add<(BulletMarker, Interpolated, Position)>>,
     projectiles: Query<
         &Position,
         (
@@ -189,7 +189,7 @@ fn configure_player_action_on_insert(
 
 /// Configure existing actions when `Controlled` arrives after them.
 fn configure_controlled_player_actions(
-    trigger: On<Add, (PlayerMarker, Controlled, Actions<PlayerContext>)>,
+    trigger: On<Add<(PlayerMarker, Controlled, Actions<PlayerContext>)>>,
     players: Query<&Actions<PlayerContext>, (With<PlayerMarker>, With<Controlled>)>,
     movement_actions: Query<
         (

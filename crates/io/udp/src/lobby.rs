@@ -88,7 +88,7 @@ impl Plugin for UdpLobbyPlugin {
 }
 
 /// Binds the endpoint's socket as soon as it exists.
-fn on_endpoint_added(trigger: On<Add, UdpEndpoint>, mut commands: Commands) {
+fn on_endpoint_added(trigger: On<Add<UdpEndpoint>>, mut commands: Commands) {
     commands.trigger(LinkStart {
         entity: trigger.entity,
     });
@@ -100,7 +100,7 @@ fn on_endpoint_added(trigger: On<Add, UdpEndpoint>, mut commands: Commands) {
 /// is the endpoint's address and its remote identity is the address the datagrams came from. This is
 /// the step that makes the peer's `PeerId` *be* its address, for both sides of the connection.
 fn on_peer_link_added(
-    trigger: On<Add, UdpLinkOfIO>,
+    trigger: On<Add<UdpLinkOfIO>>,
     links: Query<(&LinkOf, &PeerAddr)>,
     endpoints: Query<&LocalAddr, With<UdpEndpoint>>,
     mut commands: Commands,

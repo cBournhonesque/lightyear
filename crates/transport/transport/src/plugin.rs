@@ -643,7 +643,7 @@ impl TransportPlugin {
     /// On disconnection, reset the Transport to its original state.
     #[cfg(any(feature = "client", feature = "server"))]
     fn handle_disconnection(
-        trigger: On<Add, Disconnected>,
+        trigger: On<Add<Disconnected>>,
         mut query: Query<&mut Transport>,
         registry: Res<ChannelRegistry>,
     ) {

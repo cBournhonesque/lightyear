@@ -234,7 +234,7 @@ fn receive_catch_up_snapshot_ready(
 /// Client system: on receiving any CatchUpGated component, suppress checksums while
 /// we wait to complete the catchup process
 fn on_receive_catchup_gated(
-    add: On<Add, CatchUpGated>,
+    add: On<Add<CatchUpGated>>,
     timeline: Res<LocalTimeline>,
     mut manager: Single<&mut CatchUpManager, With<Client>>,
     mut commands: Commands,

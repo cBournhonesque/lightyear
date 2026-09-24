@@ -202,21 +202,21 @@ impl Plugin for NetworkTopologyPlugin {
 }
 
 fn mark_dirty_on_insert(
-    _trigger: On<Insert, TopologyComponents>,
+    _trigger: On<Insert<TopologyComponents>>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
 fn mark_dirty_on_remove(
-    _trigger: On<Remove, TopologyComponents>,
+    _trigger: On<Remove<TopologyComponents>>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
 fn mark_dirty_on_discard(
-    _trigger: On<Discard, TopologyComponents>,
+    _trigger: On<Discard<TopologyComponents>>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;

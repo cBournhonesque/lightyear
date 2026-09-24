@@ -32,7 +32,7 @@ pub mod prelude {
     pub use crate::SteamAppExt;
     pub use crate::SteamError;
     pub use aeronet_steam::SessionConfig;
-    pub use aeronet_steam::SteamworksClient;
+    pub use aeronet_steam::SteamworksSockets;
     pub use aeronet_steam::steamworks;
     pub use aeronet_steam::steamworks::SteamId;
 
@@ -64,8 +64,8 @@ impl SteamAppExt for bevy_app::App {
             prelude::steamworks::Client::init_app(app_id).expect("failed to initialize steam");
         steam.networking_utils().init_relay_network_access();
 
-        self.insert_resource(prelude::SteamworksClient(steam))
-            .add_systems(PreUpdate, |steam: Res<prelude::SteamworksClient>| {
+        self.insert_resource(prelude::SteamworksSockets::Client(steam))
+            .add_systems(PreUpdate, |steam: Res<prelude::SteamworksSockets>| {
                 steam.run_callbacks();
             });
         self

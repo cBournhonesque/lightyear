@@ -89,7 +89,6 @@ bevy_replicon.workspace = true
 
 avian2d = { workspace = true, features = [
   "2d",
-  "f32",
   "parry-f32",
   "serialize",
 ] }

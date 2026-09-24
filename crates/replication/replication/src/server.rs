@@ -76,7 +76,7 @@ impl Plugin for RepliconServerPlugin {
 /// same world as the server and may otherwise collide with a real remote client's `NetworkId`.
 /// They only need `ClientVisibility` for lightyear's same-app visibility hooks.
 fn on_client_connected(
-    _trigger: On<Add, Connected>,
+    _trigger: On<Add<Connected>>,
     remotes: Query<
         (Entity, &RemoteId, &Link),
         (Added<Connected>, With<ClientOf>, Without<HostClient>),
@@ -108,7 +108,7 @@ fn on_client_connected(
 /// Links without it stay connected (messages still flow) but receive no replication.
 /// Host links keep their existing manual insert in [`on_client_connected`].
 fn strip_client_visibility_without_sender(
-    trigger: On<Add, ClientVisibility>,
+    trigger: On<Add<ClientVisibility>>,
     links: Query<
         (),
         (
@@ -129,7 +129,7 @@ fn strip_client_visibility_without_sender(
 /// Inserting `ClientVisibility` triggers [`handle_new_client_visibility`](crate::send::handle_new_client_visibility),
 /// which evaluates pre-existing entities for the link.
 fn admit_client_visibility_with_sender(
-    trigger: On<Add, ReplicationSender>,
+    trigger: On<Add<ReplicationSender>>,
     links: Query<
         (),
         (
@@ -153,7 +153,7 @@ fn admit_client_visibility_with_sender(
 /// Without `ClientVisibility` replicon's send loop skips the link; re-adding the
 /// marker re-admits it via [`admit_client_visibility_with_sender`].
 fn remove_client_visibility_with_sender_removed(
-    trigger: On<Remove, ReplicationSender>,
+    trigger: On<Remove<ReplicationSender>>,
     links: Query<(), (With<ClientOf>, Without<HostClient>, With<ClientVisibility>)>,
     mut commands: Commands,
 ) {
@@ -166,8 +166,8 @@ fn remove_client_visibility_with_sender_removed(
 }
 
 /// Set replicon's `ServerState` to `Running` when the server starts.
-fn on_server_started(_trigger: On<Add, Started>, mut next_state: ResMut<NextState<ServerState>>) {
-    NextState::set_if_neq(&mut next_state, ServerState::Running);
+fn on_server_started(_trigger: On<Add<Started>>, mut next_state: ResMut<NextState<ServerState>>) {
+    NextState::set_if_different(&mut next_state, ServerState::Running);
 }
 
 /// Set replicon's `ServerState` to `Stopped` when the server stops or is despawned.
@@ -175,10 +175,10 @@ fn on_server_started(_trigger: On<Add, Started>, mut next_state: ResMut<NextStat
 /// Bevy emits `Remove` when an entity is despawned, so this also handles teardown that bypasses
 /// the `Stopped` marker entirely.
 fn on_server_stopped(
-    _trigger: On<Remove, Started>,
+    _trigger: On<Remove<Started>>,
     mut next_state: ResMut<NextState<ServerState>>,
 ) {
-    NextState::set_if_neq(&mut next_state, ServerState::Stopped);
+    NextState::set_if_different(&mut next_state, ServerState::Stopped);
 }
 
 /// Receive packets from transports and populate `ServerMessages` (ack data from peers).

@@ -16,14 +16,11 @@ use crate::rules::{
 };
 use alloc::vec::Vec;
 use bevy_app::App;
+use bevy_curve::{Curve, Ease, EaseFunction, EasingCurve};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components};
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::{ArchetypeFilter, ComponentIdSet, QueryState};
-use bevy_math::{
-    Curve,
-    curve::{Ease, EaseFunction, EasingCurve},
-};
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_replicon::postcard_utils;
