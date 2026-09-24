@@ -13,14 +13,16 @@ use avian2d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 use avian2d::{
     collider_tree::{
         ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-        MovedProxies, ProxyId,
+        MovedProxies, MovedProxyList, ProxyId,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
+    dynamics::{
+        joints::joint_graph::JointGraph,
+        solver::{
+            constraint_graph::ConstraintGraph,
+            islands::{BodyIslandNode, PhysicsIslands},
+        },
     },
     prelude::*,
 };
@@ -30,14 +32,16 @@ use avian3d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 use avian3d::{
     collider_tree::{
         ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-        MovedProxies, ProxyId,
+        MovedProxies, MovedProxyList, ProxyId,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
+    dynamics::{
+        joints::joint_graph::JointGraph,
+        solver::{
+            constraint_graph::ConstraintGraph,
+            islands::{BodyIslandNode, PhysicsIslands},
+        },
     },
     prelude::*,
 };
@@ -60,7 +64,7 @@ use obvhs::bvh2::Bvh2;
 struct ColliderTreeSnapshot {
     bvh: Bvh2,
     proxies: StableVec<ColliderTreeProxy>,
-    moved_proxies: Vec<ProxyId>,
+    moved_proxies: MovedProxyList,
 }
 
 impl ColliderTreeSnapshot {
