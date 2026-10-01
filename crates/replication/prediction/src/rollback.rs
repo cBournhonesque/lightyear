@@ -1001,6 +1001,56 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
             None
         };
 
+        // For input rollbacks, the confirmed base to restore from when the
+        // predicted history holds nothing at-or-before the target. Unlike
+        // state rollbacks, an input-rollback replay is never snap-corrected
+        // onto confirmed samples (the confirmed history is not authoritative
+        // for a client's own predicted state), so the component itself must
+        // be restored to a confirmed base whenever one is known: leaving the
+        // live value in place would let the replay propagate a future value
+        // into every re-simulated tick — a permanent divergence even though
+        // the replayed inputs are correct.
+        //
+        // `input_confirmed_at_or_before` is the latest confirmed sample
+        // at-or-before the target: the exact base for a component that has
+        // not been locally modified since that sample (if it had been, the
+        // predicted history would carry an entry at-or-before the target and
+        // the restore branch would not run), and the only case in which the
+        // component's existence at the target is proven — so it is the only
+        // base the component itself is restored to.
+        //
+        // `input_confirmed_base` additionally falls back to the oldest
+        // present confirmed sample when the entire confirmed history starts
+        // after the target (the entity was revealed to this client after the
+        // rollback target): the nearest known data, used to seed the history
+        // (as the state-rollback path does) without altering the live
+        // component, whose restoration is left to the replay.
+        let (input_confirmed_base, input_confirmed_at_or_before) = if is_state_rollback {
+            (None, None)
+        } else {
+            component
+                .confirmed_history_storage
+                .map_or((None, None), |storage| {
+                    // SAFETY: same column access as the confirmed lookup above;
+                    // the borrow ends here (the bases are cloned out).
+                    let history = unsafe {
+                        get_component_unchecked(
+                            world,
+                            entity,
+                            archetype.table_id(),
+                            storage,
+                            component.confirmed_history_id,
+                        )
+                        .deref::<ConfirmedHistory<C>>()
+                    };
+                    let at_or_before = history.get_present(rollback_tick).cloned();
+                    let base = at_or_before
+                        .clone()
+                        .or_else(|| history.start_present().map(|(_, value)| value.clone()));
+                    (base, at_or_before)
+                })
+        };
+
         // SAFETY: every cached prepare component is selected by the presence of
         // PredictionHistory<C>, and the system declares unique access to the column.
         let predicted_history = unsafe {
@@ -1065,7 +1115,17 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
             // snap-corrects onto confirmed samples tick by tick as it reaches
             // them. Without any confirmed data, the replay starts from the
             // current component value, so seed the history with it.
-            let seed = oldest_present.unwrap_or_else(|| current.clone());
+            //
+            // Input rollbacks anchor on the confirmed base instead (see
+            // `input_confirmed_base`), and the component itself is restored
+            // to it below, since the replay never snap-corrects.
+            let seed = if is_state_rollback {
+                oldest_present.unwrap_or_else(|| current.clone())
+            } else if let Some(base) = input_confirmed_base.clone() {
+                base
+            } else {
+                current.clone()
+            };
             predicted_history.add_state(rollback_tick, HistoryState::Updated(seed));
         }
         trace!(
@@ -1107,14 +1167,51 @@ pub(crate) unsafe fn prepare_rollback_component<C: Component<Mutability = Mutabl
         // Update the component to the value at rollback_tick
         match restore_state {
             // No state exists at rollback_tick. This is not an explicit
-            // removal, so leave the current component value in place.
+            // removal, so leave the current component value in place — except
+            // when an input rollback found a confirmed sample at-or-before
+            // the target (see `input_confirmed_at_or_before`): the replay has
+            // no authoritative confirmed samples to snap-correct onto, so the
+            // component itself must be restored to that sample. Leaving the
+            // live (future) value in place would let the replay propagate it
+            // into every re-simulated tick — a permanent divergence even
+            // though the replayed inputs are correct. When only the
+            // youth-gap fallback exists (the entire confirmed history starts
+            // after the target), the component's existence at the target is
+            // not proven, so — as in the state-rollback path — the live value
+            // is left in place and only the history is seeded.
             None => {
-                trace!(
-                    entity = ?entity_id,
-                    ?kind,
-                    ?rollback_tick,
-                    "No history entry for component at rollback tick; leaving current value in place"
-                );
+                if let Some(base) = input_confirmed_at_or_before {
+                    // The confirmed sample at-or-before the target proves the
+                    // component existed at the target, so restore it there:
+                    // write it through change-detection access when it is
+                    // present, re-insert it when it is currently absent (the
+                    // replay re-derives any later removal).
+                    if current_component.is_none() {
+                        debug!("Re-adding deleted component to predicted");
+                        deferred.insert(entity_id, base);
+                    } else {
+                        // SAFETY: the prepare system declares unique access to C,
+                        // and no reference to this entity's live C is retained here.
+                        unsafe {
+                            lightyear_core::ecs_utils::write_component_with_change_detection::<C>(
+                                world, entity_id, base,
+                            );
+                        }
+                    }
+                    trace!(
+                        entity = ?entity_id,
+                        ?kind,
+                        ?rollback_tick,
+                        "Restored component to confirmed base for input rollback"
+                    );
+                } else {
+                    trace!(
+                        entity = ?entity_id,
+                        ?kind,
+                        ?rollback_tick,
+                        "No history entry for component at rollback tick; leaving current value in place"
+                    );
+                }
             }
             // An explicit removal means the component was authoritatively removed at rollback_tick.
             Some(HistoryState::Removed) => {
@@ -1506,6 +1603,137 @@ mod tests {
                 .unwrap()
                 .get_state(rollback_tick),
             Some(&HistoryState::Updated(TestComponent(12.0)))
+        );
+    }
+
+    /// Input rollbacks (Rollback::FromInputs) have no confirmed samples to
+    /// snap-correct onto during the replay: when the predicted history holds
+    /// nothing at-or-before the target, the component must be restored to the
+    /// confirmed base (the latest confirmed sample at-or-before the target)
+    /// and the history anchored there. Seeding the history with the live
+    /// (future) value and leaving it in place would let the replay propagate
+    /// it into every re-simulated tick — a permanent divergence even though
+    /// the replayed inputs are correct.
+    #[test]
+    fn test_input_rollback_restores_confirmed_base_when_predicted_history_empty_at_target() {
+        let rollback_tick = Tick(10);
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        register_test_rollback(&mut world);
+
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromInputs);
+        world
+            .resource::<PredictionManager>()
+            .set_rollback_tick(rollback_tick);
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(Tick(15), Some(TestComponent(99.0)));
+        let mut confirmed = ConfirmedHistory::<TestComponent>::default();
+        confirmed.insert_present(Tick(4), TestComponent(1.0));
+        confirmed.insert_present(Tick(8), TestComponent(2.0));
+        let entity = world
+            .spawn((Predicted, TestComponent(99.0), history, confirmed))
+            .id();
+
+        world.run_system_once(prepare_rollback).unwrap();
+
+        // The component is restored to the latest confirmed sample
+        // at-or-before the target (2.0), not the current live value.
+        assert_eq!(
+            world.get::<TestComponent>(entity),
+            Some(&TestComponent(2.0))
+        );
+        // and the history is anchored at the target with the same base.
+        assert_eq!(
+            world
+                .get::<PredictionHistory<TestComponent>>(entity)
+                .unwrap()
+                .get_state(rollback_tick),
+            Some(&HistoryState::Updated(TestComponent(2.0)))
+        );
+    }
+
+    /// Input rollbacks fall back to the oldest present confirmed sample for
+    /// the HISTORY SEED when the rollback target predates the entity's
+    /// confirmed history (the entity was revealed to this client after the
+    /// target). The component itself is left in place: its existence at the
+    /// target is not proven, matching the state-rollback path's behavior.
+    #[test]
+    fn test_input_rollback_seeds_from_oldest_confirmed_when_target_predates_history() {
+        let rollback_tick = Tick(10);
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        register_test_rollback(&mut world);
+
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromInputs);
+        world
+            .resource::<PredictionManager>()
+            .set_rollback_tick(rollback_tick);
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(Tick(15), Some(TestComponent(99.0)));
+        let mut confirmed = ConfirmedHistory::<TestComponent>::default();
+        confirmed.insert_present(Tick(12), TestComponent(12.0));
+        confirmed.insert_present(Tick(14), TestComponent(14.0));
+        let entity = world
+            .spawn((Predicted, TestComponent(99.0), history, confirmed))
+            .id();
+
+        world.run_system_once(prepare_rollback).unwrap();
+
+        // The component is left in place (youth gap: existence at the target
+        // is not proven).
+        assert_eq!(
+            world.get::<TestComponent>(entity),
+            Some(&TestComponent(99.0))
+        );
+        // The history is seeded with the oldest present confirmed sample.
+        assert_eq!(
+            world
+                .get::<PredictionHistory<TestComponent>>(entity)
+                .unwrap()
+                .get_state(rollback_tick),
+            Some(&HistoryState::Updated(TestComponent(12.0)))
+        );
+    }
+
+    /// Input rollbacks without any confirmed history keep the legacy
+    /// behavior: the live value is left in place and the history is seeded
+    /// with it.
+    #[test]
+    fn test_input_rollback_without_confirmed_history_keeps_live_value() {
+        let rollback_tick = Tick(10);
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        register_test_rollback(&mut world);
+
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromInputs);
+        world
+            .resource::<PredictionManager>()
+            .set_rollback_tick(rollback_tick);
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(rollback_tick + 5, Some(TestComponent(1.0)));
+        let predicted = world.spawn((Predicted, TestComponent(1.0), history)).id();
+
+        world.run_system_once(prepare_rollback).unwrap();
+
+        assert_eq!(
+            world.get::<TestComponent>(predicted),
+            Some(&TestComponent(1.0))
+        );
+        assert_eq!(
+            world
+                .get::<PredictionHistory<TestComponent>>(predicted)
+                .unwrap()
+                .get_state(rollback_tick),
+            Some(&HistoryState::Updated(TestComponent(1.0)))
         );
     }
 
