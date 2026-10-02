@@ -4,13 +4,16 @@ use bevy::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::input::server::InputRebroadcaster;
-use lightyear::prelude::input::native::ActionState;
+use lightyear::prelude::input::native::{ActionState, NativeStateSequence};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, Rollback};
+use lightyear_inputs::prelude::client::InputSystems as ClientInputSystems;
+use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
 use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::prelude::{PredictionTarget, Replicate};
+use lightyear_replication::prelude::{ControlledBy, PredictionTarget, Replicate};
 use lightyear_replication::prelude::{RoomAllocator, Rooms};
 use test_log::test;
 use tracing::info;
@@ -313,6 +316,80 @@ fn test_input_broadcasting_prediction() {
         .resource::<PredictionManager>()
         .set_rollback_tick(rollback_tick);
     stepper.client_apps[1].update();
+}
+
+/// Test that a client receives rebroadcasted input even when [`authorize_controlled_targets`] is
+/// added as an input validator. Input validators should only be run on a server. Otherwise,
+/// [`authorize_controlled_targets`] drops all rebroadcasted inputs sent from the server.
+#[test]
+fn test_client_side_validator_keeps_rebroadcast_inputs() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<NativeStateSequence<MyInput>>);
+    for app in &mut stepper.client_apps {
+        app.add_input_validator(
+            authorize_controlled_targets::<NativeStateSequence<MyInput>>
+                .after(MessageSystems::Receive)
+                .before(ClientInputSystems::ReceiveInputMessages),
+        );
+    }
+
+    let client_of_0 = stepper.client_of(0).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+            ActionState::<MyInput>::default(),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+    stepper.frame_step_server_first(1);
+    let client0_predicted = stepper.client_apps[0]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
+        .expect("entity not replicated to client 0");
+    let client1_predicted = stepper.client_apps[1]
+        .world()
+        .resource::<ServerEntityMap>()
+        .to_client()
+        .get(&server_entity)
+        .copied()
+        .expect("entity not replicated to client 1");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client0_predicted)
+        .insert(InputMarker::<MyInput>::default());
+    stepper.frame_step(5);
+
+    // Set Client 0's input.
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ActionState<MyInput>>(client0_predicted)
+        .unwrap()
+        .0 = MyInput(10);
+
+    // Make client 0 send the input to the server. The server should then rebroadcast the input to
+    // client 1.
+    stepper.frame_step_server_first(4);
+
+    // Client 1 should receive the rebroadcasted input.
+    let last_remote_tick = stepper.client_apps[1]
+        .world()
+        .get::<NativeBuffer<MyInput>>(client1_predicted)
+        .and_then(|buffer| buffer.last_remote_tick);
+    assert!(
+        last_remote_tick.is_some(),
+        "client 1 received none of client 0's rebroadcast input"
+    );
 }
 
 /// Test the server can rebroadcast inputs to custom targets

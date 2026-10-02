@@ -28,6 +28,7 @@ use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostServer;
+use lightyear_connection::identity::is_server;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
@@ -105,6 +106,8 @@ pub enum InputSystems {
     /// [`InputValidationAppExt::add_input_validator`]) that mutate or drop
     /// messages via [`MessageReceiver::retain_messages`]. A game that wants to
     /// authorize input targets against `ControlledBy` can do so here.
+    ///
+    /// Runs only on the server ([`is_server`]).
     ValidateInputs,
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
@@ -270,6 +273,10 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
             )
                 .chain(),
         );
+        // In a server-client setup, input validation should not be run on the client. Any input
+        // received by a client is a rebroadcast input from the server and clients have no
+        // control over the incoming inputs' targets.
+        app.configure_sets(PreUpdate, InputSystems::ValidateInputs.run_if(is_server));
         app.configure_sets(FixedPreUpdate, InputSystems::UpdateActionState);
 
         // for host server mode?
