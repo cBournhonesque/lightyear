@@ -12,7 +12,8 @@ use avian2d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{
     collider_tree::{
-        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTrees, MovedProxies, ProxyId,
+        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
+        MovedProxies, ProxyId,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
@@ -28,7 +29,8 @@ use avian3d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{
     collider_tree::{
-        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTrees, MovedProxies, ProxyId,
+        ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
+        MovedProxies, ProxyId,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
@@ -189,8 +191,10 @@ pub(super) fn register_rollback(app: &mut App) {
         PreUpdate,
         (
             restore_collider_broad_phase,
+            reregister_invalid_proxies,
             restore_colliding_entities_from_contact_graph,
         )
+            .chain()
             .after(RollbackSystems::Prepare)
             .before(RollbackSystems::Rollback)
             .run_if(is_in_rollback),
@@ -225,6 +229,75 @@ fn restore_collider_broad_phase(
     rollback_state
         .0
         .restore_into(&mut trees, &mut moved_proxies);
+}
+
+/// Re-registers Avian [`Collider`]s whose [`ColliderTreeProxyKey`]s are invalid.
+///
+/// Avian's [`ColliderTreePlugin`] registers [`ColliderTreeProxyKey`] as a required component of
+/// [`Collider`] at runtime, defaulted to `PLACEHOLDER`, and an observer on `Insert<Collider>`
+/// replaces the placeholder with a key to the collider's entry in [`ColliderTrees`]. We call that
+/// "registration". A rollback reverts [`ColliderTrees`] and every key with a value saved for that
+/// tick, but not the collider's body, so a key can end up:
+/// - The placeholder when the value of the key was saved before registration ran.
+/// - Identifying a non-existant entry or another collider's entry when no value was saved.
+/// - Identifying an entry that records a body other than the collider's current one, or a tree
+///   the collider's current body does not belong to.
+fn reregister_invalid_proxies(
+    colliders: Query<
+        (
+            Entity,
+            &ColliderTreeProxyKey,
+            &Collider,
+            Option<&ColliderOf>,
+        ),
+        Without<ColliderDisabled>,
+    >,
+    bodies: Query<&RigidBody, Allow<bevy_ecs::entity_disabling::Disabled>>,
+    trees: Res<ColliderTrees>,
+    mut commands: Commands,
+) {
+    for (entity, proxy_key, collider, collider_of) in &colliders {
+        // The purpose of re-inserting `collider` is to re-trigger Avian's observer that sets a
+        // collider's proxy key to a valid value and correctly registers the collider with the
+        // collider tree.
+
+        // Ensure the proxy key identifies a collider-tree entry.
+        if *proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
+            commands.entity(entity).insert(collider.clone());
+            continue;
+        }
+
+        // Ensure the entry is this collider.
+        let Some(proxy) = trees
+            .get_proxy(*proxy_key)
+            .filter(|proxy| proxy.collider == entity)
+        else {
+            // The proxy key does not identify this collider's entry. Instead, it identifies a
+            // non-existant entry or the entry of another collider.
+            commands.entity(entity).insert((
+                // Insert a placeholder key so Avian does not remove the entry the proxy key originally
+                // identified (if it exists) when re-registering. That entry belongs to a real collider
+                // that the proxy key accidentally identified.
+                ColliderTreeProxyKey::PLACEHOLDER,
+                collider.clone(),
+            ));
+            continue;
+        };
+
+        // Ensure the proxy key references the collider's current body.
+        let body = collider_of.map(|of| of.body);
+        if proxy.body != body {
+            commands.entity(entity).insert(collider.clone());
+            continue;
+        }
+
+        // Ensure proxy key references the tree that the collider belongs to.
+        let tree =
+            ColliderTreeType::from_body(body.and_then(|body| bodies.get(body).ok()).copied());
+        if proxy_key.tree_type() != tree {
+            commands.entity(entity).insert(collider.clone());
+        }
+    }
 }
 
 /// Registers persistent island state after Avian has finished installing its optional plugins.
@@ -323,9 +396,9 @@ fn restore_colliding_entities_from_contact_graph(
 mod tests {
     use super::*;
     #[cfg(all(feature = "2d", not(feature = "3d")))]
-    use avian2d::collider_tree::ColliderTreeType;
+    use avian2d::math::Vector;
     #[cfg(all(feature = "3d", not(feature = "2d")))]
-    use avian3d::collider_tree::ColliderTreeType;
+    use avian3d::math::Vector;
     use bevy_ecs::system::RunSystemOnce;
     use lightyear_prediction::prelude::{Predicted, PredictionRegistry};
 
@@ -546,6 +619,284 @@ mod tests {
                     .is_some()
             );
         }
+    }
+
+    /// Tests that the [`ColliderTreeProxyKey`] of a collider that did not have a [`RigidBody`] but
+    /// later gains one will be valid after a rollback to a tick when the collider did not have a
+    /// body.
+    #[test]
+    fn restore_collider_that_gains_body() {
+        let mut app = rollback_test_app();
+
+        // Spawn a collider without a rigid body.
+        let collider = spawn_collider(&mut app);
+
+        // `collider` should belong to the standalone collider tree because it does not have a
+        // rigid body.
+        assert_eq!(tree_type(&app, collider), ColliderTreeType::Standalone);
+
+        // Save the collider trees, collider proxy keys, and collider AABBs so that they can be
+        // rolled back to later.
+        app.world_mut()
+            .run_system_once(record_collider_broad_phase_for_rollback)
+            .unwrap();
+        let broad_phase = app.world().resource::<RollbackColliderBroadPhase>().clone();
+        let proxy_key = *app.world().get::<ColliderTreeProxyKey>(collider).unwrap();
+        let aabb = *app.world().get::<ColliderAabb>(collider).unwrap();
+        let enlarged_aabb = *app.world().get::<EnlargedAabb>(collider).unwrap();
+
+        // Add the dynamic body to the collider.
+        app.world_mut()
+            .entity_mut(collider)
+            .insert((RigidBody::Dynamic, LinearVelocity(Vector::Y * 20.0)));
+
+        // `collider` should now belong to the dynamic collider tree.
+        assert_eq!(tree_type(&app, collider), ColliderTreeType::Dynamic);
+
+        // Perform a rollback which restores the collider trees, collider proxy keys, and collider
+        // AABBs. `collider`'s proxy key now identifies the standalone tree.
+        app.insert_resource(broad_phase);
+        app.world_mut()
+            .run_system_once(restore_collider_broad_phase)
+            .unwrap();
+        let mut entity = app.world_mut().entity_mut(collider);
+        *entity.get_mut::<ColliderTreeProxyKey>().unwrap() = proxy_key;
+        *entity.get_mut::<ColliderAabb>().unwrap() = aabb;
+        *entity.get_mut::<EnlargedAabb>().unwrap() = enlarged_aabb;
+
+        // `reregister_invalid_proxies()` should fix `collider`'s proxy key to reference the
+        // correct tree.
+        app.world_mut()
+            .run_system_once(reregister_invalid_proxies)
+            .unwrap();
+        app.update();
+
+        // `collider` should belong to the dynamic collider tree and not the standalone tree.
+        assert_eq!(tree_type(&app, collider), ColliderTreeType::Dynamic);
+        let trees = app.world().resource::<ColliderTrees>();
+        assert!(
+            trees
+                .standalone_tree
+                .proxies
+                .iter()
+                .all(|(_, proxy)| proxy.collider != collider),
+            "the standalone tree still holds the proxy the rollback restored"
+        );
+    }
+
+    /// Tests that the [`ColliderTreeProxyKey`] of a collider will be valid after a rollback to a
+    /// tick when the collider did not exist yet.
+    #[test]
+    fn restore_newly_created_collider() {
+        let mut app = rollback_test_app();
+
+        // Spawn a collider.
+        let recorded_collider = spawn_collider(&mut app);
+
+        // Save the collider trees so that they can be rolled back to later.
+        app.world_mut()
+            .run_system_once(record_collider_broad_phase_for_rollback)
+            .unwrap();
+        let broad_phase = app.world().resource::<RollbackColliderBroadPhase>().clone();
+
+        // Spawn a second collider, which the saved collider trees do not contain.
+        let unrecordered_collider = spawn_collider(&mut app);
+
+        // `unrecordered_collider` should own the entry its proxy key identifies.
+        assert!(owns_its_proxy(&app, unrecordered_collider));
+
+        // Perform a rollback which restores the collider trees. `unrecordered_collider` has no
+        // saved proxy key, so its key now identifies a slot the restored tree does not have.
+        app.insert_resource(broad_phase);
+        app.world_mut()
+            .run_system_once(restore_collider_broad_phase)
+            .unwrap();
+        assert!(!owns_its_proxy(&app, unrecordered_collider));
+
+        // `reregister_invalid_proxies()` should register `unrecordered_collider` with the restored
+        // tree again.
+        app.world_mut()
+            .run_system_once(reregister_invalid_proxies)
+            .unwrap();
+
+        // Move `unrecordered_collider`. Without the re-registration, Avian panics here on the
+        // missing entry.
+        app.world_mut()
+            .get_mut::<Position>(unrecordered_collider)
+            .unwrap()
+            .0 += Vector::X;
+        app.update();
+
+        // Both colliders should own the entries their proxy keys identify.
+        assert!(owns_its_proxy(&app, recorded_collider));
+        assert!(owns_its_proxy(&app, unrecordered_collider));
+    }
+
+    /// Tests that the [`ColliderTreeProxyKey`] of a collider that reuses the collider-tree entry
+    /// of a despawned collider will be valid after a rollback to a tick when the despawned
+    /// collider held that entry.
+    #[test]
+    fn restore_collider_that_reuses_despawned_collider_entry() {
+        let mut app = rollback_test_app();
+
+        // Spawn a collider that will be despawned later.
+        let despawned = spawn_collider(&mut app);
+
+        // Save the collider trees so that they can be rolled back to later.
+        app.world_mut()
+            .run_system_once(record_collider_broad_phase_for_rollback)
+            .unwrap();
+        let broad_phase = app.world().resource::<RollbackColliderBroadPhase>().clone();
+        let despawned_key = *app.world().get::<ColliderTreeProxyKey>(despawned).unwrap();
+
+        // Despawn the collider and spawn another one, which reuses its slot.
+        app.world_mut().despawn(despawned);
+        let reused = spawn_collider(&mut app);
+
+        // `reused` should have the proxy key `despawned` had.
+        let reused_key = *app.world().get::<ColliderTreeProxyKey>(reused).unwrap();
+        assert_eq!(
+            reused_key, despawned_key,
+            "the test needs the slot to be reused"
+        );
+
+        // Perform a rollback which restores the collider trees. `reused` has no saved proxy key,
+        // and the restored tree gives its slot back to `despawned`, so `reused`'s key now
+        // identifies another collider's entry.
+        app.insert_resource(broad_phase);
+        app.world_mut()
+            .run_system_once(restore_collider_broad_phase)
+            .unwrap();
+
+        // `reregister_invalid_proxies()` should register `reused` in a slot of its own.
+        app.world_mut()
+            .run_system_once(reregister_invalid_proxies)
+            .unwrap();
+        app.update();
+
+        // `reused` should own the entry its proxy key identifies.
+        assert!(owns_its_proxy(&app, reused));
+    }
+
+    /// Tests that the entry of a collider that moves from one body to another of the same type
+    /// records the second body after a rollback to a tick when the collider belonged to the first.
+    #[test]
+    fn restore_collider_that_changes_body() {
+        let mut app = rollback_test_app();
+
+        // Spawn two dynamic bodies and a collider attached to the first.
+        let body_a = spawn_body(&mut app);
+        let body_b = spawn_body(&mut app);
+        let collider = app
+            .world_mut()
+            .spawn((
+                Collider::default(),
+                Position::default(),
+                Rotation::default(),
+                ChildOf(body_a),
+            ))
+            .id();
+        app.update();
+        assert_eq!(proxy_body(&app, collider), Some(body_a));
+
+        // Save the collider trees, collider proxy keys, and collider AABBs so that they can be
+        // rolled back to later.
+        app.world_mut()
+            .run_system_once(record_collider_broad_phase_for_rollback)
+            .unwrap();
+        let broad_phase = app.world().resource::<RollbackColliderBroadPhase>().clone();
+        let proxy_key = *app.world().get::<ColliderTreeProxyKey>(collider).unwrap();
+        let aabb = *app.world().get::<ColliderAabb>(collider).unwrap();
+        let enlarged_aabb = *app.world().get::<EnlargedAabb>(collider).unwrap();
+
+        // Move the collider to the second body, whose colliders belong to the same tree.
+        app.world_mut().entity_mut(collider).insert(ChildOf(body_b));
+        app.update();
+        assert_eq!(proxy_body(&app, collider), Some(body_b));
+
+        // Perform a rollback which restores the collider trees, collider proxy keys, and collider
+        // AABBs. `collider`'s entry now records the first body, in the right tree.
+        app.insert_resource(broad_phase);
+        app.world_mut()
+            .run_system_once(restore_collider_broad_phase)
+            .unwrap();
+        let mut entity = app.world_mut().entity_mut(collider);
+        *entity.get_mut::<ColliderTreeProxyKey>().unwrap() = proxy_key;
+        *entity.get_mut::<ColliderAabb>().unwrap() = aabb;
+        *entity.get_mut::<EnlargedAabb>().unwrap() = enlarged_aabb;
+        assert_eq!(proxy_body(&app, collider), Some(body_a));
+        assert_eq!(tree_type(&app, collider), ColliderTreeType::Dynamic);
+
+        // `reregister_invalid_proxies()` should register `collider` with the second body.
+        app.world_mut()
+            .run_system_once(reregister_invalid_proxies)
+            .unwrap();
+        app.update();
+
+        assert!(owns_its_proxy(&app, collider));
+        assert_eq!(proxy_body(&app, collider), Some(body_b));
+    }
+
+    fn rollback_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy_app::TaskPoolPlugin::default(),
+            bevy_time::TimePlugin,
+            bevy_transform::TransformPlugin,
+            PhysicsPlugins::default(),
+        ));
+        app.insert_resource(bevy_time::TimeUpdateStrategy::ManualDuration(
+            core::time::Duration::from_secs_f64(1.0 / 64.0),
+        ));
+        app.init_resource::<RollbackColliderBroadPhase>();
+        app.finish();
+        app.cleanup();
+        app
+    }
+
+    fn spawn_collider(app: &mut App) -> Entity {
+        app.world_mut()
+            .spawn((
+                Collider::default(),
+                Position::default(),
+                Rotation::default(),
+            ))
+            .id()
+    }
+
+    fn spawn_body(app: &mut App) -> Entity {
+        app.world_mut()
+            .spawn((RigidBody::Dynamic, Position::default(), Rotation::default()))
+            .id()
+    }
+
+    /// Returns the body recorded by the entry that `collider`'s [`ColliderTreeProxyKey`]
+    /// identifies.
+    fn proxy_body(app: &App, collider: Entity) -> Option<Entity> {
+        let key = *app.world().get::<ColliderTreeProxyKey>(collider).unwrap();
+        app.world()
+            .resource::<ColliderTrees>()
+            .get_proxy(key)
+            .unwrap()
+            .body
+    }
+
+    /// Returns whether or not the [`ColliderTreeProxyKey`] found in `collider` correctly
+    /// references `collider` within `app`'s collider trees.
+    fn owns_its_proxy(app: &App, collider: Entity) -> bool {
+        let key = *app.world().get::<ColliderTreeProxyKey>(collider).unwrap();
+        app.world()
+            .resource::<ColliderTrees>()
+            .get_proxy(key)
+            .is_some_and(|proxy| proxy.collider == collider)
+    }
+
+    /// Returns the [`ColliderTreeType`] of that contains `collider`.
+    fn tree_type(app: &App, collider: Entity) -> ColliderTreeType {
+        app.world()
+            .get::<ColliderTreeProxyKey>(collider)
+            .unwrap()
+            .tree_type()
     }
 
     #[test]
