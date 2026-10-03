@@ -27,6 +27,7 @@ p2p = [
   "udp",
   "lightyear/deterministic",
   "lightyear/p2p",
+  "lightyear_deterministic_replication/p2p",
   "lightyear_examples_common/p2p",
 ]
 webtransport = ["lightyear_examples_common/webtransport"]
@@ -45,6 +46,7 @@ lightyear_deterministic_replication.workspace = true
 lightyear_examples_common = { workspace = true, features = [
   "structured-debug",
 ] }
+seahash.workspace = true
 serde.workspace = true
 bevy.workspace = true
 

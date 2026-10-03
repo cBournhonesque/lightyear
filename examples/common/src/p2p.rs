@@ -93,10 +93,16 @@ pub struct P2PSettings {
 #[derive(Resource)]
 struct AwaitingP2PStart;
 
+/// A late join uses the CLI seed instead of entering the founding start barrier.
+#[derive(Resource)]
+struct JoiningSession {
+    remote_peer: PeerId,
+}
+
 /// Build the stable input target shared by every peer for one roster member.
 ///
 /// `peer` is the lobby identity of the roster member and `hash` its stable
-/// input-wire identity (hash base plus roster slot). Remote targets are scoped
+/// input-wire identity, independent of the current roster order. Remote targets are scoped
 /// to the Link that owns their input stream. The local target has no receiver
 /// because this app captures and originates its inputs.
 pub fn input_target_for_peer(
@@ -149,6 +155,12 @@ pub(crate) fn configure_app(
         _ => panic!("P2P endpoints are not supported on wasm"),
     }
     app.insert_resource(settings);
+    app.add_observer(|request: On<P2PJoinRequested>, mut commands: Commands| {
+        commands.trigger(P2PJoinAdmission {
+            peer_id: request.peer_id,
+            result: Ok(()),
+        });
+    });
 
     #[cfg(any(feature = "gui2d", feature = "gui3d"))]
     if !_headless {
@@ -216,8 +228,33 @@ pub(crate) fn spawn_connections(
             .resource_mut::<Lobby>()
             .add_bootstrap([PeerId::Raw(seed)]);
     }
-    app.insert_resource(AwaitingP2PStart);
-    app.add_systems(Update, start_when_lobby_ready);
+    if crate::automation::env_string("LIGHTYEAR_P2P_JOIN").as_deref() == Some("1") {
+        let seed = settings.seed.expect("LIGHTYEAR_P2P_JOIN=1 requires --peer");
+        app.insert_resource(JoiningSession {
+            remote_peer: PeerId::Raw(seed),
+        });
+        app.add_systems(Update, join_when_remote_connected);
+    } else {
+        app.insert_resource(AwaitingP2PStart);
+        app.add_systems(Update, start_when_lobby_ready);
+    }
+}
+
+fn join_when_remote_connected(
+    mut commands: Commands,
+    joining: Option<Res<JoiningSession>>,
+    links: Query<&RemoteId, (With<P2P>, With<Connected>)>,
+) {
+    let Some(joining) = joining else {
+        return;
+    };
+    if !links.iter().any(|remote| remote.0 == joining.remote_peer) {
+        return;
+    }
+    commands.remove_resource::<JoiningSession>();
+    commands.trigger(P2PJoin {
+        remote_peer: joining.remote_peer,
+    });
 }
 
 fn validate_settings(expected_players: u8) {
@@ -253,5 +290,7 @@ fn start_when_lobby_ready(
         "P2P lobby complete; starting session negotiation"
     );
     commands.remove_resource::<AwaitingP2PStart>();
-    commands.trigger(P2PStart::default());
+    commands.trigger(P2PStart {
+        cohort: NetworkTarget::Only(lobby.roster().into_iter().collect()),
+    });
 }

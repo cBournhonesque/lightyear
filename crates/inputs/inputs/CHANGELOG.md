@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+- Add `RemoteInputTarget` to route a P2P input stream into a receive-only buffer while its
+  simulation entity replays historical inputs. Ordinary `PreSpawned` routing resumes on removal.
+
+### Bug Fixes
+
+- Include all newly captured fixed ticks in each input packet, even when one rendered frame exceeds
+  the configured redundancy window. Keep the preparation cursor aligned across timeline shifts.
+- Restrict server input reception to `ClientOf` Links so P2P endpoint packets reach client
+  prediction and rollback instead of being consumed by the server input plugin.
+
 ## v0.21.0 (2025-07-03)
 
 <csr-id-f55c117c1627368978d26c788efbcb2ddda1da01/>

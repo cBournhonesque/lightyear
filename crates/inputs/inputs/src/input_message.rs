@@ -43,6 +43,17 @@ pub enum InputTarget {
     PreSpawned(u64),
 }
 
+/// A receive-only destination for a remote P2P input stream.
+///
+/// Takes precedence over the simulation entity's `PreSpawned` target for the same hash and Link.
+/// This allows catch-up to buffer live inputs independently of historical simulation entities.
+/// Removing this component restores ordinary `PreSpawned` routing.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct RemoteInputTarget {
+    pub hash: u64,
+    pub receiver: Entity,
+}
+
 /// First tick covered by a message/sequence spanning `len` ticks ending at `end_tick`.
 pub fn message_start_tick(end_tick: Tick, len: usize) -> Tick {
     end_tick + 1 - len as u32

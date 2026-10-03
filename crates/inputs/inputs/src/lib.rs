@@ -38,6 +38,7 @@ pub mod prelude {
     pub use crate::InputChannel;
     pub use crate::config::InputConfig;
     pub use crate::input_buffer::InputBuffer;
+    pub use crate::input_message::RemoteInputTarget;
 
     #[cfg(feature = "client")]
     pub mod client {

@@ -29,6 +29,11 @@ use bevy_ecs::component::Component;
 
 mod archetypes;
 mod checksum;
+#[cfg(feature = "p2p")]
+/// Late-join catch-up by replaying the session's inputs.
+///
+/// The input-based counterpart to [`late_join`]: no replication, no donor authority.
+pub mod join_catch_up;
 #[cfg(feature = "replication")]
 /// Late-join catch-up: client-driven bundled snapshot replication so that
 /// mid-game joiners can catch up to already-simulated entities.
@@ -49,6 +54,9 @@ pub mod prelude {
     #[cfg(feature = "client")]
     pub use crate::checksum::ChecksumSendPlugin;
     pub use crate::checksum::{ChecksumMessage, ChecksumPlugin};
+    /// Input-replay catch-up: a joiner replays the session's own inputs.
+    #[cfg(feature = "p2p")]
+    pub use crate::join_catch_up::{JoinCatchUpConfig, JoinCatchUpPlugin};
     #[cfg(feature = "replication")]
     pub use crate::late_join::{
         AppCatchUpExt, CatchUpRegistry, CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,

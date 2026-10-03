@@ -69,7 +69,13 @@ pub(crate) struct LobbyPeer {
 }
 
 impl LobbyPeer {
-    fn new(slot: u8, base_port: u16, policy: LobbyIdPolicy, transport: TestTransport) -> Self {
+    fn new(
+        slot: u8,
+        base_port: u16,
+        policy: LobbyIdPolicy,
+        transport: TestTransport,
+        setup: &impl Fn(&mut App),
+    ) -> Self {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -87,6 +93,7 @@ impl LobbyPeer {
             avian_mode: Default::default(),
         });
         app.add_plugins(LobbyPlugin::new(policy));
+        setup(&mut app);
 
         // The one thing the application supplies: this peer's own address.
         let local = peer_addr(base_port, slot);
@@ -179,11 +186,23 @@ impl Stepper {
         base_port: u16,
         policies: impl IntoIterator<Item = LobbyIdPolicy>,
     ) -> Self {
+        Self::new_with_setup(transport, base_port, policies, |_| {})
+    }
+
+    /// Configure application simulation/protocol before endpoints or Links are created.
+    pub(crate) fn new_with_setup(
+        transport: TestTransport,
+        base_port: u16,
+        policies: impl IntoIterator<Item = LobbyIdPolicy>,
+        setup: impl Fn(&mut App),
+    ) -> Self {
         Self {
             peers: policies
                 .into_iter()
                 .enumerate()
-                .map(|(slot, policy)| LobbyPeer::new(slot as u8, base_port, policy, transport))
+                .map(|(slot, policy)| {
+                    LobbyPeer::new(slot as u8, base_port, policy, transport, &setup)
+                })
                 .collect(),
             transport,
             now: Instant::now(),
@@ -249,7 +268,10 @@ impl Stepper {
             })
         });
         for slot in slots {
-            self.peers[*slot as usize].app.world_mut().trigger(P2PStart::default());
+            self.peers[*slot as usize]
+                .app
+                .world_mut()
+                .trigger(P2PStart::default());
         }
     }
 
