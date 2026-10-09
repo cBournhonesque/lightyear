@@ -141,7 +141,7 @@ struct CatchUpServerState {
 /// simulation and does not need the late-join snapshot flow. Mark it caught up
 /// so gated components replicate normally to it.
 fn mark_client_caught_up_if_no_gated_on_connect(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     clients: Query<(Entity, &LinkOf), (With<ClientOf>, With<Connected>)>,
     caught_up_clients: Query<&LinkOf, (With<ClientOf>, With<Connected>, With<HasCaughtUp>)>,
     catchup_gated: Query<(), With<CatchUpGated>>,
@@ -198,7 +198,7 @@ fn mark_client_caught_up_if_no_gated_on_connect(
 }
 
 fn mark_server_has_revealed_catchup_state(
-    trigger: On<Add, HasCaughtUp>,
+    trigger: On<Add<HasCaughtUp>>,
     clients: Query<&LinkOf, With<ClientOf>>,
     mut server_state: Query<&mut CatchUpServerState, With<Server>>,
     mut commands: Commands,
@@ -229,7 +229,7 @@ fn ensure_server_catchup_state(
 }
 
 fn reset_server_catchup_state_on_stop(
-    trigger: On<Add, Stopped>,
+    trigger: On<Add<Stopped>>,
     mut server_state: Query<&mut CatchUpServerState, With<Server>>,
 ) {
     if let Ok(mut server_state) = server_state.get_mut(trigger.entity) {
@@ -238,7 +238,7 @@ fn reset_server_catchup_state_on_stop(
 }
 
 fn reset_server_catchup_state_without_connected_clients(
-    trigger: On<Add, Disconnected>,
+    trigger: On<Add<Disconnected>>,
     clients: Query<&LinkOf, With<ClientOf>>,
     mut server_states: Query<&mut CatchUpServerState, With<Server>>,
     connected_clients: Query<(Entity, &LinkOf), (With<ClientOf>, With<Connected>)>,

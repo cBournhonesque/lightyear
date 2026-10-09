@@ -116,7 +116,7 @@ You can add a trigger to listen to this event and add the extra components to cu
 ```rust
 # use bevy_ecs::prelude::*;
 # use lightyear::prelude::*;
-fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
         ReplicationSender,
         Name::from("Client"),

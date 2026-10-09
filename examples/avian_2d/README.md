@@ -11,7 +11,7 @@ This example showcases several things:
   prediction, while each client's keyboard still controls only its own player.
 - compound collider transform propagation: each player rigid body has a smaller child cube collider immediately beside
   and touching the main cube, with no rigid body of its own. Its local transform remains at a fixed offset while its
-  world position and rotation follow the player. The child is deterministic template data: an `On<Add, PlayerId>`
+  world position and rotation follow the player. The child is deterministic template data: an `On<Add<PlayerId>>`
   observer constructs it locally on the server and every client. Both colliders are one physical player
   body: contacts on the smaller cube apply forces to the main rigid-body root, and player input is applied only to that
   root.

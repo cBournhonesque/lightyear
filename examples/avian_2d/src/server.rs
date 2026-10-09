@@ -26,7 +26,7 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
@@ -69,7 +69,7 @@ pub(crate) fn movement(
 // Replicate the client-replicated entities back to clients
 // This system is triggered when the server receives an entity from a client (ClientOf component is added)
 pub(crate) fn replicate_players(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     mut commands: Commands,
     client_query: Query<&RemoteId, With<ClientOf>>,
 ) {

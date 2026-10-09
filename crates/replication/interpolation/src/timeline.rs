@@ -6,8 +6,9 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::change_detection::Tick as ChangeTick;
 use bevy_ecs::prelude::*;
-use bevy_ecs::query::FilteredAccessSet;
-use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
+use bevy_ecs::system::{
+    ReadOnlySystemParam, SystemAccess, SystemMeta, SystemParam, SystemParamValidationError,
+};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
@@ -131,13 +132,13 @@ unsafe impl SystemParam for SyncedInterpolationTimeline<'_, '_> {
     fn init_access(
         state: &Self::State,
         system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         <Res<'static, InterpolationTimeline> as SystemParam>::init_access(
             state,
             system_meta,
-            component_access_set,
+            system_access,
             world,
         );
     }
@@ -250,7 +251,7 @@ pub struct TimelinePlugin;
 impl TimelinePlugin {
     /// Reset the presentation timeline for a newly connected conventional client session.
     fn handle_connect(
-        trigger: On<Add, Connected>,
+        trigger: On<Add<Connected>>,
         clients: Query<(), (With<Client>, Without<P2P>)>,
         mut timeline: ResMut<InterpolationTimeline>,
     ) {
@@ -262,7 +263,7 @@ impl TimelinePlugin {
 
     /// Mark an in-process host client's presentation timeline ready without network sampling.
     fn handle_host_client(
-        trigger: On<Add, HostClient>,
+        trigger: On<Add<HostClient>>,
         clients: Query<(), (With<Client>, Without<P2P>)>,
         mut timeline: ResMut<InterpolationTimeline>,
     ) {
@@ -273,7 +274,7 @@ impl TimelinePlugin {
 
     /// Reset presentation synchronization when a conventional client disconnects.
     fn handle_disconnect(
-        trigger: On<Add, Disconnected>,
+        trigger: On<Add<Disconnected>>,
         clients: Query<(), (With<Client>, Without<P2P>)>,
         mut timeline: ResMut<InterpolationTimeline>,
     ) {

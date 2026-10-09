@@ -25,7 +25,7 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
         .insert((ReplicationSender, Name::from("Client")));
@@ -33,7 +33,7 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 
 /// Server connection system, create a player upon connection
 pub(crate) fn handle_connections(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {

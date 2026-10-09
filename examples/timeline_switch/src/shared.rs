@@ -52,7 +52,7 @@ impl CharacterChildCollider {
 }
 
 /// Reconstruct the character's touching child cube independently on every peer.
-fn spawn_character_child_collider(trigger: On<Add, CharacterMarker>, mut commands: Commands) {
+fn spawn_character_child_collider(trigger: On<Add<CharacterMarker>>, mut commands: Commands) {
     let character = trigger.entity;
     commands.spawn((
         ChildOf(character),

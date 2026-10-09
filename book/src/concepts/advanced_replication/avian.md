@@ -118,7 +118,7 @@ To smooth a predicted entity between fixed ticks from the moment it spawns, add 
 
 ```rust,ignore
 fn add_frame_interpolation(
-    trigger: On<Add, Predicted>,
+    trigger: On<Add<Predicted>>,
     mut commands: Commands,
 ) {
     commands.entity(trigger.entity).insert(FrameInterpolate);

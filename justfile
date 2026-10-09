@@ -11,12 +11,12 @@ typos:
     typos -w
 
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going --all-features --features="lightyear_avian2d/f32 lightyear_avian3d/f32"
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going --all-features
 
 # Keep local Clippy aligned with CI. The excluded GUI examples are linted in
 # separate feature graphs so Avian 2D and 3D are not unified.
 clippy:
-    cargo clippy --features=lightyear_core/not_mock,avian3d/f32 --workspace --exclude=compiletime --exclude=avian_3d --exclude=launcher --exclude=delta_compression --no-deps -- -D warnings -A clippy::needless_lifetimes
+    cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d --exclude=launcher --exclude=delta_compression --no-deps -- -D warnings -A clippy::needless_lifetimes
     cargo clippy -p avian_3d --all-features --no-deps -- -D warnings
     cargo clippy -p launcher --all-features --no-deps -- -D warnings
 
@@ -199,10 +199,10 @@ test:
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d lightyear_avian2d/f32 udp websocket crossbeam steam"
+    input_native leafwing input_bei avian2d udp websocket crossbeam steam"
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d lightyear_avian3d/f32 udp websocket crossbeam steam"
+    input_native leafwing input_bei avian3d udp websocket crossbeam steam"
     cargo test -p lightyear_aeronet --all-features
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
     cargo test -p lightyear_avian --no-default-features --features="std 2d lag_compensation"

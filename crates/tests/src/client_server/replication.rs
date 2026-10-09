@@ -281,7 +281,7 @@ fn test_spawn_new_connection_respects_rooms() {
         .expect("entity is not present in room-sharing client entity map");
 
     // second client connects; it joins room B before its link is admitted
-    // into replication (same as inserting client Rooms in `On<Add, Connected>`)
+    // into replication (same as inserting client Rooms in `On<Add<Connected>>`)
     stepper.new_client(ClientType::Netcode, None);
     stepper
         .server_app

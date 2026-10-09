@@ -114,10 +114,10 @@ fn catch_up_mode_from_env() -> CatchUpMode {
 ///
 /// Triggered on `DeterministicPredicted` add (not `Position` add) because on
 /// the client, catch-up gated entities already have `Position` when
-/// `DeterministicPredicted` is inserted — so an `On<Add, Position>` observer
+/// `DeterministicPredicted` is inserted — so an `On<Add<Position>>` observer
 /// would miss them.
 fn add_frame_interpolation_components(
-    trigger: On<Add, DeterministicPredicted>,
+    trigger: On<Add<DeterministicPredicted>>,
     query: Query<(), (With<Position>, Without<FrameInterpolate>)>,
     mut commands: Commands,
 ) {

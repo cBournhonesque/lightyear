@@ -125,7 +125,7 @@ fn automation_aim_target_enabled() -> bool {
 
 // Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut player_query: Query<&mut ColorComponent, With<Predicted>>,
 ) {
     if let Ok(mut color) = player_query.get_mut(trigger.entity) {
@@ -142,7 +142,7 @@ pub(crate) fn handle_predicted_spawn(
 /// `Predicted` and `Controlled` can arrive in either order, especially in host-client mode. The
 /// input map is tied to local ownership, so key it off `Controlled` instead of prediction timing.
 pub(crate) fn handle_controlled_spawn(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     player_query: Query<(), (With<PlayerMarker>, Without<InputMap<PlayerActions>>)>,
 ) {
@@ -164,7 +164,7 @@ pub(crate) fn player_input_map() -> InputMap<PlayerActions> {
 }
 
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, ColorComponent>,
+    trigger: On<Add<ColorComponent>>,
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {

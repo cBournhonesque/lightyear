@@ -5,8 +5,8 @@ use bevy_ecs::{
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Components},
     prelude::*,
-    query::{FilteredAccess, FilteredAccessSet},
-    system::{SystemMeta, SystemParam, SystemParamValidationError},
+    query::FilteredAccess,
+    system::{SystemAccess, SystemMeta, SystemParam, SystemParamValidationError},
     world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
 use bevy_platform::collections::HashMap;
@@ -77,7 +77,7 @@ unsafe impl SystemParam for FrameInterpolationWorld<'_, '_> {
     fn init_access(
         state: &Self::State,
         _system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
@@ -90,7 +90,7 @@ unsafe impl SystemParam for FrameInterpolationWorld<'_, '_> {
             }
         }
 
-        component_access_set.add(filtered_access);
+        system_access.try_add(filtered_access).unwrap();
     }
 
     unsafe fn get_param<'world, 'state>(

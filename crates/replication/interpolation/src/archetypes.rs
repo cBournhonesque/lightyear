@@ -3,12 +3,13 @@ use crate::registry::{
 };
 use crate::rules::{CachedInterpolationApply, CachedInterpolationComponent};
 use alloc::vec::Vec;
+use bevy_ecs::system::SystemAccess;
 use bevy_ecs::{
     archetype::{ArchetypeGeneration, ArchetypeId, Archetypes},
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Components},
     prelude::*,
-    query::{FilteredAccess, FilteredAccessSet},
+    query::FilteredAccess,
     system::{SystemMeta, SystemParam, SystemParamValidationError},
     world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
@@ -80,7 +81,7 @@ unsafe impl SystemParam for InterpolationWorld<'_, '_> {
     fn init_access(
         state: &Self::State,
         _system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
@@ -92,7 +93,7 @@ unsafe impl SystemParam for InterpolationWorld<'_, '_> {
             }
         }
 
-        component_access_set.add(filtered_access);
+        system_access.try_add(filtered_access).unwrap();
     }
 
     unsafe fn get_param<'world, 'state>(

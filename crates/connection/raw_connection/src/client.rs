@@ -24,7 +24,7 @@ pub struct RawClient;
 impl RawConnectionPlugin {
     /// For RawClients, Linked implies Connected
     fn on_linked(
-        trigger: On<Add, Linked>,
+        trigger: On<Add<Linked>>,
         query: Query<(&LocalAddr, Option<&LocalId>, Option<&RemoteId>), With<RawClient>>,
         mut commands: Commands,
     ) {

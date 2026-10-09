@@ -35,7 +35,7 @@ pub const TICK_DURATION: Duration = Duration::from_millis(10);
 
 /// Adds the per-peer components needed by the shared test protocol to links created by any IO.
 fn configure_server_link(
-    trigger: On<Add, LinkOf>,
+    trigger: On<Add<LinkOf>>,
     clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {

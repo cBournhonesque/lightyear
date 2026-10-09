@@ -10,7 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["lightyear_p2p?/std", "lightyear_replication/std", "bevy_math/std"]
+std = ["lightyear_p2p?/std", "lightyear_replication/std", "bevy_math/std", "bevy_curve/std"]
 deterministic = []
 p2p = ["dep:lightyear_p2p"]
 server = ["dep:lightyear_messages"]
@@ -49,7 +49,8 @@ bevy_app.workspace = true
 bevy_diagnostic.workspace = true
 bevy_derive.workspace = true
 bevy_ecs.workspace = true
-bevy_math = { workspace = true, features = ["curve"] }
+bevy_curve.workspace = true
+bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_reflect.workspace = true
 bevy_time.workspace = true

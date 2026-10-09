@@ -42,7 +42,7 @@ pub struct PlayerRoom(RoomId);
 ///
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
@@ -52,7 +52,7 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 /// received was valid. The server could reject the connection attempt for many reasons (server is full, packet is invalid,
 /// DDoS attempt, etc.). We want to start the replication only when the client is confirmed as connected.
 pub(crate) fn handle_connected(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     player_room: Res<PlayerRoom>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,

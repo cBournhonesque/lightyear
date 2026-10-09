@@ -329,7 +329,7 @@ fn add_player_visuals(
 
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
-    trigger: On<Add, (Position, Rotation)>,
+    trigger: On<Add<(Position, Rotation)>>,
     // Hitscan are rendered differently
     query: Query<
         (&ColorComponent, &Position, &Rotation, Has<Interpolated>),
@@ -367,7 +367,7 @@ fn add_bullet_visuals(
 
 /// Add visuals to hitscan effects
 fn add_hitscan_visual(
-    trigger: On<Add, HitscanVisual>,
+    trigger: On<Add<HitscanVisual>>,
     query: Query<(&HitscanVisual, &ColorComponent)>,
     mut commands: Commands,
 ) {

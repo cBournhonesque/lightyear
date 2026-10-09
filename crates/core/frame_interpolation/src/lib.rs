@@ -53,11 +53,8 @@ mod archetypes;
 
 use crate::archetypes::FrameInterpolationWorld;
 use bevy_app::prelude::*;
+use bevy_curve::{Curve, Ease, EaseFunction, EasingCurve};
 use bevy_ecs::{prelude::*, schedule::common_conditions::not};
-use bevy_math::{
-    Curve,
-    curve::{Ease, EaseFunction, EasingCurve},
-};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 pub use lightyear_core::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};

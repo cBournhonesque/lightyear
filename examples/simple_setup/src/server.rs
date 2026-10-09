@@ -22,7 +22,7 @@ impl Plugin for ExampleServerPlugin {
 ///
 /// You can add more components to customize how this connection, for example by adding a
 /// [`ReplicationSender`] (which means that the server will replicate the state of the world to this client)
-fn handle_new_client(trigger: On<Add, Connected>, mut commands: Commands) {
+fn handle_new_client(trigger: On<Add<Connected>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(ReplicationSender);
 
     // spawn an entity for this client, that we will replicate to all clients

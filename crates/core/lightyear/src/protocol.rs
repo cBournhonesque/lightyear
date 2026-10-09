@@ -39,7 +39,7 @@ pub enum ProtocolCheckError {
 impl ProtocolCheckPlugin {
     /// On the server, send a message with the protocol checksum when a client connects
     fn send_verify_protocol(
-        trigger: On<Add, Connected>,
+        trigger: On<Add<Connected>>,
         mut sender: Query<&mut EventSender<ProtocolCheck>, (With<ClientOf>, Without<HostClient>)>,
         messages: Option<ResMut<MessageRegistry>>,
         components: Option<ResMut<ComponentRegistry>>,

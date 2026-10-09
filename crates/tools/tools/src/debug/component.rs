@@ -578,7 +578,7 @@ pub fn log_component_json_value<C: Component + Serialize>(
 }
 
 fn register_inserted_lightyear_debug_components(
-    trigger: On<Insert, LightyearDebug>,
+    trigger: On<Insert<LightyearDebug>>,
     mut query: Query<&mut LightyearDebug>,
     mut registry: ResMut<LightyearDebugComponentRegistry>,
 ) {

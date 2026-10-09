@@ -288,7 +288,7 @@ fn legend_row(
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: On<Add, Position>,
+    trigger: On<Add<Position>>,
     query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
     clients: Query<(), With<Client>>,
     mut commands: Commands,
@@ -418,7 +418,7 @@ struct BlendFrom(Color);
 
 /// Drop the captured start paint when the blend lifts, so the next switch
 /// re-captures instead of fading from a stale color.
-fn clear_blend_start_color(trigger: On<Remove, SwitchBlend>, mut commands: Commands) {
+fn clear_blend_start_color(trigger: On<Remove<SwitchBlend>>, mut commands: Commands) {
     commands.entity(trigger.entity).remove::<BlendFrom>();
 }
 

@@ -84,7 +84,7 @@ fn movement(
 
 /// Prepare predicted player entities for visual interpolation and distinguish them visually.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
     mut commands: Commands,
 ) {
@@ -108,7 +108,7 @@ pub(crate) fn handle_predicted_spawn(
 /// In host-client worlds `Predicted` and `Controlled` may be added in different orders, so local
 /// input setup should follow `Controlled` instead of the predicted-spawn visual setup.
 pub(crate) fn handle_controlled_spawn(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     players: Query<(), (With<PlayerId>, Without<InputMarker<Inputs>>)>,
 ) {
@@ -123,7 +123,7 @@ pub(crate) fn handle_controlled_spawn(
 
 /// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, PlayerColor>,
+    trigger: On<Add<PlayerColor>>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {

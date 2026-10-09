@@ -1,7 +1,7 @@
 use aeronet_io::connection::PeerAddr;
 use aeronet_steam::client::SteamNetClient;
 use aeronet_steam::{
-    SessionConfig, SteamworksClient,
+    SessionConfig, SteamworksSockets,
     client::{ConnectTarget, SteamNetClientPlugin},
 };
 use bevy_app::{App, Plugin};
@@ -31,7 +31,7 @@ impl Plugin for SteamClientPlugin {
 /// Component to insert on an entity to start a Steam  socket client which
 /// can connect to a dedicated server or another peer.
 ///
-/// The [`SteamworksClient`] resource must have been created beforehand.
+/// The [`SteamworksSockets`] resource holding a client socket must have been created beforehand.
 #[derive(Debug, Component)]
 #[component(on_add = SteamClientIo::on_add)]
 #[require(Link)]
@@ -44,7 +44,10 @@ impl SteamClientIo {
     /// When we add the SteamClientIo component, we will also add a LocalId component
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
-        let local_steam_id = world.resource::<SteamworksClient>().0.user().steam_id();
+        let local_steam_id = match world.resource::<SteamworksSockets>() {
+            SteamworksSockets::Client(client) => client.user().steam_id(),
+            SteamworksSockets::Server(_) => panic!("Cannot create a SteamClientIo on the server"),
+        };
         world
             .commands()
             .entity(entity)
@@ -95,7 +98,7 @@ impl SteamClientPlugin {
 
     /// Steam is both a Link and a Connection, so we add Connected when Linked is added
     fn on_linked(
-        trigger: On<Add, Linked>,
+        trigger: On<Add<Linked>>,
         query: Query<(), With<SteamClientIo>>,
         mut commands: Commands,
     ) {

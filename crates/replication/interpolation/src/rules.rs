@@ -17,15 +17,12 @@ use self::frame_interpolate::{
 };
 use crate::registry::InterpolationRegistry;
 use alloc::{boxed::Box, vec::Vec};
+use bevy_curve::{Curve, Ease, EaseFunction, EasingCurve};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components, StorageType};
 use bevy_ecs::prelude::{Commands, Entity};
 use bevy_ecs::query::{ArchetypeFilter, FilteredAccess};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
-use bevy_math::{
-    Curve,
-    curve::{Ease, EaseFunction, EasingCurve},
-};
 use core::any::Any;
 use core::fmt;
 use core::marker::PhantomData;

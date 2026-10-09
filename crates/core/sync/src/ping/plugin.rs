@@ -142,7 +142,7 @@ impl PingPlugin {
     /// clients would otherwise both wait for the other side to send the first ping. Restoring the
     /// two protocol-internal receivers here lets either side initiate synchronization.
     pub(crate) fn handle_connect(
-        trigger: On<Add, Connected>,
+        trigger: On<Add<Connected>>,
         mut query: Query<&mut PingManager>,
         mut commands: Commands,
     ) {

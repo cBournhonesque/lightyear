@@ -46,7 +46,7 @@ jobs:
           taplo fmt --check
 
       - name: Clippy lightyear
-        run: cargo clippy --features=lightyear_core/not_mock,avian3d/f32 --workspace --exclude=compiletime --exclude=avian_3d --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
+        run: cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
 
   docs:
     name: Doc
@@ -72,7 +72,7 @@ jobs:
           # Must match [package.metadata.docs.rs]
           RUSTFLAGS: --cfg docsrs_dep -A mismatched_lifetime_syntaxes
           RUSTDOCFLAGS: --cfg=docsrs
-        run: cargo +nightly doc --all-features --workspace --features "avian2d/2d avian2d/f32 avian3d/3d avian3d/f32" --document-private-items --no-deps --keep-going
+        run: cargo +nightly doc --all-features --workspace --features "avian2d/2d avian2d avian3d/3d avian3d" --document-private-items --no-deps --keep-going
 
   test:
     name: Test
