@@ -40,20 +40,26 @@ impl RawConnectionPlugin {
     }
 
     /// For RawServers, when a LinkOf gets Linked, it also becomes Connected
+    ///
+    /// A `RemoteId` the IO layer already put on the link is kept, as for a `RawClient`: a
+    /// connection-oriented IO layer can carry several links from one `PeerAddr`, so it names
+    /// each peer itself.
     fn on_link_of_linked(
         trigger: On<Add, Linked>,
-        link_of: Query<(&LinkOf, &PeerAddr)>,
+        link_of: Query<(&LinkOf, &PeerAddr, Option<&RemoteId>)>,
         server: Query<(), With<RawServer>>,
         mut commands: Commands,
     ) {
-        if let Ok((link_of, peer_addr)) = link_of.get(trigger.entity)
+        if let Ok((link_of, peer_addr, remote_id)) = link_of.get(trigger.entity)
             && server.get(link_of.endpoint).is_ok()
         {
             trace!("RawClient LinkOf Linked! Adding Connected");
             commands.entity(trigger.entity).insert((
                 Connected,
                 LocalId(PeerId::Server),
-                RemoteId(PeerId::Raw(peer_addr.0)),
+                remote_id
+                    .copied()
+                    .unwrap_or(RemoteId(PeerId::Raw(peer_addr.0))),
                 ClientOf,
             ));
         }
@@ -152,5 +158,36 @@ mod tests {
         app.world_mut().flush();
 
         assert!(app.world().get_entity(client).is_err());
+    }
+
+    #[test]
+    fn raw_server_link_preserves_preconfigured_remote_id() {
+        let mut app = App::new();
+        app.add_plugins(RawConnectionPlugin);
+        let server = app.world_mut().spawn(RawServer).id();
+        let addr = "127.0.0.1:5000".parse().unwrap();
+        let named = RemoteId(PeerId::Entity(7));
+        let named_link = app
+            .world_mut()
+            .spawn((LinkOf { endpoint: server }, PeerAddr(addr), named))
+            .id();
+        let addressed_link = app
+            .world_mut()
+            .spawn((LinkOf { endpoint: server }, PeerAddr(addr)))
+            .id();
+
+        app.world_mut().entity_mut(named_link).insert(Linked);
+        app.world_mut().entity_mut(addressed_link).insert(Linked);
+        app.world_mut().flush();
+
+        let named_link = app.world().entity(named_link);
+        assert!(named_link.contains::<Connected>());
+        assert_eq!(named_link.get::<RemoteId>(), Some(&named));
+        let addressed_link = app.world().entity(addressed_link);
+        assert!(addressed_link.contains::<Connected>());
+        assert_eq!(
+            addressed_link.get::<RemoteId>(),
+            Some(&RemoteId(PeerId::Raw(addr)))
+        );
     }
 }
