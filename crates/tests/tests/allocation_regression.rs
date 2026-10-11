@@ -1,8 +1,9 @@
 use std::alloc::System;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
 use bevy::prelude::{Entity, FixedUpdate, Query, Res, ResMut, Resource, Update, With};
+use bevy::transform::systems::StaticTransformOptimizations;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear::prelude::{
     MessageReceiver, MessageSender, NetworkTarget, Predicted, PredictionTarget, Replicate,
@@ -20,6 +21,14 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Serializes the tests that read the global allocator's counters. The lock guards no data, so a
+/// test that failed while holding it does not fail the tests after it.
+fn lock_allocation_counters() -> MutexGuard<'static, ()> {
+    ALLOCATION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
 
 const WARMUP_FRAMES: usize = 128;
 const MEASURED_FRAMES: usize = 32;
@@ -123,7 +132,7 @@ fn median(values: &[usize]) -> usize {
 
 #[test]
 fn steady_state_networking_work_stays_within_allocation_budget() {
-    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
+    let _guard = lock_allocation_counters();
     let message_stats = measure_message_send_receive();
     let replication_stats = measure_replication_updates();
     let prediction_stats = measure_prediction_updates();
@@ -160,7 +169,7 @@ fn steady_state_networking_work_stays_within_allocation_budget() {
 
 #[test]
 fn packet_payload_pool_has_no_misses_after_warmup_through_crossbeam_io() {
-    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
+    let _guard = lock_allocation_counters();
     let mut stepper = ClientServerStepper::from_config(StepperConfig::from_connection_types(
         vec![ClientType::Raw],
         ServerType::Raw,
@@ -173,7 +182,7 @@ fn packet_payload_pool_has_no_misses_after_warmup_through_crossbeam_io() {
     stepper
         .client_app()
         .add_systems(Update, count_received_messages);
-    use_single_threaded_schedules(&mut stepper);
+    use_deterministic_frames(&mut stepper);
 
     for _ in 0..WARMUP_FRAMES {
         run_bidirectional_message_cycle(&mut stepper);
@@ -197,7 +206,7 @@ fn packet_payload_pool_has_no_misses_after_warmup_through_crossbeam_io() {
 
 #[test]
 fn udp_receive_payload_pool_has_no_misses_after_warmup() {
-    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
+    let _guard = lock_allocation_counters();
     let mut stepper =
         ClientServerStepper::from_config(StepperConfig::single().with_io(IoType::Udp));
     stepper.server_app.init_resource::<ReceivedMessageCount>();
@@ -208,7 +217,7 @@ fn udp_receive_payload_pool_has_no_misses_after_warmup() {
     stepper
         .client_app()
         .add_systems(Update, count_received_messages);
-    use_single_threaded_schedules(&mut stepper);
+    use_deterministic_frames(&mut stepper);
 
     for _ in 0..WARMUP_FRAMES {
         run_bidirectional_message_cycle(&mut stepper);
@@ -267,7 +276,7 @@ fn measure_message_send_receive() -> AllocationMeasurement {
     stepper
         .client_app()
         .add_systems(Update, count_received_messages);
-    use_single_threaded_schedules(&mut stepper);
+    use_deterministic_frames(&mut stepper);
 
     for _ in 0..WARMUP_FRAMES {
         run_bidirectional_message_cycle(&mut stepper);
@@ -381,7 +390,7 @@ fn count_received_messages(
 
 fn measure_replication_updates() -> AllocationMeasurement {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    use_single_threaded_schedules(&mut stepper);
+    use_deterministic_frames(&mut stepper);
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -457,7 +466,7 @@ fn measure_prediction_updates() -> AllocationMeasurement {
     stepper
         .client_app()
         .add_systems(FixedUpdate, increment_predicted_component);
-    use_single_threaded_schedules(&mut stepper);
+    use_deterministic_frames(&mut stepper);
 
     let server_entity = stepper
         .server_app
@@ -617,8 +626,14 @@ fn wait_for_mapped_client_entity(
     mapped_client_entity(stepper, server_entity)
 }
 
-fn use_single_threaded_schedules(stepper: &mut ClientServerStepper) {
+/// Makes every frame allocate the same from run to run, so a budget of a few allocations holds.
+///
+/// Systems run in one order on one thread. Static transform optimizations are off: their
+/// `mark_dirty_trees` system fans out on the compute pool every frame, and allocates a different
+/// number of times, about 90 a frame, depending on how the pool's threads race.
+fn use_deterministic_frames(stepper: &mut ClientServerStepper) {
     for app in core::iter::once(&mut stepper.server_app).chain(stepper.client_apps.iter_mut()) {
+        app.insert_resource(StaticTransformOptimizations::Disabled);
         for (_, schedule) in app.world_mut().resource_mut::<Schedules>().iter_mut() {
             schedule.set_executor(SingleThreadedExecutor::new());
         }

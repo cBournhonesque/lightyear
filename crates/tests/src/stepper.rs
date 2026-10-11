@@ -20,10 +20,8 @@ use lightyear_raw_connection::client::RawClient;
 use lightyear_raw_connection::server::RawServer;
 use lightyear_replication::receive::ReplicationReceiver;
 #[cfg(feature = "std")]
-use lightyear_udp::endpoint::UdpEndpointPlugin;
+use lightyear_udp::UdpIo;
 use lightyear_udp::server::ServerUdpIo;
-#[cfg(feature = "std")]
-use lightyear_udp::{UdpIo, UdpPlugin};
 
 pub const SERVER_PORT: u16 = 56789;
 pub const SERVER_ADDR: SocketAddr =
@@ -321,10 +319,6 @@ impl ClientServerStepper {
             server_app.add_steam_resources(STEAM_APP_ID);
         }
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
-        #[cfg(feature = "std")]
-        if io == IoType::Udp {
-            server_app.add_plugins(UdpEndpointPlugin);
-        }
         server_app.add_observer(configure_server_link);
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin { avian_mode });
@@ -411,10 +405,6 @@ impl ClientServerStepper {
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
-        #[cfg(feature = "std")]
-        if self.io == IoType::Udp {
-            client_app.add_plugins(UdpPlugin);
-        }
         // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         client_app.add_plugins(ProtocolPlugin {
             avian_mode: self.avian_mode,

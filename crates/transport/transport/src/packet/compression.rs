@@ -457,13 +457,19 @@ mod tests {
     #[cfg(feature = "compression_lz4")]
     #[test]
     fn lz4_decompression_respects_configured_size_cap() {
-        let compressed = lz4_flex::block::compress_prepend_size(&[3u8; 32]);
+        let mut output = Vec::new();
+        let compressed = CompressionScratch::compress_lz4(
+            &[3u8; 32],
+            &mut output,
+            &mut lz4_flex::block::CompressTable::default(),
+        )
+        .unwrap();
         let config = CompressionConfig {
             max_decompressed_payload_size: 8,
             ..CompressionConfig::LZ4
         };
 
-        let err = decompress_payload(&compressed, config).unwrap_err();
+        let err = decompress_payload(compressed, config).unwrap_err();
 
         assert!(matches!(
             err,
