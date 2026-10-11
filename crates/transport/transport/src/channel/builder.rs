@@ -12,7 +12,9 @@ use crate::packet::packet::{
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::{BandwidthLimiter, PriorityManager};
 use bevy_ecs::component::Component;
-use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::lifecycle::{HookContext, Insert};
+use bevy_ecs::observer::On;
+use bevy_ecs::system::Query;
 use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
@@ -21,7 +23,7 @@ use core::time::Duration;
 use lightyear_core::prelude::{IntoMessageTimeline, TimelineKind};
 #[cfg(all(test, feature = "compression_lz4"))]
 use lightyear_link::DEFAULT_MTU;
-use lightyear_link::Link;
+use lightyear_link::{Link, Linked};
 #[allow(unused_imports)]
 use tracing::trace;
 
@@ -309,7 +311,19 @@ impl Transport {
         }
     }
 
-    /// Derives the stable fragment size when this transport is attached to its link.
+    /// The IO layer may have lowered the link's minimum MTU while linking.
+    pub(crate) fn on_linked(
+        trigger: On<Insert, Linked>,
+        mut query: Query<(&Link, &mut Transport)>,
+    ) {
+        if let Ok((link, mut transport)) = query.get_mut(trigger.entity)
+            && let Err(error) = transport.initialize_fragment_size(link.min_mtu())
+        {
+            tracing::error!(?error, "invalid link MTU for transport");
+        }
+    }
+
+    /// Derives the fragment size from the link's minimum MTU.
     fn initialize_fragment_size(&mut self, min_mtu: usize) -> Result<(), PacketError> {
         let fragment_size = fragment_size_for_min_mtu(min_mtu).ok_or(PacketError::MtuTooSmall {
             actual: min_mtu,
@@ -619,7 +633,7 @@ mod transport_tests {
     use lightyear_link::LinkMtu;
 
     #[test]
-    fn fragment_size_is_initialized_once_from_link_minimum_mtu() {
+    fn fragment_size_follows_link_minimum_mtu_until_linked() {
         let mut world = World::new();
         let entity = world
             .spawn((
@@ -641,6 +655,14 @@ mod transport_tests {
         assert_eq!(
             world.get::<Transport>(entity).unwrap().fragment_size,
             expected_fragment_size
+        );
+
+        world.add_observer(Transport::on_linked);
+        world.get_mut::<Link>(entity).unwrap().set_min_mtu(200);
+        world.entity_mut(entity).insert(Linked);
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            fragment_size_for_min_mtu(200).unwrap()
         );
     }
 

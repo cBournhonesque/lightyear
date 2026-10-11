@@ -6,7 +6,7 @@ pub const DEFAULT_MTU: usize = 1200;
 
 /// The minimum and currently available maximum payload size of a link.
 ///
-/// The minimum is stable for the lifetime of a link and lets higher layers choose a fragment size
+/// The minimum is stable once the link is linked and lets higher layers choose a fragment size
 /// which remains valid if path-MTU discovery later changes the current value. The current MTU may
 /// grow or shrink, but never below [`min_mtu`](Self::min_mtu).
 ///
@@ -35,6 +35,14 @@ impl LinkMtu {
     /// Returns the link's current maximum payload size.
     pub const fn mtu(self) -> usize {
         self.mtu
+    }
+
+    /// Replaces the minimum MTU, raising the current MTU to it if it was smaller.
+    pub const fn set_min_mtu(&mut self, min_mtu: usize) {
+        self.min_mtu = min_mtu;
+        if self.mtu < min_mtu {
+            self.mtu = min_mtu;
+        }
     }
 
     /// Updates the current MTU without allowing it to fall below the stable minimum.

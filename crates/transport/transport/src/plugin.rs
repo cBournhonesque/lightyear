@@ -660,6 +660,7 @@ impl Plugin for TransportPlugin {
         }
         #[cfg(any(feature = "client", feature = "server"))]
         app.add_observer(Self::handle_disconnection);
+        app.add_observer(Transport::on_linked);
     }
 
     fn finish(&self, app: &mut App) {
