@@ -16,6 +16,7 @@ use super::{
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectTokenPrivate},
 };
+use ::bytes::BytesMut;
 use chacha20poly1305::XNonce;
 use lightyear_link::RecvPayload;
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -363,13 +364,13 @@ impl Bytes for KeepAlivePacket {
 /// Outbound application payloads are written directly by [`Packet::write_payload`] instead of
 /// constructing this receive-side representation.
 pub struct PayloadPacket {
-    buf: RecvPayload,
+    buf: BytesMut,
 }
 
 impl PayloadPacket {
-    /// Consumes the parsed packet and returns its mutable application payload.
+    /// Consumes the parsed packet and returns its application payload.
     pub fn into_recv(self) -> RecvPayload {
-        self.buf
+        self.buf.into()
     }
 }
 
@@ -543,7 +544,7 @@ impl Packet {
         Ok(encryption_end)
     }
     pub fn read(
-        buf: RecvPayload, // buffer needs to be mutable to perform decryption in-place
+        buf: BytesMut, // buffer needs to be mutable to perform decryption in-place
         protocol_id: u64,
         timestamp: u64,
         key: Key,
@@ -635,7 +636,6 @@ mod tests {
 
     use alloc::vec::Vec;
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305, aead::OsRng};
-    use lightyear_link::recv_payload_from_bytes;
     use lightyear_serde::writer::Writer;
     use std::dbg;
 
@@ -703,7 +703,7 @@ mod tests {
         dbg!(size);
 
         let packet = Packet::read(
-            recv_payload_from_bytes(buf.split_to(size)),
+            RecvPayload::from(buf.split_to(size)).into_mut(),
             protocol_id,
             0,
             private_key,
@@ -752,7 +752,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            recv_payload_from_bytes(buf.split_to(size)),
+            RecvPayload::from(buf.split_to(size)).into_mut(),
             protocol_id,
             0,
             packet_key,
@@ -784,7 +784,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            recv_payload_from_bytes(buf.split_to(size)),
+            RecvPayload::from(buf.split_to(size)).into_mut(),
             protocol_id,
             0,
             packet_key,
@@ -815,7 +815,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            recv_payload_from_bytes(buf.split_to(size)),
+            RecvPayload::from(buf.split_to(size)).into_mut(),
             protocol_id,
             0,
             packet_key,
@@ -848,7 +848,7 @@ mod tests {
             .unwrap();
 
         let packet = Packet::read(
-            recv_payload_from_bytes(buf.split_to(size)),
+            RecvPayload::from(buf.split_to(size)).into_mut(),
             protocol_id,
             0,
             packet_key,
@@ -878,7 +878,7 @@ mod tests {
             .write(buf.as_mut(), sequence, &packet_key, protocol_id)
             .unwrap();
 
-        let received = recv_payload_from_bytes(buf.split_to(size));
+        let received = RecvPayload::from(buf.split_to(size)).into_mut();
         let packet = Packet::read(
             received,
             protocol_id,
@@ -913,7 +913,7 @@ mod tests {
         )
         .unwrap();
 
-        let received = recv_payload_from_bytes(writer.split_to(size));
+        let received = RecvPayload::from(writer.split_to(size)).into_mut();
         let received_range = received.as_ptr_range();
         let packet = Packet::read(
             received,

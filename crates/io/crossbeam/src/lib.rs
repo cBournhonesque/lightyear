@@ -52,7 +52,6 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use lightyear_core::time::Instant;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Unlink, UnlinkReason,
-    recv_payload_from_bytes,
 };
 use tracing::{error, trace};
 
@@ -194,8 +193,7 @@ impl CrossbeamPlugin {
                 match crossbeam_io.receiver.try_recv() {
                     Ok(data) => {
                         trace!("recv data: {data:?}");
-                        link.recv
-                            .push(recv_payload_from_bytes(data), Instant::now())
+                        link.recv.push(data, Instant::now())
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
@@ -354,7 +352,8 @@ mod tests {
     }
 
     /// Verify multi-payload round-trip send/receive between a paired client and
-    /// server transport, including FIFO ordering.
+    /// server transport, including FIFO ordering, and that a payload whose allocation the sender
+    /// still shares, as the transport's packet pool does, arrives with no copy.
     #[test]
     fn round_trip_send_receive() {
         let (client_io, server_io) = CrossbeamIo::new_pair();
@@ -377,7 +376,8 @@ mod tests {
             .expect("client entity should have Link");
         client_link.send.push(Bytes::from_static(b"a"));
         client_link.send.push(Bytes::from_static(b"b"));
-        client_link.send.push(Bytes::from_static(b"c"));
+        let shared = Bytes::from(alloc::vec![b'c']);
+        client_link.send.push(shared.clone());
 
         // Two frames: frame 1 client.PostUpdate `send` pushes into the channel,
         // frame 2 server.PreUpdate `receive` pulls them into Link.recv.
@@ -394,6 +394,7 @@ mod tests {
         assert_eq!(p1.as_ref(), b"a");
         assert_eq!(p2.as_ref(), b"b");
         assert_eq!(p3.as_ref(), b"c");
+        assert_eq!(p3.freeze().as_ptr(), shared.as_ptr());
         assert!(
             server_link.recv.pop().is_none(),
             "no extra payloads should be received"

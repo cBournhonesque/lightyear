@@ -918,7 +918,7 @@ impl<Ctx> Server<Ctx> {
             // Too small to be a packet
             return Ok(None);
         }
-        let mut reader = io::Cursor::new(buf);
+        let mut reader = io::Cursor::new(buf.into_mut());
         let first_byte = reader.read_u8()?;
         let entity = entity_mut.id();
         // reader.rewind()?;

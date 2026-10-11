@@ -506,7 +506,7 @@ impl<Ctx> Client<Ctx> {
             return Ok(None);
         }
         let packet = match Packet::read(
-            buf,
+            buf.into_mut(),
             self.token.protocol_id,
             now,
             self.token.server_to_client_key,
