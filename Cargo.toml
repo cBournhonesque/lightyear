@@ -220,7 +220,7 @@ bevy_math = { version = "0.19", default-features = false }
 bevy_platform = { version = "0.19", default-features = false }
 bevy_ptr = { version = "0.19", default-features = false }
 bevy_reflect = { version = "0.19", default-features = false }
-bevy_state = { version = "0.19", default-features = false }
+bevy_state = { version = "0.20", default-features = false }
 bevy_text = { version = "0.19", default-features = false }
 bevy_time = { version = "0.19", default-features = false }
 bevy_transform = { version = "0.19", default-features = false }
