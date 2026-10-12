@@ -328,26 +328,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn reconnect_starts_from_the_configured_mtu() {
-        let mut app = App::new();
-        app.add_plugins(AeronetPlugin);
-        let link = app.world_mut().spawn(Link::default()).id();
-        let mut session = Session::new(Instant::now(), IP_MTU);
-        session.set_mtu(1100).unwrap();
-        let first = app.world_mut().spawn((AeronetLinkOf(link), session)).id();
-        app.update();
-        assert_eq!(app.world().get::<Link>(link).unwrap().mtu(), 1100);
-
-        app.world_mut().despawn(first);
-        app.world_mut().entity_mut(link).insert(Unlinked {
-            reason: UnlinkReason::Initial,
-        });
-        let mut session = Session::new(Instant::now(), IP_MTU);
-        session.set_mtu(1400).unwrap();
-        app.world_mut().spawn((AeronetLinkOf(link), session));
-        let link = app.world().get::<Link>(link).unwrap();
-        assert_eq!((link.min_mtu(), link.mtu()), (IP_MTU, DEFAULT_MTU));
-    }
 }

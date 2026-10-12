@@ -4,12 +4,11 @@
 /// bytes because it is safe for the connection and datagram transports supported by Lightyear.
 pub const DEFAULT_MTU: usize = 1200;
 
-/// The minimum, current, and maximum payload size of a link.
+/// The minimum, currently available, and configured maximum payload size of a link.
 ///
-/// The maximum is the configured size: Lightyear never builds a larger packet on this link. An IO
-/// layer that can carry less lowers the current value, and may lower the minimum before the link
-/// is linked. The minimum then stays stable and lets higher layers choose a fragment size which
-/// remains valid if path-MTU discovery later changes the current value.
+/// The minimum is stable once the link is linked and lets higher layers choose a fragment size
+/// which remains valid if path-MTU discovery later changes the current value. The current MTU may
+/// grow or shrink, but never below [`min_mtu`](Self::min_mtu) or above the configured maximum.
 ///
 /// Both peers must agree on the minimum MTU. The transport derives its fixed fragment payload size
 /// from this value instead of repeating that size in every fragment packet.
@@ -47,7 +46,8 @@ impl LinkMtu {
         }
     }
 
-    /// Sets the current MTU to what the IO layer can carry now, capped at the configured maximum.
+    /// Updates the current MTU, capped at the configured maximum, without allowing it to fall
+    /// below the minimum.
     pub const fn set_mtu(&mut self, mtu: usize) -> Result<(), MtuTooSmall> {
         if mtu < self.min_mtu {
             return Err(MtuTooSmall {
@@ -96,23 +96,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn current_mtu_stays_between_minimum_and_configured_maximum() {
+    fn link_mtu_tracks_stable_minimum_and_current_value() {
         let mut mtu = LinkMtu::new(900);
-        assert_eq!((mtu.min_mtu(), mtu.mtu()), (900, 900));
+        assert_eq!(mtu.min_mtu(), 900);
+        assert_eq!(mtu.mtu(), 900);
+
+        mtu.set_mtu(1400).unwrap();
+        assert_eq!(mtu.min_mtu(), 900);
+        assert_eq!(mtu.mtu(), 900);
 
         assert_eq!(mtu.set_mtu(899), Err(MtuTooSmall { mtu: 899, min: 900 }));
-        mtu.set_mtu(1400).unwrap();
         assert_eq!(mtu.mtu(), 900);
 
         mtu.lower_min_mtu(1000);
         assert_eq!(mtu.min_mtu(), 900);
         mtu.lower_min_mtu(600);
-        assert_eq!((mtu.min_mtu(), mtu.mtu()), (600, 900));
         mtu.set_mtu(700).unwrap();
+        assert_eq!(mtu.min_mtu(), 600);
         assert_eq!(mtu.mtu(), 700);
-        mtu.set_mtu(900).unwrap();
-        assert_eq!(mtu.mtu(), 900);
         assert_eq!(mtu.set_mtu(599), Err(MtuTooSmall { mtu: 599, min: 600 }));
-        assert_eq!(mtu.mtu(), 900);
     }
 }

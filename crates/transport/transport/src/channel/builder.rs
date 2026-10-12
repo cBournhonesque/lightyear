@@ -635,35 +635,32 @@ mod transport_tests {
     #[test]
     fn fragment_size_follows_link_minimum_mtu_until_linked() {
         let mut world = World::new();
-        world.add_observer(Transport::on_linked);
-        let entity = world
-            .spawn((
-                Link::default().with_mtu(LinkMtu::new(512)),
-                Transport::default(),
-            ))
-            .id();
-        let fragment_size = |world: &World| world.get::<Transport>(entity).unwrap().fragment_size;
-        assert_eq!(
-            fragment_size(&world),
-            fragment_size_for_min_mtu(512).unwrap()
-        );
-
-        let mut link = world.get_mut::<Link>(entity).unwrap();
+        let mut link = Link::default().with_mtu(LinkMtu::new(512));
         link.lower_min_mtu(256);
-        link.set_mtu(400).unwrap();
-        assert_eq!(
-            fragment_size(&world),
-            fragment_size_for_min_mtu(512).unwrap()
-        );
+        let entity = world.spawn((link, Transport::default())).id();
+        let expected_fragment_size = fragment_size_for_min_mtu(256).unwrap();
 
-        world.entity_mut(entity).insert(Linked);
-        let linked_fragment_size = fragment_size_for_min_mtu(256).unwrap();
-        assert_eq!(fragment_size(&world), linked_fragment_size);
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            expected_fragment_size
+        );
 
         world.get_mut::<Link>(entity).unwrap().set_mtu(512).unwrap();
-        let link = world.get::<Link>(entity).unwrap();
-        assert_eq!((link.min_mtu(), link.mtu()), (256, 512));
-        assert_eq!(fragment_size(&world), linked_fragment_size);
+
+        assert_eq!(world.get::<Link>(entity).unwrap().min_mtu(), 256);
+        assert_eq!(world.get::<Link>(entity).unwrap().mtu(), 512);
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            expected_fragment_size
+        );
+
+        world.add_observer(Transport::on_linked);
+        world.get_mut::<Link>(entity).unwrap().lower_min_mtu(200);
+        world.entity_mut(entity).insert(Linked);
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            fragment_size_for_min_mtu(200).unwrap()
+        );
     }
 
     #[test]
