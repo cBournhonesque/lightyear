@@ -4,11 +4,12 @@
 /// bytes because it is safe for the connection and datagram transports supported by Lightyear.
 pub const DEFAULT_MTU: usize = 1200;
 
-/// The minimum and currently available maximum payload size of a link.
+/// The minimum, current, and maximum payload size of a link.
 ///
-/// The minimum is stable once the link is linked and lets higher layers choose a fragment size
-/// which remains valid if path-MTU discovery later changes the current value. The current MTU may
-/// grow or shrink, but never below [`min_mtu`](Self::min_mtu).
+/// The maximum is the configured size: Lightyear never builds a larger packet on this link. An IO
+/// layer that can carry less lowers the current value, and may lower the minimum before the link
+/// is linked. The minimum then stays stable and lets higher layers choose a fragment size which
+/// remains valid if path-MTU discovery later changes the current value.
 ///
 /// Both peers must agree on the minimum MTU. The transport derives its fixed fragment payload size
 /// from this value instead of repeating that size in every fragment packet.
@@ -16,14 +17,16 @@ pub const DEFAULT_MTU: usize = 1200;
 pub struct LinkMtu {
     min_mtu: usize,
     mtu: usize,
+    max_mtu: usize,
 }
 
 impl LinkMtu {
-    /// Creates link MTU characteristics whose current and minimum values are both `min_mtu`.
-    pub const fn new(min_mtu: usize) -> Self {
+    /// Creates link MTU characteristics whose minimum, current, and maximum values are all `mtu`.
+    pub const fn new(mtu: usize) -> Self {
         Self {
-            min_mtu,
-            mtu: min_mtu,
+            min_mtu: mtu,
+            mtu,
+            max_mtu: mtu,
         }
     }
 
@@ -37,15 +40,14 @@ impl LinkMtu {
         self.mtu
     }
 
-    /// Replaces the minimum MTU, raising the current MTU to it if it was smaller.
-    pub const fn set_min_mtu(&mut self, min_mtu: usize) {
-        self.min_mtu = min_mtu;
-        if self.mtu < min_mtu {
-            self.mtu = min_mtu;
+    /// Lowers the minimum MTU to `min_mtu` if it is higher.
+    pub const fn lower_min_mtu(&mut self, min_mtu: usize) {
+        if min_mtu < self.min_mtu {
+            self.min_mtu = min_mtu;
         }
     }
 
-    /// Updates the current MTU without allowing it to fall below the stable minimum.
+    /// Sets the current MTU to what the IO layer can carry now, capped at the configured maximum.
     pub const fn set_mtu(&mut self, mtu: usize) -> Result<(), MtuTooSmall> {
         if mtu < self.min_mtu {
             return Err(MtuTooSmall {
@@ -53,7 +55,11 @@ impl LinkMtu {
                 min: self.min_mtu,
             });
         }
-        self.mtu = mtu;
+        self.mtu = if mtu < self.max_mtu {
+            mtu
+        } else {
+            self.max_mtu
+        };
         Ok(())
     }
 }
@@ -90,16 +96,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn link_mtu_tracks_stable_minimum_and_current_value() {
+    fn current_mtu_stays_between_minimum_and_configured_maximum() {
         let mut mtu = LinkMtu::new(900);
-        assert_eq!(mtu.min_mtu(), 900);
-        assert_eq!(mtu.mtu(), 900);
-
-        mtu.set_mtu(1400).unwrap();
-        assert_eq!(mtu.min_mtu(), 900);
-        assert_eq!(mtu.mtu(), 1400);
+        assert_eq!((mtu.min_mtu(), mtu.mtu()), (900, 900));
 
         assert_eq!(mtu.set_mtu(899), Err(MtuTooSmall { mtu: 899, min: 900 }));
-        assert_eq!(mtu.mtu(), 1400);
+        mtu.set_mtu(1400).unwrap();
+        assert_eq!(mtu.mtu(), 900);
+
+        mtu.lower_min_mtu(1000);
+        assert_eq!(mtu.min_mtu(), 900);
+        mtu.lower_min_mtu(600);
+        assert_eq!((mtu.min_mtu(), mtu.mtu()), (600, 900));
+        mtu.set_mtu(700).unwrap();
+        assert_eq!(mtu.mtu(), 700);
+        mtu.set_mtu(900).unwrap();
+        assert_eq!(mtu.mtu(), 900);
+        assert_eq!(mtu.set_mtu(599), Err(MtuTooSmall { mtu: 599, min: 600 }));
+        assert_eq!(mtu.mtu(), 900);
     }
 }

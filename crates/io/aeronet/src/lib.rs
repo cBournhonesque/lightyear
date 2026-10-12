@@ -41,12 +41,6 @@ use tracing::trace;
 #[relationship_target(relationship = AeronetLinkOf, linked_spawn)]
 pub struct AeronetLink(#[relationship] Entity);
 
-/// The link's MTU before its first session connected. The link follows the session's MTU but
-/// never grows past this, so a Steam session reporting its 512 KiB send buffer as its MTU
-/// doesn't change how Lightyear packs packets.
-#[derive(Component, Debug)]
-struct ConfiguredMtu(usize);
-
 /// Relationship source stored on an Aeronet session or server entity.
 ///
 /// The inner entity is the Lightyear entity that owns the corresponding [`Link`] or
@@ -127,7 +121,7 @@ impl AeronetPlugin {
     fn on_connected(
         trigger: On<Add, (Session, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &Session)>,
-        mut link_query: Query<(&mut Link, Option<&ConfiguredMtu>)>,
+        mut link_query: Query<&mut Link>,
         mut commands: Commands,
     ) {
         if let Ok((aeronet_link, session)) = query.get(trigger.entity)
@@ -137,16 +131,11 @@ impl AeronetPlugin {
                 "Session added on AeronetLink {:?}. Adding Linked on Link entity {:?}",
                 trigger.entity, aeronet_link.0
             );
-            if let Ok((mut link, configured)) = link_query.get_mut(aeronet_link.0) {
+            if let Ok(mut link) = link_query.get_mut(aeronet_link.0) {
                 // Aeronet drops packets larger than the session's MTU. Lower the link's minimum
                 // before it links, since that's what the transport sizes fragments from.
-                if configured.is_none() {
-                    c.insert(ConfiguredMtu(link.mtu()));
-                }
-                if link.min_mtu() > session.min_mtu() {
-                    link.set_min_mtu(session.min_mtu());
-                }
-                Self::fit_mtu(&mut link, configured, session);
+                link.lower_min_mtu(session.min_mtu());
+                Self::fit_mtu(&mut link, session);
             }
             c.insert(Linked);
         }
@@ -199,19 +188,18 @@ impl AeronetPlugin {
         }
     }
 
-    fn fit_mtu(link: &mut Link, configured: Option<&ConfiguredMtu>, session: &Session) {
-        let configured = configured.map_or(link.mtu(), |configured| configured.0);
-        link.set_mtu(configured.min(session.mtu()))
+    fn fit_mtu(link: &mut Link, session: &Session) {
+        link.set_mtu(session.mtu())
             .expect("the link's minimum MTU is lowered to the session's on connect");
     }
 
     fn receive(
         mut session_query: Query<(&mut Session, &AeronetLinkOf)>,
-        mut link_query: Query<(&mut Link, Option<&ConfiguredMtu>), With<Linked>>,
+        mut link_query: Query<&mut Link, With<Linked>>,
     ) {
         session_query.iter_mut().for_each(|(mut session, parent)| {
-            if let Ok((mut link, configured)) = link_query.get_mut(parent.get()) {
-                Self::fit_mtu(&mut link, configured, &session);
+            if let Ok(mut link) = link_query.get_mut(parent.get()) {
+                Self::fit_mtu(&mut link, &session);
                 trace!("Received {:?} packets", session.recv.len());
                 session.recv.drain(..).for_each(|recv| {
                     #[cfg(feature = "test_utils")]
@@ -271,7 +259,7 @@ impl Plugin for AeronetPlugin {
 mod tests {
     use super::*;
     use aeronet_io::packet::IP_MTU;
-    use lightyear_link::DEFAULT_MTU;
+    use lightyear_link::{DEFAULT_MTU, LinkMtu};
     use std::time::Instant;
 
     #[test]
@@ -282,20 +270,38 @@ mod tests {
         let min_path = 1200 - 29 - 9 - 1;
         let discovered = 1452 - 29 - 9 - 1;
         let steam = 512 * 1024;
-        // (session min MTU, session MTU each frame) -> (link min MTU, link MTU each frame)
+        // (configured link MTU, session min MTU, session MTU each frame)
+        //   -> (link min MTU, link MTU each frame)
         let cases = [
             (
+                DEFAULT_MTU,
                 IP_MTU,
                 [IP_MTU, min_path, discovered],
                 IP_MTU,
                 [IP_MTU, min_path, DEFAULT_MTU],
             ),
-            (steam, [steam; 3], DEFAULT_MTU, [DEFAULT_MTU; 3]),
+            (
+                1452,
+                IP_MTU,
+                [IP_MTU, min_path, discovered],
+                IP_MTU,
+                [IP_MTU, min_path, discovered],
+            ),
+            (
+                DEFAULT_MTU,
+                steam,
+                [steam; 3],
+                DEFAULT_MTU,
+                [DEFAULT_MTU; 3],
+            ),
         ];
-        for (session_min_mtu, session_mtus, link_min_mtu, link_mtus) in cases {
+        for (configured_mtu, session_min_mtu, session_mtus, link_min_mtu, link_mtus) in cases {
             let mut app = App::new();
             app.add_plugins(AeronetPlugin);
-            let link = app.world_mut().spawn(Link::default()).id();
+            let link = app
+                .world_mut()
+                .spawn(Link::default().with_mtu(LinkMtu::new(configured_mtu)))
+                .id();
             let session = app
                 .world_mut()
                 .spawn((
@@ -316,7 +322,8 @@ mod tests {
                 assert_eq!(
                     (link.min_mtu(), link.mtu()),
                     (link_min_mtu, link_mtu),
-                    "session min MTU {session_min_mtu}, session MTU {session_mtu}"
+                    "configured MTU {configured_mtu}, session min MTU {session_min_mtu}, \
+                     session MTU {session_mtu}"
                 );
             }
         }

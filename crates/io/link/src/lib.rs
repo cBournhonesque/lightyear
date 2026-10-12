@@ -123,7 +123,7 @@ pub struct Link {
     pub state: LinkState,
     /// Transport-observed statistics for this link.
     pub stats: LinkStats,
-    /// Minimum and current maximum payload sizes exposed by the concrete link.
+    /// Minimum, current, and configured maximum payload sizes of the link.
     mtu: LinkMtu,
 }
 
@@ -146,7 +146,7 @@ impl Link {
         self
     }
 
-    /// Configures the link's minimum and current MTU when building it.
+    /// Configures the link's MTU when building it.
     pub fn with_mtu(mut self, mtu: LinkMtu) -> Self {
         self.mtu = mtu;
         self
@@ -162,14 +162,15 @@ impl Link {
         self.mtu.min_mtu()
     }
 
-    /// Changes the minimum MTU. Only valid before the link is linked: the transport sizes its
-    /// fragments from the minimum at that point, and both peers must agree on it.
-    pub fn set_min_mtu(&mut self, min_mtu: usize) {
+    /// Lowers the minimum MTU to `min_mtu` if it is higher. Only valid before the link is linked:
+    /// the transport sizes its fragments from the minimum at that point, and both peers must agree
+    /// on it.
+    pub fn lower_min_mtu(&mut self, min_mtu: usize) {
         debug_assert_ne!(self.state, LinkState::Linked, "link is already linked");
-        self.mtu.set_min_mtu(min_mtu);
+        self.mtu.lower_min_mtu(min_mtu);
     }
 
-    /// Updates the current MTU, which can't go below the minimum.
+    /// Sets the current MTU to what the IO layer can carry now, capped at the configured maximum.
     pub const fn set_mtu(&mut self, mtu: usize) -> Result<(), MtuTooSmall> {
         self.mtu.set_mtu(mtu)
     }
@@ -588,21 +589,14 @@ mod tests {
     }
 
     #[test]
-    fn current_mtu_never_falls_below_minimum_mtu() {
+    fn link_forwards_mtu_changes() {
         let mut link = Link::default().with_mtu(LinkMtu::new(512));
 
-        link.set_mtu(900).unwrap();
-        assert_eq!(link.mtu(), 900);
-        assert_eq!(link.min_mtu(), 512);
-
         assert_eq!(link.set_mtu(511), Err(MtuTooSmall { mtu: 511, min: 512 }));
-        assert_eq!(link.mtu(), 900);
-        assert_eq!(link.min_mtu(), 512);
-
-        link.set_min_mtu(400);
-        assert_eq!((link.min_mtu(), link.mtu()), (400, 900));
-        link.set_mtu(400).unwrap();
-        link.set_min_mtu(600);
-        assert_eq!((link.min_mtu(), link.mtu()), (600, 600));
+        link.lower_min_mtu(400);
+        link.set_mtu(450).unwrap();
+        assert_eq!((link.min_mtu(), link.mtu()), (400, 450));
+        link.set_mtu(900).unwrap();
+        assert_eq!(link.mtu(), 512);
     }
 }
