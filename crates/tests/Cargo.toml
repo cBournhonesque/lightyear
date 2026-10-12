@@ -20,6 +20,7 @@ std = [
   "lightyear_serde/std",
   "lightyear_sync/std",
   "lightyear_transport/std",
+  "lightyear/udp",
   "dep:lightyear_udp",
 ]
 test_utils = [
@@ -34,7 +35,7 @@ test_utils = [
 steam = ["lightyear/steam"]
 # P2P sessions with peer discovery over raw UDP Links. Enables the lobby and the UDP IO glue that
 # turns `DialPeer` into a Link.
-p2p = ["std", "lightyear/p2p", "lightyear/udp", "lightyear_udp/lobby"]
+p2p = ["std", "lightyear/p2p", "lightyear_udp/lobby"]
 # P2P discovery over WebSocket, exercising the WebSocket lobby glue.
 p2p_websocket = ["p2p", "lightyear/websocket", "lightyear/websocket_lobby"]
 # P2P discovery over WebTransport, exercising the WebTransport lobby glue and its certificate
