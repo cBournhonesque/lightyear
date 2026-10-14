@@ -150,21 +150,30 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// and after the rollback check for the current frame, so snapshots received in
 /// `PreUpdate` remain visible to the rollback decision, including forced
 /// catch-up rollbacks.
+///
+/// The cut never passes the latest completed checkpoint: `clear_until_tick` stores
+/// the state at the cut as authoritative there, which past that checkpoint would be a
+/// stale value at a tick the server has not reached.
 pub(crate) fn prune_confirmed_history<T: Component + Clone>(
     manager: Res<PredictionManager>,
     input_config: Res<InputTimelineConfig>,
+    checkpoints: Res<ReplicationCheckpointMap>,
     mut query: Query<&mut ConfirmedHistory<T>, With<PredictionHistory<T>>>,
     timeline: SyncedLocalTimeline,
 ) {
+    let Some(confirmed_tick) = checkpoints.last_confirmed_tick() else {
+        return;
+    };
     let oldest_rollback_tick = timeline.tick()
         - u32::from(
             manager
                 .rollback_policy
                 .effective_max_rollback_ticks(&input_config),
         );
+    let cut = oldest_rollback_tick.min(confirmed_tick);
 
     for mut history in query.iter_mut() {
-        history.clear_until_tick(oldest_rollback_tick);
+        history.clear_until_tick(cut);
     }
 }
 
@@ -756,6 +765,7 @@ mod tests {
     #[test]
     fn prediction_history_is_pruned_to_effective_rollback_horizon() {
         let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 100);
+        app.insert_resource(confirmed_through(Tick(100)));
         app.add_systems(
             Update,
             (
@@ -794,6 +804,86 @@ mod tests {
             .get::<ConfirmedHistory<TestValue>>(entity)
             .unwrap();
         assert_eq!(confirmed_history.len(), 3);
+    }
+
+    /// A checkpoint map whose latest completed checkpoint is `tick`.
+    fn confirmed_through(tick: Tick) -> ReplicationCheckpointMap {
+        let mut checkpoints = ReplicationCheckpointMap::default();
+        let replicon_tick = bevy_replicon::prelude::RepliconTick::new(1);
+        checkpoints.record(replicon_tick, tick);
+        checkpoints.record_last_confirmed_checkpoint(replicon_tick);
+        checkpoints
+    }
+
+    #[test]
+    fn confirmed_history_is_not_pruned_past_the_latest_completed_checkpoint() {
+        // Local tick 200, horizon 7, confirmed up to 100: the cut stops at 100, not 193.
+        let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 200);
+        app.insert_resource(confirmed_through(Tick(100)));
+        app.add_systems(Update, prune_confirmed_history::<TestValue>);
+        let mut confirmed_history = ConfirmedHistory::default();
+        for tick in [80, 90, 95, 100] {
+            confirmed_history.insert_present(Tick(tick), TestValue(tick as f32));
+        }
+        let entity = app
+            .world_mut()
+            .spawn((
+                TestValue(200.0),
+                PredictionHistory::<TestValue>::default(),
+                confirmed_history,
+            ))
+            .id();
+
+        app.update();
+
+        let ticks = |app: &App| -> alloc::vec::Vec<Tick> {
+            let history = app
+                .world()
+                .get::<ConfirmedHistory<TestValue>>(entity)
+                .unwrap();
+            history.into_iter().map(|(tick, _)| tick).collect()
+        };
+        assert_eq!(ticks(&app), [Tick(100)]);
+        // A late sample for 120 is then the newest state at 193.
+        app.world_mut()
+            .get_mut::<ConfirmedHistory<TestValue>>(entity)
+            .unwrap()
+            .insert_present(Tick(120), TestValue(120.0));
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestValue>>(entity)
+            .unwrap();
+        assert_eq!(
+            history
+                .get_state_at_or_before(Tick(193))
+                .and_then(|state| state.value()),
+            Some(&TestValue(120.0))
+        );
+        assert_eq!(ticks(&app), [Tick(100), Tick(120)]);
+
+        // No completed checkpoint: nothing is pruned.
+        let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 200);
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.add_systems(Update, prune_confirmed_history::<TestValue>);
+        let mut confirmed_history = ConfirmedHistory::default();
+        confirmed_history.insert_present(Tick(80), TestValue(80.0));
+        let entity = app
+            .world_mut()
+            .spawn((
+                TestValue(200.0),
+                PredictionHistory::<TestValue>::default(),
+                confirmed_history,
+            ))
+            .id();
+        app.update();
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestValue>>(entity)
+            .unwrap();
+        assert_eq!(
+            history.newest_present().map(|(tick, _)| tick),
+            Some(Tick(80))
+        );
     }
 
     #[test]
