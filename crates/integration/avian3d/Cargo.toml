@@ -52,7 +52,10 @@ tracing.workspace = true
 seahash = { workspace = true, optional = true }
 
 [dev-dependencies]
+bevy_replicon.workspace = true
 bevy_state.workspace = true
+lightyear_connection.workspace = true
+lightyear_sync.workspace = true
 
 [lints]
 workspace = true

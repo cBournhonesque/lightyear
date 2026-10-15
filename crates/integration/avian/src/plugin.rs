@@ -175,6 +175,9 @@ pub struct LightyearAvianPlugin {
     /// feature is enabled
     /// (`avian_xpbd_joints` on the `lightyear` facade), and optional island/sleeping state.
     /// `CollidingEntities` is rebuilt from the restored contact graph before replay.
+    /// Before replay, this cleans up collision data for colliders that were removed or disabled
+    /// with `ColliderDisabled` or Bevy's `Disabled`. Other contacts keep their cached impulses,
+    /// which help keep collisions stable.
     ///
     /// Enable this for deterministic or input-only replication. Persistent collider-tree data is
     /// cloned into prediction history every tick, which can still be expensive for very large
