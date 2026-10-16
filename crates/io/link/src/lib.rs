@@ -148,8 +148,8 @@ impl Link {
 
     /// Configures the link's minimum and current MTU characteristics.
     ///
-    /// This is intended for constructing a link. Once constructed, only the current MTU can be
-    /// changed through [`set_mtu`](Self::set_mtu); the minimum MTU remains stable.
+    /// This is intended for constructing a link. Once constructed, the IO layer changes the current
+    /// MTU through [`set_mtu`](Self::set_mtu) and may lower the minimum before the link is linked.
     pub fn with_mtu(mut self, mtu: LinkMtu) -> Self {
         self.mtu = mtu;
         self
@@ -160,12 +160,18 @@ impl Link {
         self.mtu.mtu()
     }
 
-    /// Returns the stable minimum MTU configured when this link was constructed.
+    /// Returns the minimum MTU, stable once the link is linked.
     pub const fn min_mtu(&self) -> usize {
         self.mtu.min_mtu()
     }
 
-    /// Updates the current MTU without changing the link's stable minimum MTU.
+    /// Lowers the minimum MTU to `min_mtu` if it is higher. Only valid before the link is linked.
+    pub fn lower_min_mtu(&mut self, min_mtu: usize) {
+        debug_assert_ne!(self.state, LinkState::Linked, "link is already linked");
+        self.mtu.lower_min_mtu(min_mtu);
+    }
+
+    /// Updates the current MTU, capped at the configured maximum, without changing the minimum.
     pub const fn set_mtu(&mut self, mtu: usize) -> Result<(), MtuTooSmall> {
         self.mtu.set_mtu(mtu)
     }
@@ -584,15 +590,16 @@ mod tests {
     }
 
     #[test]
-    fn current_mtu_can_change_but_minimum_mtu_cannot() {
-        let mut link = Link::default().with_mtu(LinkMtu::new(512));
+    fn current_mtu_can_change_but_set_mtu_keeps_minimum_mtu() {
+        let mut link = Link::default().with_mtu(LinkMtu::new(900));
+        link.lower_min_mtu(512);
 
-        link.set_mtu(900).unwrap();
-        assert_eq!(link.mtu(), 900);
+        link.set_mtu(700).unwrap();
+        assert_eq!(link.mtu(), 700);
         assert_eq!(link.min_mtu(), 512);
 
         assert_eq!(link.set_mtu(511), Err(MtuTooSmall { mtu: 511, min: 512 }));
-        assert_eq!(link.mtu(), 900);
+        assert_eq!(link.mtu(), 700);
         assert_eq!(link.min_mtu(), 512);
     }
 }
