@@ -108,6 +108,22 @@ pub enum DisconnectedReason {
     ByPeer(Option<String>),
     /// The connection transport or protocol encountered an error.
     TransportError(String),
+    /// The client does not share the server's protocol and disconnected itself.
+    ProtocolMismatch(ProtocolMismatch),
+}
+
+/// Which part of the protocol a client does not share with its server.
+#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+pub enum ProtocolMismatch {
+    /// The registered messages differ.
+    #[error("the message protocol doesn't match")]
+    Message,
+    /// The registered components differ.
+    #[error("the component protocol doesn't match")]
+    Component,
+    /// The registered channels differ.
+    #[error("the channel protocol doesn't match")]
+    Channel,
 }
 
 impl core::fmt::Display for DisconnectedReason {
@@ -120,6 +136,7 @@ impl core::fmt::Display for DisconnectedReason {
             Self::ByPeer(Some(reason)) => write!(f, "Disconnected by peer: {reason}"),
             Self::ByPeer(None) => f.write_str("Disconnected by peer"),
             Self::TransportError(reason) => write!(f, "Transport error: {reason}"),
+            Self::ProtocolMismatch(mismatch) => write!(f, "Protocol mismatch: {mismatch}"),
         }
     }
 }
