@@ -797,9 +797,11 @@ mod tests {
         let entity = world
             .spawn((Link::default(), Linked, Transport::default()))
             .id();
-        world.get_mut::<Link>(entity).unwrap().recv.push_raw(
-            lightyear_link::recv_payload_from_bytes(Bytes::from(data_packet)),
-        );
+        world
+            .get_mut::<Link>(entity)
+            .unwrap()
+            .recv
+            .push_raw(Bytes::from(data_packet));
 
         world
             .run_system_once(TransportPlugin::buffer_receive)
@@ -823,7 +825,7 @@ mod tests {
             .get_mut::<Link>(entity)
             .unwrap()
             .recv
-            .push_raw(lightyear_link::recv_payload_from_bytes(ack_packet));
+            .push_raw(ack_packet);
         world
             .run_system_once(TransportPlugin::buffer_receive)
             .unwrap();
@@ -879,7 +881,7 @@ mod tests {
             .get_mut::<Link>(receiver_entity)
             .unwrap()
             .recv
-            .push_raw(lightyear_link::recv_payload_from_bytes(data));
+            .push_raw(data);
         receiver
             .run_system_once(TransportPlugin::buffer_receive)
             .unwrap();
@@ -902,7 +904,7 @@ mod tests {
             .get_mut::<Link>(sender_entity)
             .unwrap()
             .recv
-            .push_raw(lightyear_link::recv_payload_from_bytes(ack));
+            .push_raw(ack);
         sender
             .run_system_once(TransportPlugin::buffer_receive)
             .unwrap();
@@ -955,8 +957,7 @@ mod tests {
         {
             let mut link = world.get_mut::<Link>(entity).unwrap();
             packets.into_iter().for_each(|packet| {
-                link.recv
-                    .push_raw(lightyear_link::recv_payload_from_bytes(packet));
+                link.recv.push_raw(packet);
             });
         }
         world

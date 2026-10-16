@@ -41,6 +41,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use bytes::{Bytes, BytesMut};
+use core::ops::Deref;
 use core::time::Duration;
 use lightyear_core::time::Instant;
 use lightyear_utils::adaptive_for_each_mut;
@@ -60,13 +61,74 @@ pub mod prelude {
     }
 }
 
-/// Mutable byte payload received from a transport.
+/// Byte payload received from a transport, in the form its IO backend holds it.
 ///
 /// A transport pushes this payload into [`LinkReceiver`] after decoding any transport-specific
-/// envelope. Keeping receive payloads mutable lets connection layers decrypt in place without
-/// first trying to recover mutable ownership from an immutable [`Bytes`] handle. Higher-level
-/// Lightyear systems can freeze the payload once they need cheap immutable subslices.
-pub type RecvPayload = BytesMut;
+/// envelope, and neither form costs it a copy. Higher-level Lightyear systems that read cheap
+/// immutable subslices take it with [`freeze`](Self::freeze), which never copies; a connection
+/// layer that decrypts in place takes it with [`into_mut`](Self::into_mut), which copies only a
+/// frozen payload whose allocation is shared.
+#[derive(Debug, Clone)]
+pub enum RecvPayload {
+    /// A buffer the IO backend received into. A connection layer may change it in place, even
+    /// while the backend's buffer pool holds another view of its allocation.
+    Mutable(BytesMut),
+    /// An immutable view the IO backend's API gave. It may share its allocation with other
+    /// payloads, as datagrams received in one read or carried by one QUIC packet do, or with the
+    /// sender's buffer pool, as an in-process channel's do.
+    Frozen(Bytes),
+}
+
+impl RecvPayload {
+    /// The payload as immutable bytes, with no copy.
+    pub fn freeze(self) -> Bytes {
+        match self {
+            RecvPayload::Mutable(payload) => payload.freeze(),
+            RecvPayload::Frozen(payload) => payload,
+        }
+    }
+
+    /// The payload as mutable bytes: a frozen payload keeps its allocation when no other handle
+    /// shares it, and is copied when one does.
+    pub fn into_mut(self) -> BytesMut {
+        match self {
+            RecvPayload::Mutable(payload) => payload,
+            RecvPayload::Frozen(payload) => BytesMut::from(payload),
+        }
+    }
+}
+
+impl Deref for RecvPayload {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            RecvPayload::Mutable(payload) => payload,
+            RecvPayload::Frozen(payload) => payload,
+        }
+    }
+}
+
+/// Two payloads are equal when their bytes are, whichever form each is in.
+impl PartialEq for RecvPayload {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for RecvPayload {}
+
+impl From<BytesMut> for RecvPayload {
+    fn from(payload: BytesMut) -> Self {
+        RecvPayload::Mutable(payload)
+    }
+}
+
+impl From<Bytes> for RecvPayload {
+    fn from(payload: Bytes) -> Self {
+        RecvPayload::Frozen(payload)
+    }
+}
 
 /// Opaque byte payload queued for a transport to send.
 ///
@@ -74,19 +136,6 @@ pub type RecvPayload = BytesMut;
 /// A transport drains [`LinkSender`] in [`LinkSystems::Send`] and writes the bytes to its concrete
 /// IO backend.
 pub type SendPayload = Bytes;
-
-/// Converts an immutable transport payload into Lightyear's mutable receive payload.
-///
-/// Some IO APIs, including Aeronet and Crossbeam, expose received packets as [`Bytes`]. This
-/// conversion reuses the allocation when that handle is uniquely owned and copies only when the
-/// IO backend or sender still holds another reference. IO backends that already receive into a
-/// [`BytesMut`] should push it directly instead of calling this function.
-pub fn recv_payload_from_bytes(payload: Bytes) -> RecvPayload {
-    match payload.try_into_mut() {
-        Ok(payload) => payload,
-        Err(payload) => BytesMut::from(payload),
-    }
-}
 
 /// Current lifecycle state of a [`Link`].
 ///
@@ -207,15 +256,16 @@ impl LinkReceiver {
     /// This bypasses [`conditioner`](Self::conditioner). Transport code should use this when it is
     /// replaying already-conditioned data, injecting test packets, or implementing an IO backend
     /// that intentionally does not simulate network conditions.
-    pub fn push_raw(&mut self, value: RecvPayload) {
-        self.buffer.push_back(value);
+    pub fn push_raw(&mut self, value: impl Into<RecvPayload>) {
+        self.buffer.push_back(value.into());
     }
 
     /// Appends a received payload, applying the configured link conditioner if present.
     ///
     /// `instant` is the local receive time used as the base timestamp for simulated latency and
     /// jitter. When no conditioner is configured, this is equivalent to [`push_raw`](Self::push_raw).
-    pub fn push(&mut self, value: RecvPayload, instant: Instant) {
+    pub fn push(&mut self, value: impl Into<RecvPayload>, instant: Instant) {
+        let value = value.into();
         if let Some(conditioner) = &mut self.conditioner {
             conditioner.condition_packet(value, instant);
         } else {
@@ -537,25 +587,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn immutable_receive_payload_reuses_unique_allocation() {
+    fn either_receive_payload_freezes_without_a_copy() {
+        let mutable = BytesMut::from(&[1, 2, 3][..]);
+        let allocation = mutable.as_ptr();
+        assert_eq!(RecvPayload::from(mutable).freeze().as_ptr(), allocation);
+
+        // A frozen payload whose allocation is shared stays a view of it.
         let bytes = Bytes::from(alloc::vec![1, 2, 3]);
-        let allocation = bytes.as_ptr();
-
-        let payload = recv_payload_from_bytes(bytes);
-
-        assert_eq!(payload.as_ptr(), allocation);
+        let shared = bytes.clone();
+        assert_eq!(RecvPayload::from(bytes).freeze().as_ptr(), shared.as_ptr());
     }
 
     #[test]
-    fn immutable_receive_payload_copies_shared_allocation() {
+    fn a_receive_payload_becomes_mutable_with_a_copy_only_when_frozen_and_shared() {
+        let mutable = BytesMut::from(&[1, 2, 3][..]);
+        let allocation = mutable.as_ptr();
+        assert_eq!(RecvPayload::from(mutable).into_mut().as_ptr(), allocation);
+
+        let unique = Bytes::from(alloc::vec![1, 2, 3]);
+        let allocation = unique.as_ptr();
+        assert_eq!(RecvPayload::from(unique).into_mut().as_ptr(), allocation);
+
         let bytes = Bytes::from(alloc::vec![1, 2, 3]);
         let shared = bytes.clone();
-        let allocation = bytes.as_ptr();
-
-        let payload = recv_payload_from_bytes(bytes);
-
-        assert_ne!(payload.as_ptr(), allocation);
+        let payload = RecvPayload::from(bytes).into_mut();
+        assert_ne!(payload.as_ptr(), shared.as_ptr());
         assert_eq!(payload.as_ref(), shared.as_ref());
+    }
+
+    #[test]
+    fn receive_payloads_compare_by_their_bytes_in_either_form() {
+        let mutable = RecvPayload::from(BytesMut::from(&[1, 2, 3][..]));
+        assert_eq!(mutable, RecvPayload::from(Bytes::from_static(&[1, 2, 3])));
+        assert_ne!(mutable, RecvPayload::from(Bytes::from_static(&[1, 2, 4])));
     }
 
     #[test]

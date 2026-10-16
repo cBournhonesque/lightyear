@@ -28,7 +28,7 @@ use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkSystems, Linked, Linking, Unlink, UnlinkReason,
-    Unlinked, recv_payload_from_bytes,
+    Unlinked,
 };
 use tracing::trace;
 
@@ -190,13 +190,10 @@ impl AeronetPlugin {
                 trace!("Received {:?} packets", session.recv.len());
                 session.recv.drain(..).for_each(|recv| {
                     #[cfg(feature = "test_utils")]
-                    link.recv.push(
-                        recv_payload_from_bytes(recv.payload),
-                        lightyear_core::time::Instant::now(),
-                    );
-                    #[cfg(not(feature = "test_utils"))]
                     link.recv
-                        .push(recv_payload_from_bytes(recv.payload), recv.recv_at);
+                        .push(recv.payload, lightyear_core::time::Instant::now());
+                    #[cfg(not(feature = "test_utils"))]
+                    link.recv.push(recv.payload, recv.recv_at);
                 });
             }
         });
