@@ -52,6 +52,8 @@ use lightyear_prediction::prelude::{
 use lightyear_replication::prelude::AppComponentExt;
 use obvhs::bvh2::Bvh2;
 
+mod collider_lifecycle;
+
 /// The persistent portion of one Avian collider tree.
 ///
 /// [`ColliderTree::workspace`] is deliberately absent. It contains allocation-reuse buffers for
@@ -191,6 +193,7 @@ pub(super) fn register_rollback(app: &mut App) {
         PreUpdate,
         (
             restore_collider_broad_phase,
+            collider_lifecycle::reconcile_collider_lifecycle,
             reregister_invalid_proxies,
             restore_colliding_entities_from_contact_graph,
         )
