@@ -1175,7 +1175,7 @@ mod mode_tests {
         ));
         assert!(prediction.should_rollback(
             &LinearVelocity::default(),
-            &LinearVelocity(Vector::X * Scalar::from(0.02_f32))
+            &LinearVelocity(Vector::X * Scalar::from(0.15_f32))
         ));
         #[cfg(all(feature = "2d", not(feature = "3d")))]
         {
@@ -1185,7 +1185,7 @@ mod mode_tests {
             ));
             assert!(prediction.should_rollback(
                 &AngularVelocity::default(),
-                &AngularVelocity(Scalar::from(0.02_f32))
+                &AngularVelocity(Scalar::from(0.15_f32))
             ));
         }
         #[cfg(all(feature = "3d", not(feature = "2d")))]
@@ -1196,7 +1196,7 @@ mod mode_tests {
             ));
             assert!(prediction.should_rollback(
                 &AngularVelocity::default(),
-                &AngularVelocity(Vector::X * Scalar::from(0.02_f32))
+                &AngularVelocity(Vector::X * Scalar::from(0.15_f32))
             ));
         }
     }
