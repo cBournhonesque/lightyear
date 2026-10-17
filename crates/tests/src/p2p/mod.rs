@@ -5,9 +5,10 @@
 //! peer discovery, over the UDP IO layer.
 
 mod lobby;
+mod simulation;
+mod solo;
 mod stepper;
 #[cfg(feature = "p2p_websocket")]
 mod websocket;
 #[cfg(feature = "p2p_webtransport")]
 mod webtransport;
-mod solo;

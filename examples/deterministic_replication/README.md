@@ -32,9 +32,23 @@ only player inputs; there is no server or authoritative simulation.
 Every peer opens an endpoint on its `--port` that other peers can connect to, so peers on the same
 machine each need their own port. A joining peer only needs the address of one peer that is already
 started and discovers the rest of the roster through the lobby. The game starts on all peers as soon
-as the player count is reached (2 by default, override with `-n`).
+as the founding player count is reached (2 by default, override with `-n` on every peer).
 
 P2P mode uses input-only catch-up because there is no authoritative state source.
+
+For sequential joins, start the two founders above. Then start peer 2 with `LIGHTYEAR_P2P_JOIN=1`;
+its `--peer` seed supplies admission and input history. After peer 2 activates, start peer 3 through
+peer 2:
+
+```shell
+# Peer 2 joins through founder 0, using a lower port to exercise changing lobby sort order.
+LIGHTYEAR_P2P_JOIN=1 cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6099 --peer 127.0.0.1:6100 -n 2
+# Wait for peer 2 to activate, then peer 3 joins through it.
+LIGHTYEAR_P2P_JOIN=1 cargo run --no-default-features --features=p2p -- --headless=true p2p --port 6102 --peer 127.0.0.1:6099 -n 2
+```
+
+Keep the same `-n` founding count on all processes. Catch-up rebuilds the original founders, then
+replays prior joins at their activation ticks; new lobby members never renumber existing players.
 
 ### Testing in wasm with webtransport
 

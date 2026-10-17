@@ -10,7 +10,6 @@ use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParam
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_prediction::registry::PopUntilTickAndHashFn;
-use lightyear_prediction::rollback::DisableRollback;
 use lightyear_replication::prelude::ComponentRegistry;
 use lightyear_replication::registry::deterministic::DeterministicFns;
 use tracing::trace;
@@ -46,22 +45,13 @@ impl<'w, const HISTORY: bool> ChecksumWorld<'w, '_, HISTORY> {
             archetypes.generation(),
         );
         let marker_id = self.state.marker_id;
-        let _ = self.state.disable_rollback_id;
 
         for archetype in &archetypes[old_generation..] {
             if !archetype.contains(marker_id) {
                 continue;
             }
-            // NOTE: do NOT filter by `DisableRollback`. That marker is
-            // inserted on freshly-spawned `DeterministicPredicted`
-            // entities during the first rollback that reaches back
-            // before their spawn tick; it means "rollback must not
-            // rewrite this entity's state", not "do not hash this
-            // entity". The server (no rollback) never inserts it, so
-            // gating on it only on the client would desync the set of
-            // hashed entities between peers. `pop_until_tick` returning
-            // `None` is the right guard for "no history yet at this
-            // tick", and it's hit naturally on freshly-spawned entities.
+            // DisableRollback does not remove an entity from the deterministic world.
+            // A missing history value at the requested tick is the only history-side exclusion.
             let mut checksum_archetype = ChecksumArchetype::new(archetype.id());
             self.state.hash_fns.keys().for_each(|component_id| {
                 if archetype.contains(*component_id) {
@@ -103,7 +93,6 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
 
     fn init_state(world: &mut World) -> Self::State {
         let marker_id = world.register_component::<Deterministic>();
-        let disable_rollback_id = world.register_component::<DisableRollback>();
         let registry = world.resource::<ComponentRegistry>();
         let hash_fns = if !HISTORY {
             let registry = world.resource::<ComponentRegistry>();
@@ -135,7 +124,6 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
         trace!("HashFns used for ChecksumState: {:?}", hash_fns);
         ChecksumState {
             marker_id,
-            disable_rollback_id,
             archetypes: Default::default(),
             hash_fns,
             archetype_generation: ArchetypeGeneration::initial(),
@@ -150,16 +138,11 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
     ) {
         let mut filtered_access = FilteredAccess::default();
         filtered_access.add_read(state.marker_id);
-        // Exclude entities with DisableRollback from the checksum calculation since they won't have a PredictionHistory?
-        if HISTORY {
-            filtered_access.and_without(state.disable_rollback_id);
-        }
         let combined_access = component_access_set.combined_access();
         state.hash_fns.iter().for_each(|(component_id, (_, pop_fn))| {
             if pop_fn.is_some() {
-                // the component is a PredictionHistory
-                // TODO: for non-full components, just fetch the component value directly
-                // We need write access because we will call `pop_until_tick` on the history component
+                // The erased history callback takes PtrMut even though hashing is non-consuming.
+                // Advertise exclusive access to every history the archetype iterator can visit.
                 filtered_access.add_write(*component_id);
                 assert!(
                     !combined_access.has_read(*component_id),
@@ -191,16 +174,11 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
     }
 }
 
-unsafe impl<const HISTORY: bool> ReadOnlySystemParam for ChecksumWorld<'_, '_, HISTORY> {}
+unsafe impl ReadOnlySystemParam for ChecksumWorld<'_, '_, false> {}
 
 pub(crate) struct ChecksumState {
     /// ComponentId for the `Deterministic` marker component.
     pub(crate) marker_id: ComponentId,
-    /// ComponentId for the `DisableRollback` marker component.
-    ///
-    /// We will not compute the checksum for entities that have this component, as it could mess up the rollback logic
-    /// since we are removing elements from the history.
-    pub(crate) disable_rollback_id: ComponentId,
     pub(crate) archetypes: Vec<ChecksumArchetype>,
     pub(crate) hash_fns: BTreeMap<ComponentId, (DeterministicFns, Option<PopUntilTickAndHashFn>)>,
     pub(crate) archetype_generation: ArchetypeGeneration,

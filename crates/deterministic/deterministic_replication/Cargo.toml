@@ -22,7 +22,7 @@ client = [
   "lightyear_sync/client",
   "lightyear_transport/client",
 ]
-p2p = ["client", "lightyear_prediction/p2p"]
+p2p = ["client", "lightyear_prediction/p2p", "dep:lightyear_p2p"]
 server = [
   "lightyear_connection/server",
   "lightyear_inputs/server",
@@ -42,7 +42,10 @@ lightyear_link.workspace = true
 lightyear_messages.workspace = true
 lightyear_connection.workspace = true
 lightyear_sync.workspace = true
+lightyear_p2p = { workspace = true, optional = true }
 lightyear_prediction = { workspace = true, features = ["deterministic"] }
+bevy_platform.workspace = true
+smallvec.workspace = true
 lightyear_replication = { workspace = true, features = ["deterministic"] }
 lightyear_transport.workspace = true
 
@@ -52,6 +55,7 @@ tracing.workspace = true
 
 # bevy
 bevy_app = { workspace = true, features = ["bevy_reflect"] }
+bevy_time.workspace = true
 bevy_ecs.workspace = true
 bevy_replicon.workspace = true
 
@@ -59,6 +63,7 @@ bevy_replicon.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+bevy_state.workspace = true
 test-log.workspace = true
 
 [lints]

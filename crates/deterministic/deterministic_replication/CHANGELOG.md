@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Bug Fixes
+
+- Replay input-only P2P late joins incrementally, with a configurable default budget of 10 ticks per
+  frame. Keep receiving live inputs during catch-up, preserve overlap with the reliable history,
+  and complete at the all-remote-input frontier without a second reliable-tail exchange.
+- Verify the initial replay checksum before pruning its history, replay sequential player
+  activations, and retain the merged input archive for later newcomers.
+- Run P2P catch-up independently of forced rollback and ordinary rollback limits. Register the
+  complete protocol before creating Links; registration does not backfill existing Links.
+- Reuse `P2PChannel` and fetch catch-up history from the admission coordinator, including a peer
+  that previously joined, rather than silently selecting the lowest peer id.
+- Provide the founding peer roster on `P2PCatchUpReplay`, excluding recorded later activations so
+  discovered endpoint identities remain stable across sequential joins.
+- Match checksum system access to the histories it actually visits, including `DisableRollback`
+  entities, and require mutable world access for the type-erased history callback.
+
 ## v0.21.0 (2025-07-03)
 
 ### Chore

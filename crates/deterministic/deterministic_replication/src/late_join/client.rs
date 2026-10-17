@@ -280,11 +280,9 @@ pub(crate) fn trigger_snapshot_rollback(
     if rollback_delta < 0 {
         return;
     }
-    let max_rollback_ticks = i32::from(
-        prediction_manager
-            .rollback_policy
-            .effective_max_rollback_ticks(&input_config),
-    );
+    let max_rollback_ticks = prediction_manager
+        .rollback_policy
+        .effective_max_rollback_ticks(&input_config) as i32;
     if rollback_delta > max_rollback_ticks {
         warn!(
             ?client_entity,

@@ -36,6 +36,7 @@ use lightyear_core::tick::Tick;
 use lightyear_inputs::{InputChannel, client::InputSystems};
 #[cfg(feature = "server")]
 use lightyear_link::endpoint::LinkOf;
+#[cfg(feature = "server")]
 use lightyear_link::server::Server;
 #[cfg(feature = "client")]
 use lightyear_messages::plugin::MessageSystems;
@@ -49,9 +50,11 @@ use lightyear_prediction::manager::{LastConfirmedInput, StateRollbackMetadata};
 #[cfg(feature = "client")]
 use lightyear_sync::prelude::SyncedLocalTimeline;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 #[cfg(any(feature = "p2p", feature = "server"))]
 use tracing::error;
-use tracing::{debug, trace};
+#[cfg(feature = "server")]
+use tracing::trace;
 
 /// History of the checksums on the server to validate client checksums against.
 #[derive(Component, Debug, Default)]
@@ -303,24 +306,28 @@ impl ChecksumSendPlugin {
     }
 }
 
+/// Hash prediction history without consuming it; peers may confirm the same tick at different times.
 #[cfg(feature = "client")]
 fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick) -> u64 {
+    compute_history_checksum_with_count(world, tick).0
+}
+
+/// Return the checksum and contributing value count, so catch-up rejects an unregistered world.
+#[cfg(feature = "client")]
+pub(crate) fn compute_history_checksum_with_count(
+    world: &mut ChecksumWorld<'_, '_, true>,
+    tick: Tick,
+) -> (u64, usize) {
     let mut checksum = 0u64;
+    let mut entries = 0;
     // SAFETY: world.update_archetypes() has been called
     unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
-        // TODO: guarantee stable entity iteration order across peers.
         archetype.entities().iter().for_each(|entity| {
             checksum_archetype
                 .components
                 .iter()
                 .for_each(|(component_id, storage_type)| {
-                    trace!(
-                        "Adding component {:?} from entity {:?} to checksum for tick {:?}",
-                        component_id,
-                        entity.id(),
-                        tick
-                    );
-                    // SAFETY: the way we constructed the archetypes guarantees that the component exists on the entity and we have unique write access
+                    // SAFETY: the archetype records that this entity has this component.
                     let history_ptr = unsafe {
                         lightyear_utils::ecs::get_component_unchecked_mut(
                             world.world,
@@ -330,11 +337,11 @@ fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick)
                             *component_id,
                         )
                     };
-                    let (hash_fn, pop_until_tick_and_hash_fn) =
-                        world.state.hash_fns.get(component_id).expect(
-                            "Component in checksum archetype must have a hash function registered",
-                        );
-
+                    let (hash_fn, pop_until_tick_and_hash_fn) = world
+                        .state
+                        .hash_fns
+                        .get(component_id)
+                        .expect("Component in checksum archetype must have a hash function");
                     let mut hasher = seahash::SeaHasher::default();
                     if pop_until_tick_and_hash_fn.unwrap()(
                         history_ptr,
@@ -342,13 +349,13 @@ fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick)
                         &mut hasher,
                         hash_fn.inner,
                     ) {
-                        // XOR the hashes together to get an order-independent checksum
                         checksum ^= hasher.finish();
+                        entries += 1;
                     }
                 });
         });
     });
-    checksum
+    (checksum, entries)
 }
 
 #[derive(Serialize, Deserialize)]
