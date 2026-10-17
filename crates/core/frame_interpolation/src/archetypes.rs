@@ -77,20 +77,25 @@ unsafe impl SystemParam for FrameInterpolationWorld<'_, '_> {
     fn init_access(
         state: &Self::State,
         _system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut FilteredAccessSet,
         world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
-        filtered_access.add_read(state.frame_interpolate_component_id);
-        filtered_access.add_read(state.skip_frame_interpolation_component_id);
+        filtered_access.and_with(state.frame_interpolate_component_id);
 
         if let Some(registry) = world.get_resource::<InterpolationRegistry>() {
             for component_id in registry.frame_component_write_ids() {
-                filtered_access.add_write(component_id);
+                // Histories and live values are optional; the skip marker only selects a policy.
+                filtered_access.access_mut().add_write(component_id);
             }
         }
 
-        component_access_set.add(filtered_access);
+        let access = filtered_access;
+        assert!(
+            system_access.get_conflicts_single(&access).is_empty(),
+            "error[B0001]: dynamic component access conflicts with a previous system parameter",
+        );
+        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(
@@ -194,7 +199,9 @@ pub(crate) struct CachedFrameInterpolationPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FrameInterpolationHistory;
     use bevy_app::App;
+    use bevy_ecs::system::SystemState;
     use lightyear_interpolation::registry::AppInterpolationExt;
     use lightyear_interpolation::rules::InterpolationFns;
 
@@ -206,6 +213,29 @@ mod tests {
 
     fn lerp(start: Value, end: Value, t: f32) -> Value {
         Value(start.0 + (end.0 - start.0) * t)
+    }
+
+    #[test]
+    #[should_panic(expected = "error[B0001]")]
+    fn frame_interpolation_rejects_conflicting_query_without_history_or_skip_marker() {
+        let mut app = App::new();
+        app.interpolate_with::<Value>(InterpolationFns::no_history(lerp));
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .finalize();
+
+        // Seeding missing histories reads live values even without the skip marker.
+        // Reject overlap during initialization, without executing either parameter.
+        SystemState::<(
+            FrameInterpolationWorld,
+            Query<
+                &mut Value,
+                (
+                    Without<FrameInterpolationHistory<Value>>,
+                    Without<SkipFrameInterpolation>,
+                ),
+            >,
+        )>::new(app.world_mut());
     }
 
     /// Checks that frame policies ignore unrelated components but distinguish skip markers.
