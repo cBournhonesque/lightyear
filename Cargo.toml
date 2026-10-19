@@ -235,7 +235,7 @@ tracy-client = { version = "0.18" }
 bevy_enhanced_input = { version = "0.26", default-features = false, features = [
   "serialize",
 ] }
-leafwing-input-manager = { version = "0.21", default-features = false, features = [
+leafwing-input-manager = { version = "0.22", default-features = false, features = [
   "keyboard",
 ] }
 # replication
