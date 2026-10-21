@@ -12,7 +12,7 @@ use bevy_ecs::{
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Components, StorageType},
     entity_disabling::DefaultQueryFilters,
-    prelude::ResMut,
+    prelude::{Res, ResMut},
     query::{FilteredAccess, FilteredAccessSet},
     resource::Resource,
     system::{SystemMeta, SystemParam, SystemParamValidationError},
@@ -95,94 +95,121 @@ impl<const MODE: u8> PredictionWorld<'_, '_, MODE> {
     }
 }
 
+pub(crate) struct PredictionWorldState {
+    cache: <ResMut<'static, PredictedArchetypes> as SystemParam>::State,
+    registry: <Res<'static, PredictionRegistry> as SystemParam>::State,
+    declared_access: FilteredAccess,
+    current_access: FilteredAccess,
+}
+
+fn collect_prediction_access(
+    mode: u8,
+    registry: &PredictionRegistry,
+    components: &Components,
+    filtered_access: &mut FilteredAccess,
+) {
+    // Markers only select cached policies, and each policy can access a different
+    // subset of live values and histories. None is required for all accesses.
+    let access = filtered_access.access_mut();
+    match mode {
+        CHECK_ROLLBACK => {
+            for metadata in registry.prediction_map.values() {
+                access.add_read(metadata.rollback.prediction_history_id);
+                access.add_write(metadata.rollback.confirmed_history_id);
+            }
+        }
+        PREPARE_ROLLBACK => {
+            for (kind, metadata) in registry.rollback_metadata() {
+                let component_id = components
+                    .get_id(kind.0)
+                    .expect("rollback component should be registered in the world");
+                access.add_write(component_id);
+                access.add_write(metadata.prediction_history_id);
+                access.add_read(metadata.confirmed_history_id);
+            }
+        }
+        SNAP_TO_CONFIRMED => {
+            for (kind, metadata) in &registry.prediction_map {
+                if metadata.snap_to_confirmed.is_none() {
+                    continue;
+                }
+                let component_id = components
+                    .get_id(kind.0)
+                    .expect("predicted component should be registered in the world");
+                access.add_write(component_id);
+                access.add_read(metadata.rollback.confirmed_history_id);
+            }
+        }
+        UPDATE_FRAME_INTERPOLATION_POST_ROLLBACK => {
+            for (kind, metadata) in registry.rollback_metadata() {
+                let component_id = components
+                    .get_id(kind.0)
+                    .expect("rollback component should be registered in the world");
+                access.add_read(component_id);
+                access.add_read(metadata.prediction_history_id);
+                access.add_write(metadata.frame_interpolation_history_id);
+            }
+        }
+        PRUNE_DIFF_HISTORY => {
+            for metadata in registry
+                .prediction_map
+                .values()
+                .filter(|metadata| metadata.prune_history_diff_receiver.is_some())
+            {
+                access.add_read(metadata.rollback.confirmed_history_id);
+            }
+        }
+        _ => unreachable!("unknown prediction world access mode"),
+    }
+}
+
 unsafe impl<const MODE: u8> SystemParam for PredictionWorld<'_, '_, MODE> {
-    type State = <ResMut<'static, PredictedArchetypes> as SystemParam>::State;
+    type State = PredictionWorldState;
     type Item<'world, 'state> = PredictionWorld<'world, 'state, MODE>;
 
     fn init_state(world: &mut World) -> Self::State {
         world.init_resource::<PredictedArchetypes>();
-        <ResMut<'static, PredictedArchetypes> as SystemParam>::init_state(world)
+        let cache = <ResMut<'static, PredictedArchetypes> as SystemParam>::init_state(world);
+        let registry = <Res<'static, PredictionRegistry> as SystemParam>::init_state(world);
+        let mut declared_access = FilteredAccess::default();
+        if let Some(registry) = world.get_resource::<PredictionRegistry>() {
+            collect_prediction_access(MODE, registry, world.components(), &mut declared_access);
+        }
+        declared_access.access_mut().extend(
+            world.resource::<PredictedArchetypes>().component_access[MODE as usize].access(),
+        );
+        PredictionWorldState {
+            cache,
+            registry,
+            current_access: declared_access.clone(),
+            declared_access,
+        }
     }
 
     fn init_access(
         state: &Self::State,
         system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
+        system_access: &mut FilteredAccessSet,
         world: &mut World,
     ) {
-        <ResMut<'static, PredictedArchetypes> as SystemParam>::init_access(
-            state,
+        <Res<'static, PredictionRegistry> as SystemParam>::init_access(
+            &state.registry,
             system_meta,
-            component_access_set,
+            system_access,
             world,
         );
-
-        let mut access = FilteredAccess::default();
-
-        for component_id in &world.resource::<PredictedArchetypes>().filter_component_ids {
-            access.add_read(*component_id);
-        }
-
-        match MODE {
-            CHECK_ROLLBACK => {
-                for metadata in world
-                    .resource::<PredictionRegistry>()
-                    .prediction_map
-                    .values()
-                {
-                    access.add_read(metadata.rollback.prediction_history_id);
-                    access.add_write(metadata.rollback.confirmed_history_id);
-                }
-            }
-            PREPARE_ROLLBACK => {
-                for (kind, metadata) in world.resource::<PredictionRegistry>().rollback_metadata() {
-                    let component_id = world
-                        .components()
-                        .get_id(kind.0)
-                        .expect("rollback component should be registered in the world");
-                    access.add_write(component_id);
-                    access.add_write(metadata.prediction_history_id);
-                    access.add_read(metadata.confirmed_history_id);
-                }
-            }
-            SNAP_TO_CONFIRMED => {
-                for (kind, metadata) in &world.resource::<PredictionRegistry>().prediction_map {
-                    if metadata.snap_to_confirmed.is_none() {
-                        continue;
-                    }
-                    let component_id = world
-                        .components()
-                        .get_id(kind.0)
-                        .expect("predicted component should be registered in the world");
-                    access.add_write(component_id);
-                    access.add_read(metadata.rollback.confirmed_history_id);
-                }
-            }
-            UPDATE_FRAME_INTERPOLATION_POST_ROLLBACK => {
-                for (kind, metadata) in world.resource::<PredictionRegistry>().rollback_metadata() {
-                    let component_id = world
-                        .components()
-                        .get_id(kind.0)
-                        .expect("rollback component should be registered in the world");
-                    access.add_read(component_id);
-                    access.add_read(metadata.prediction_history_id);
-                    access.add_write(metadata.frame_interpolation_history_id);
-                }
-            }
-            PRUNE_DIFF_HISTORY => {
-                for metadata in world
-                    .resource::<PredictionRegistry>()
-                    .prediction_map
-                    .values()
-                    .filter(|metadata| metadata.prune_history_diff_receiver.is_some())
-                {
-                    access.add_read(metadata.rollback.confirmed_history_id);
-                }
-            }
-            _ => unreachable!("unknown prediction world access mode"),
-        }
-
-        component_access_set.add(access);
+        <ResMut<'static, PredictedArchetypes> as SystemParam>::init_access(
+            &state.cache,
+            system_meta,
+            system_access,
+            world,
+        );
+        let access = state.declared_access.clone();
+        assert!(
+            system_access.get_conflicts_single(&access).is_empty(),
+            "error[B0001]: dynamic component access conflicts with a previous system parameter",
+        );
+        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(
@@ -191,16 +218,48 @@ unsafe impl<const MODE: u8> SystemParam for PredictionWorld<'_, '_, MODE> {
         world: UnsafeWorldCell<'world>,
         change_tick: ChangeTick,
     ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
-        // SAFETY: `init_access` delegates resource access to `ResMut<PredictedArchetypes>`, and
+        // SAFETY: `init_access` delegates access to both resource parameters, and
         // the caller guarantees that this is the same World used by `init_state`.
-        let cache = unsafe {
-            <ResMut<'static, PredictedArchetypes> as SystemParam>::get_param(
-                state,
+        let registry = unsafe {
+            <Res<'static, PredictionRegistry> as SystemParam>::get_param(
+                &mut state.registry,
                 system_meta,
                 world,
                 change_tick,
             )
         }?;
+        // SAFETY: access to the cache resource was declared by `init_access`.
+        let cache = unsafe {
+            <ResMut<'static, PredictedArchetypes> as SystemParam>::get_param(
+                &mut state.cache,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        // Start from the declared bitsets so valid registrations reuse their storage.
+        collect_prediction_access(
+            MODE,
+            &registry,
+            world.components(),
+            &mut state.current_access,
+        );
+        // Another dispatcher may have cached callbacks while additional types were
+        // registered. Those callbacks survive removal from the shared registry.
+        state
+            .current_access
+            .access_mut()
+            .extend(cache.component_access[MODE as usize].access());
+        if !state
+            .current_access
+            .access()
+            .is_subset(state.declared_access.access())
+        {
+            state.current_access.clone_from(&state.declared_access);
+            return Err(SystemParamValidationError::invalid::<Self>(
+                "PredictionRegistry changed after system initialization; register predicted and rollback components before initializing systems",
+            ));
+        }
         Ok(PredictionWorld {
             world,
             cache,
@@ -220,7 +279,8 @@ pub(crate) struct PredictedArchetypes {
     prediction_disable_component_id: ComponentId,
     interpolated_component_id: ComponentId,
     disabling_component_ids: Vec<ComponentId>,
-    filter_component_ids: Vec<ComponentId>,
+    // Accesses retained by cached callbacks, including registrations removed later.
+    component_access: [FilteredAccess; PRUNE_DIFF_HISTORY as usize + 1],
     archetypes: Vec<CachedPredictionArchetype>,
 }
 
@@ -286,18 +346,6 @@ impl FromWorld for PredictedArchetypes {
             .resource::<DefaultQueryFilters>()
             .disabling_ids()
             .collect::<Vec<_>>();
-        let mut filter_component_ids = disabling_component_ids.clone();
-        for component_id in [
-            predicted_component_id,
-            confirm_history_component_id,
-            deterministic_predicted_component_id,
-            disable_rollback_component_id,
-            prediction_disable_component_id,
-        ] {
-            if !filter_component_ids.contains(&component_id) {
-                filter_component_ids.push(component_id);
-            }
-        }
         Self {
             generation: ArchetypeGeneration::initial(),
             predicted_component_id,
@@ -307,7 +355,7 @@ impl FromWorld for PredictedArchetypes {
             prediction_disable_component_id,
             interpolated_component_id,
             disabling_component_ids,
-            filter_component_ids,
+            component_access: core::array::from_fn(|_| FilteredAccess::default()),
             archetypes: Vec::new(),
         }
     }
@@ -322,6 +370,7 @@ impl PredictedArchetypes {
         component_registry: &ComponentRegistry,
     ) {
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
+        let mut cache_extended = false;
 
         for archetype in &archetypes[old_generation..] {
             let excluded_by_default_filter = self
@@ -409,6 +458,14 @@ impl PredictedArchetypes {
 
             if !cached.predicted_components.is_empty() || !cached.diff_components.is_empty() {
                 self.archetypes.push(cached);
+                cache_extended = true;
+            }
+        }
+        if cache_extended {
+            // Retain a conservative union once per cache extension, avoiding an
+            // archetype scan each time a dispatcher validates its declared access.
+            for (mode, access) in self.component_access.iter_mut().enumerate() {
+                collect_prediction_access(mode as u8, prediction_registry, components, access);
             }
         }
     }
@@ -453,5 +510,86 @@ impl PredictedArchetypes {
                     metadata.custom_correction || metadata.correction.is_some()
                 }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PrepareRollbackWorld;
+    use crate::prelude::{
+        Predicted, PredictionAppRegistrationExt, PredictionHistory, PredictionRegistry,
+    };
+    use bevy_app::App;
+    use bevy_ecs::prelude::{Component, Query, Res, Without};
+    use bevy_ecs::system::SystemState;
+    use lightyear_core::prelude::ConfirmedHistory;
+    use lightyear_replication::prelude::ComponentRegistry;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct Value(u32);
+
+    #[test]
+    fn rollback_rejects_components_registered_after_system_initialization() {
+        #[derive(Component, Clone, Debug, PartialEq)]
+        struct LaterValue;
+
+        let mut app = App::new();
+        app.init_resource::<PredictionRegistry>();
+        app.world_mut().register_component::<Value>();
+        app.local_rollback::<Value>();
+        let mut state = SystemState::<PrepareRollbackWorld>::new(app.world_mut());
+        assert!(state.get_mut(app.world_mut()).is_ok());
+
+        app.world_mut().register_component::<LaterValue>();
+        app.local_rollback::<LaterValue>();
+
+        let error = state
+            .get_mut(app.world_mut())
+            .err()
+            .expect("new component access must fail validation before raw world access");
+        assert!(!error.skipped);
+        assert!(error.message.contains("PredictionRegistry changed"));
+
+        // A newer dispatcher can cache the new type. Removing its registration
+        // afterwards must not let the older dispatcher access those cached callbacks.
+        app.init_resource::<ComponentRegistry>();
+        app.world_mut()
+            .spawn(PredictionHistory::<LaterValue>::default());
+        let mut later_state = SystemState::<(
+            PrepareRollbackWorld,
+            Res<PredictionRegistry>,
+            Res<ComponentRegistry>,
+        )>::new(app.world_mut());
+        {
+            let (mut prediction_world, registry, components) =
+                later_state.get_mut(app.world_mut()).unwrap();
+            prediction_world.update_archetypes(&registry, &components);
+        }
+        app.insert_resource(PredictionRegistry::default());
+        let error = state
+            .get_mut(app.world_mut())
+            .err()
+            .expect("cached callbacks still require their original component access");
+        assert!(!error.skipped);
+        assert!(error.message.contains("PredictionRegistry changed"));
+    }
+
+    #[test]
+    #[should_panic(expected = "error[B0001]")]
+    fn rollback_rejects_conflicting_history_query_without_prediction_marker_or_confirmed_history() {
+        let mut app = App::new();
+        app.init_resource::<PredictionRegistry>();
+        app.world_mut().register_component::<Value>();
+        app.local_rollback::<Value>();
+
+        // Local rollback accesses histories even without network prediction state.
+        // Only initialize the parameters; never execute potentially aliased accesses.
+        SystemState::<(
+            PrepareRollbackWorld,
+            Query<
+                &PredictionHistory<Value>,
+                (Without<Predicted>, Without<ConfirmedHistory<Value>>),
+            >,
+        )>::new(app.world_mut());
     }
 }

@@ -220,11 +220,14 @@ impl ErasedPostRollbackCorrection {
     /// through [`DeferredEntityCommands`]. Declaring exactly those accesses keeps
     /// them off the exclusive path their `&mut World` predecessors required.
     pub(crate) fn add_correction_access(&self, filtered_access: &mut FilteredAccess) {
-        filtered_access.add_read(self.live_component_id);
-        filtered_access.add_read(self.previous_visual_component_id);
-        filtered_access.add_read(self.switch_blend_component_id);
-        filtered_access.add_write(self.visual_correction_component_id);
-        filtered_access.add_write(self.frame_history_component_id);
+        // Correction types and their state are optional per entity. Requiring all of
+        // them would hide conflicts while creating a correction for the first time.
+        let access = filtered_access.access_mut();
+        access.add_read(self.live_component_id);
+        access.add_read(self.previous_visual_component_id);
+        access.add_read(self.switch_blend_component_id);
+        access.add_write(self.visual_correction_component_id);
+        access.add_write(self.frame_history_component_id);
     }
 
     /// Records this type's corrections for every entity with a saved value.
@@ -255,6 +258,12 @@ pub(crate) struct CorrectionWorld<'w> {
     world: UnsafeWorldCell<'w>,
 }
 
+pub(crate) struct CorrectionWorldState {
+    registry: <Res<'static, PredictionRegistry> as SystemParam>::State,
+    declared_access: FilteredAccess,
+    scratch_access: FilteredAccess,
+}
+
 impl<'w> CorrectionWorld<'w> {
     /// The world cell. Callers must respect the accesses declared in
     /// [`Self::init_access`].
@@ -264,32 +273,77 @@ impl<'w> CorrectionWorld<'w> {
 }
 
 unsafe impl SystemParam for CorrectionWorld<'_> {
-    type State = ();
+    type State = CorrectionWorldState;
     type Item<'world, 'state> = CorrectionWorld<'world>;
 
-    fn init_state(_world: &mut World) -> Self::State {}
-
-    fn init_access(
-        _state: &Self::State,
-        _system_meta: &mut SystemMeta,
-        component_access_set: &mut FilteredAccessSet,
-        world: &mut World,
-    ) {
-        let mut filtered_access = FilteredAccess::default();
+    fn init_state(world: &mut World) -> Self::State {
+        let registry = <Res<'static, PredictionRegistry> as SystemParam>::init_state(world);
+        let mut declared_access = FilteredAccess::default();
         if let Some(registry) = world.get_resource::<PredictionRegistry>() {
             for correction in registry.post_rollback_corrections() {
-                correction.add_correction_access(&mut filtered_access);
+                correction.add_correction_access(&mut declared_access);
             }
         }
-        component_access_set.add(filtered_access);
+        CorrectionWorldState {
+            registry,
+            scratch_access: declared_access.clone(),
+            declared_access,
+        }
+    }
+
+    fn init_access(
+        state: &Self::State,
+        system_meta: &mut SystemMeta,
+        system_access: &mut FilteredAccessSet,
+        world: &mut World,
+    ) {
+        <Res<'static, PredictionRegistry> as SystemParam>::init_access(
+            &state.registry,
+            system_meta,
+            system_access,
+            world,
+        );
+        let access = state.declared_access.clone();
+        assert!(
+            system_access.get_conflicts_single(&access).is_empty(),
+            "error[B0001]: dynamic component access conflicts with a previous system parameter",
+        );
+        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(
-        _state: &'state mut Self::State,
-        _system_meta: &SystemMeta,
+        state: &'state mut Self::State,
+        system_meta: &SystemMeta,
         world: UnsafeWorldCell<'world>,
-        _change_tick: ChangeTick,
+        change_tick: ChangeTick,
     ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        // SAFETY: init_access delegates the registry read to Res, and the caller
+        // guarantees this is the world used to initialize this parameter.
+        let registry = unsafe {
+            <Res<'static, PredictionRegistry> as SystemParam>::get_param(
+                &mut state.registry,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        // The public registry can change after initialization. Check the actual accesses,
+        // including same-count replacements, before exposing unchecked component access.
+        // Scratch starts with the declared access, so valid calls only set existing bits.
+        // Removals are safe because old Local cache entries were declared too.
+        for correction in registry.post_rollback_corrections() {
+            correction.add_correction_access(&mut state.scratch_access);
+        }
+        if !state
+            .scratch_access
+            .access()
+            .is_subset(state.declared_access.access())
+        {
+            state.scratch_access.clone_from(&state.declared_access);
+            return Err(SystemParamValidationError::invalid::<Self>(
+                "correction registration introduced undeclared component access; register corrections before initializing systems",
+            ));
+        }
         Ok(CorrectionWorld { world })
     }
 }
@@ -1055,7 +1109,7 @@ impl CorrectionPolicy {
 mod tests {
     use core::time::Duration;
 
-    use bevy_ecs::system::RunSystemOnce;
+    use bevy_ecs::system::{RunSystemOnce, SystemState};
     use bevy_math::{
         Curve,
         curve::{Ease, FunctionCurve, Interval},
@@ -1121,6 +1175,59 @@ mod tests {
         fn apply_diff(&mut self, delta: &CorrectionA) {
             self.0 += delta.0;
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "error[B0001]")]
+    fn correction_rejects_conflicting_query_without_existing_correction_or_blend() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.component::<CorrectionA>().predict().add_correction();
+
+        // Creating a correction reads the live value before any correction or blend exists.
+        // Reject overlap at initialization without executing either parameter.
+        SystemState::<(
+            CorrectionWorld,
+            Query<&mut CorrectionA, (Without<VisualCorrection<CorrectionA>>, Without<SwitchBlend>)>,
+        )>::new(app.world_mut());
+    }
+
+    #[test]
+    #[should_panic(expected = "error[B0001]")]
+    fn correction_rejects_prior_conflicting_query() {
+        let mut app = app_with_replication_markers();
+        app.init_resource::<PredictionRegistry>();
+        app.component::<CorrectionA>().predict().add_correction();
+
+        // Custom parameters must check earlier parameters as well as declare access
+        // for later ones. FilteredAccessSet::add alone does not check conflicts.
+        SystemState::<(Query<&mut CorrectionA>, CorrectionWorld)>::new(app.world_mut());
+    }
+
+    #[test]
+    fn correction_rejects_access_registered_after_system_initialization() {
+        let mut app = app_with_replication_markers();
+        let mut state = SystemState::<CorrectionWorld>::new(app.world_mut());
+        assert!(
+            state.get_mut(app.world_mut()).is_err(),
+            "the registry is required"
+        );
+        app.init_resource::<PredictionRegistry>();
+        assert!(state.get_mut(app.world_mut()).is_ok());
+
+        app.component::<CorrectionA>().predict().add_correction();
+        let error = state
+            .get_mut(app.world_mut())
+            .err()
+            .expect("late correction access must be rejected before component retrieval");
+        assert!(!error.skipped);
+        assert!(error.message.contains("undeclared component access"));
+
+        app.world_mut()
+            .resource_mut::<PredictionRegistry>()
+            .prediction_map
+            .clear();
+        assert!(state.get_mut(app.world_mut()).is_ok());
     }
 
     #[test]
