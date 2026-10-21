@@ -69,6 +69,7 @@ use lightyear_connection::client::{Client, Connected};
 #[cfg(feature = "prediction")]
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_connection::p2p::{P2PRoster, P2PSessionPhase};
 use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
 #[cfg(feature = "interpolation")]
@@ -298,7 +299,7 @@ fn finalize_last_confirmed_input(mut last_confirmed_input: ResMut<LastConfirmedI
 #[derive(Clone, Copy, Debug)]
 enum InputRoute<'a> {
     ClientServer { link: Entity, host_client: bool },
-    P2P(&'a [Entity]),
+    P2P(&'a P2PRoster),
 }
 
 impl<'a> InputRoute<'a> {
@@ -313,8 +314,16 @@ impl<'a> InputRoute<'a> {
                 link: *client,
                 host_client: true,
             }),
-            NetworkTopology::P2P(joined) => Some(Self::P2P(joined.as_slice())),
-            NetworkTopology::Undefined
+            // Joining peers exchange session inputs for catch-up before gameplay activation.
+            // Stopped sessions and cohorts still forming their start barrier have no input route.
+            NetworkTopology::P2P(
+                roster @ P2PRoster {
+                    phase: P2PSessionPhase::Joining | P2PSessionPhase::Active,
+                    ..
+                },
+            ) => Some(Self::P2P(roster)),
+            NetworkTopology::P2P(_)
+            | NetworkTopology::Undefined
             | NetworkTopology::Server(_)
             | NetworkTopology::Invalid(_) => None,
         }
@@ -358,7 +367,15 @@ impl<'a> InputRoute<'a> {
 
     #[inline]
     fn requires_prespawned_targets(self) -> bool {
-        matches!(self, Self::P2P(_))
+        // A P2P session with no remote peer has no wire target to agree on, so the local entity's
+        // identity does not have to be hash-based. This is what lets a solo peer capture input
+        // without pre-spawning a player for itself.
+        match self {
+            Self::ClientServer { .. } => false,
+            Self::P2P(roster) => {
+                !roster.started.is_empty() || !roster.connected_candidates.is_empty()
+            }
+        }
     }
 
     #[inline]
@@ -892,35 +909,45 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     >,
     prespawned: Query<(Entity, &PreSpawned)>,
 ) {
-    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+    let route = InputRoute::from_topology(&metadata.mode);
+    // Joining peers receive catch-up inputs through their admitted candidate Links;
+    // active peers also include the started roster.
+    let p2p_targets = route
+        .as_ref()
+        .and_then(|route| match route {
+            InputRoute::P2P(roster) => Some(roster.input_links()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    if route.is_none() && p2p_targets.is_empty() {
         // No active route yet; drain client-owned receivers so unread inputs don't accumulate.
         for mut receiver in receivers.iter_mut() {
             receiver.receive().for_each(drop);
         }
         return;
-    };
+    }
     // The host-client receiver is owned by the server-side pipeline. Never drain it here.
-    if route.is_host_client() {
+    if route.is_some_and(InputRoute::is_host_client) {
         return;
     }
     // Conventional clients only receive other players' inputs when the server is configured to
     // rebroadcast them. Direct P2P peers always exchange remote inputs with each other.
-    if matches!(route, InputRoute::ClientServer { .. }) && !input_config.rebroadcast_inputs {
+    if matches!(route, Some(InputRoute::ClientServer { .. })) && !input_config.rebroadcast_inputs {
         return;
     }
     let Some(prediction_manager) = prediction_manager else {
-        drain_owned_input_receivers::<S>(route, &mut receivers);
+        drain_owned_input_receivers::<S>(route, &p2p_targets, &mut receivers);
         return;
     };
     if !timeline_sync.is_synced() {
         // Pre-sync ticks are unfinalized; discard instead of applying.
-        drain_owned_input_receivers::<S>(route, &mut receivers);
+        drain_owned_input_receivers::<S>(route, &p2p_targets, &mut receivers);
         return;
     }
     let tick = timeline.tick();
     let mut received_relevant_input = false;
     match route {
-        InputRoute::ClientServer { link, .. } => {
+        Some(InputRoute::ClientServer { link, .. }) => {
             if let Ok(mut receiver) = receivers.get_mut(link) {
                 received_relevant_input |= receive_remote_player_input_messages_from_receiver::<S>(
                     &mut receiver,
@@ -936,8 +963,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 );
             }
         }
-        InputRoute::P2P(links) => {
-            for link in links {
+        Some(InputRoute::P2P(_)) | None => {
+            for link in &p2p_targets {
                 let Ok(mut receiver) = receivers.get_mut(*link) else {
                     continue;
                 };
@@ -966,20 +993,21 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 
 #[cfg(feature = "prediction")]
 fn drain_owned_input_receivers<S: ActionStateSequence>(
-    route: InputRoute<'_>,
+    route: Option<InputRoute<'_>>,
+    p2p_targets: &[Entity],
     receivers: &mut Query<
         &mut MessageReceiver<InputMessage<S>>,
         (With<Client>, With<Connected>, Without<HostClient>),
     >,
 ) {
     match route {
-        InputRoute::ClientServer { link, .. } => {
+        Some(InputRoute::ClientServer { link, .. }) => {
             if let Ok(mut receiver) = receivers.get_mut(link) {
                 receiver.receive().for_each(drop);
             }
         }
-        InputRoute::P2P(links) => {
-            for link in links {
+        Some(InputRoute::P2P(_)) | None => {
+            for link in p2p_targets {
                 if let Ok(mut receiver) = receivers.get_mut(*link) {
                     receiver.receive().for_each(drop);
                 }
@@ -1386,8 +1414,12 @@ fn send_input_messages<S: ActionStateSequence>(
                 sender.send::<InputChannel>(message);
             }
         }
-        InputRoute::P2P(links) => {
-            let Some(links) = unique_p2p_links(links) else {
+        InputRoute::P2P(roster) => {
+            // Deliver to the started roster and to peers that are still catching up. A peer that
+            // has not crossed the barrier yet must receive the session's inputs to replay them
+            // from its snapshot tick; only the started roster drives pacing and the frontier.
+            let targets = roster.input_links();
+            let Some(links) = unique_p2p_links(&targets) else {
                 error!("cached P2P Link entities must be unique");
                 message_buffer.0.clear();
                 return;
@@ -1483,7 +1515,7 @@ mod tests {
         assert!(client_server_route.accepts_local_target(Some(&owned_by_client)));
         assert!(!client_server_route.accepts_local_target(Some(&owned_by_other)));
 
-        let p2p = NetworkTopology::P2P([client, other].into_iter().collect());
+        let p2p = NetworkTopology::P2P(P2PRoster::from_started_links([client, other]));
         let p2p_route = InputRoute::from_topology(&p2p).unwrap();
         assert!(p2p_route.accepts_local_target(None));
         assert!(p2p_route.accepts_local_target(Some(&owned_by_client)));
@@ -1495,7 +1527,7 @@ mod tests {
         let mut world = World::new();
         let link = world.spawn_empty().id();
         let target = world.spawn_empty().id();
-        let topology = NetworkTopology::P2P([link].into_iter().collect());
+        let topology = NetworkTopology::P2P(P2PRoster::from_started_links([link]));
         let route = InputRoute::from_topology(&topology).unwrap();
         let prespawned = PreSpawned::new(0xCAFE);
 
@@ -1510,10 +1542,33 @@ mod tests {
         let mut world = World::new();
         let link = world.spawn_empty().id();
         let target = world.spawn_empty().id();
-        let topology = NetworkTopology::P2P([link].into_iter().collect());
+        let topology = NetworkTopology::P2P(P2PRoster::from_started_links([link]));
         let route = InputRoute::from_topology(&topology).unwrap();
 
         assert_eq!(input_target(route, target, None), None);
+    }
+
+    #[test]
+    fn a_solo_p2p_session_does_not_require_prespawned_identity() {
+        // A session with no remote peer has no wire target to agree on, so the local player does
+        // not need a stable hash. Requiring one would make solo play impossible for any
+        // application that only pre-spawns entities for remote players.
+        let mut world = World::new();
+        let target = world.spawn_empty().id();
+        let solo = NetworkTopology::P2P(P2PRoster::from_started_links([]));
+        let route = InputRoute::from_topology(&solo).unwrap();
+
+        assert!(!route.requires_prespawned_targets());
+        assert_eq!(
+            input_target(route, target, None),
+            Some(InputTarget::Entity(target))
+        );
+
+        // As soon as there is one peer to address, the hash is required again.
+        let link = world.spawn_empty().id();
+        let with_peer_topology = NetworkTopology::P2P(P2PRoster::from_started_links([link]));
+        let with_peer = InputRoute::from_topology(&with_peer_topology).unwrap();
+        assert!(with_peer.requires_prespawned_targets());
     }
 
     #[test]
