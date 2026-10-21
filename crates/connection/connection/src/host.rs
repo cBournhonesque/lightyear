@@ -181,7 +181,7 @@ mod tests {
     }
 
     fn spawn_host(app: &mut App) -> (Entity, Entity) {
-        let server = app.world_mut().spawn(Server::default()).id();
+        let server = app.world_mut().spawn(Server).id();
         let client = app
             .world_mut()
             .spawn((Client, LinkOf { endpoint: server }))

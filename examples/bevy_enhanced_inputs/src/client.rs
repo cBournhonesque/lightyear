@@ -12,7 +12,7 @@ use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 #[cfg(feature = "server")]
 use lightyear::connection::host::HostServer;
-use lightyear::input::bei::prelude::{Action, ActionOf, Actions, Bindings, Cardinal, Fire};
+use lightyear::input::bei::prelude::{preset, Action, ActionOf, Actions, Bindings, Fire};
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
@@ -90,7 +90,7 @@ fn add_bindings_to_controlled_action(
     }
     commands
         .entity(trigger.entity)
-        .insert(Bindings::spawn(Cardinal::wasd_keys()));
+        .apply_scene(bsn! { Bindings [ {preset::cardinal::wasd_keys()} ] });
 }
 
 /// Add local movement bindings if the controlled player becomes ready after
@@ -110,7 +110,7 @@ fn add_bindings_to_controlled_player_actions(
         }
         commands
             .entity(action)
-            .insert(Bindings::spawn(Cardinal::wasd_keys()));
+            .apply_scene(bsn! { Bindings [ {preset::cardinal::wasd_keys()} ] });
     }
 }
 

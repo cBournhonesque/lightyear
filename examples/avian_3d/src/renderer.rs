@@ -6,7 +6,7 @@ use crate::{
         FLOOR_WIDTH, PROJECTILE_RADIUS,
     },
 };
-use avian3d::{math::AsF32, prelude::*};
+use avian3d::prelude::*;
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
 use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::rollback::DeterministicPredicted;

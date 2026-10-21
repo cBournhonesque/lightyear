@@ -1108,11 +1108,8 @@ impl CorrectionPolicy {
 mod tests {
     use core::time::Duration;
 
+    use bevy_curve::{Curve, Ease, FunctionCurve, Interval};
     use bevy_ecs::system::{RunSystemOnce, SystemState};
-    use bevy_math::{
-        Curve,
-        curve::{Ease, FunctionCurve, Interval},
-    };
     use bevy_replicon::prelude::*;
     use bevy_state::app::StatesPlugin;
     use lightyear_interpolation::{

@@ -904,15 +904,16 @@ mod tests {
         let frame_interpolation_history_id = app
             .world_mut()
             .register_component::<FrameInterpolationHistory<TestDiffValue>>();
-        let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
-        registry.register_rollback::<TestDiffValue>(
-            prediction_history_id,
-            confirmed_history_id,
-            frame_interpolation_history_id,
-        );
-        registry.register::<TestDiffValue>();
-        registry.set_pending_diff_tick::<TestDiffValue>();
-        drop(registry);
+        {
+            let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
+            registry.register_rollback::<TestDiffValue>(
+                prediction_history_id,
+                confirmed_history_id,
+                frame_interpolation_history_id,
+            );
+            registry.register::<TestDiffValue>();
+            registry.set_pending_diff_tick::<TestDiffValue>();
+        }
         app.add_systems(Update, prune_history_diff_receiver);
 
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
@@ -957,15 +958,16 @@ mod tests {
         let frame_interpolation_history_id = app
             .world_mut()
             .register_component::<FrameInterpolationHistory<TestValue>>();
-        let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
-        registry.register_rollback::<TestValue>(
-            prediction_history_id,
-            confirmed_history_id,
-            frame_interpolation_history_id,
-        );
-        registry.register::<TestValue>();
-        registry.set_snap_to_confirmed::<TestValue>();
-        drop(registry);
+        {
+            let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
+            registry.register_rollback::<TestValue>(
+                prediction_history_id,
+                confirmed_history_id,
+                frame_interpolation_history_id,
+            );
+            registry.register::<TestValue>();
+            registry.set_snap_to_confirmed::<TestValue>();
+        }
 
         let mut timeline = LocalTimeline::default();
         timeline.apply_delta(TICK.0 as i32);

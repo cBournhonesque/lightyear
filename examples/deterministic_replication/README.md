@@ -5,6 +5,11 @@
   every peer so input rollback and state-based catch-up exercise child-collider broad-phase and contact state.
 - Every physical child is explicitly enrolled in deterministic rollback so its derived collider state is restored
   during replay.
+- State-based catch-up transfers body poses and velocities without Avian's contact caches.
+  The shared setup disables contact recycling (`NarrowPhaseConfig::recycle_distance = 0.0`)
+  in this mode so late joiners rebuild the same contacts as existing peers. Avian 0.8 enables
+  recycling by default; keep this setting identical on the server and clients. Input-only
+  replication retains the default recycling behavior.
 
 
 

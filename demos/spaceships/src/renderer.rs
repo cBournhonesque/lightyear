@@ -263,7 +263,7 @@ fn draw_predicted_entities(
                 Vec2::new(-width, (-SHIP_LENGTH / 2.) - 3.0),
                 Vec2::new(0.0, (-SHIP_LENGTH / 2.) - 10.0),
             ];
-            let collider = Collider::convex_hull(points).unwrap();
+            let collider = Collider::convex_hull(&points).unwrap();
             render_shape(
                 collider.shape(),
                 position,
@@ -303,7 +303,7 @@ fn draw_confirmed_entities(
                 Vec2::new(-width, (-SHIP_LENGTH / 2.) - 3.0),
                 Vec2::new(0.0, (-SHIP_LENGTH / 2.) - 10.0),
             ];
-            let collider = Collider::convex_hull(points).unwrap();
+            let collider = Collider::convex_hull(&points).unwrap();
             render_shape(
                 collider.shape(),
                 position,

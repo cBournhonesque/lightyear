@@ -123,12 +123,14 @@ impl DetStepper {
             client_id: client_id as u64,
         };
 
-        let mut sync = SyncConfig::default();
         // 2-tick margin (vs the default 1.0) is needed because
         // the stepper runs every client app then the server app
         // sequentially inside one "frame", giving the network
         // no real flush window. See `stepper::test_input_timeline_config`.
-        sync.jitter_margin = 2.0;
+        let sync = SyncConfig {
+            jitter_margin: 2.0,
+            ..default()
+        };
         client_app.insert_resource(
             InputTimelineConfig::default()
                 .with_input_delay(InputDelayConfig::fixed_input_delay(0))

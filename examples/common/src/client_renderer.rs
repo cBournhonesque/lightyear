@@ -1,5 +1,5 @@
-use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, Button};
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
 use lightyear::connection::client::ClientState;
@@ -102,7 +102,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                     Button,
                 ))
                 .observe(
-                    |_: On<Pointer<Click>>,
+                    |_: On<Activate>,
                      mut commands: Commands,
                      query: Query<(Entity, ClientState), With<Client>>| {
                         let Ok((entity, state)) = query.single() else {

@@ -75,7 +75,7 @@ fn closest_rendered_player_hit(
             continue;
         }
         let Some((distance, normal)) = player_shape.cast_ray(
-            *position,
+            position.0,
             *rotation,
             origin,
             direction.as_vec2(),

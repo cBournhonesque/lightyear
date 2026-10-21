@@ -202,7 +202,7 @@ pub fn apply_character_action(
 
     // Handle jumping.
     if action_state.just_pressed(&CharacterAction::Jump) {
-        let ray_cast_origin = forces.position().0
+        let ray_cast_origin = forces.position()
             + Vec3::new(
                 0.0,
                 -CHARACTER_CAPSULE_HEIGHT / 2.0 - CHARACTER_CAPSULE_RADIUS,

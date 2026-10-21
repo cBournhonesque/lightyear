@@ -1,4 +1,4 @@
-use bevy::math::Curve;
+use bevy::curve::Curve;
 use bevy::prelude::*;
 use lightyear::prelude::input::bei::*;
 use lightyear::prelude::input::InputConfig;

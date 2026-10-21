@@ -4,7 +4,7 @@ use crate::protocol::{
     CompMixedCorrectionBundleB, CompPredictionOnly,
 };
 use crate::stepper::{ClientServerStepper, StepperConfig};
-use avian2d::math::Vector;
+use avian2d::math::RVector;
 use avian2d::prelude::{AngularVelocity, LinearVelocity, Position, Rotation};
 use bevy::prelude::*;
 use core::time::Duration;
@@ -311,7 +311,7 @@ fn post_rollback_correction_smooths_velocities() {
             Position::default(),
             Rotation::default(),
             // Stale pre-rollback visual velocities; replay corrects them to rest.
-            LinearVelocity(Vector::new(10.0, 0.0)),
+            LinearVelocity(RVector::new(10.0, 0.0)),
             AngularVelocity(5.0),
             history(rollback_tick, Position::default()),
             history(rollback_tick, Rotation::default()),
@@ -334,7 +334,7 @@ fn post_rollback_correction_smooths_velocities() {
     // values instead of snapping to the replayed ones.
     assert_eq!(
         world.get::<LinearVelocity>(entity),
-        Some(&LinearVelocity(Vector::new(10.0, 0.0))),
+        Some(&LinearVelocity(RVector::new(10.0, 0.0))),
         "the stale velocity is held, not snapped"
     );
     assert_eq!(
@@ -345,14 +345,14 @@ fn post_rollback_correction_smooths_velocities() {
     assert_ne!(
         world
             .get::<VisualCorrection<LinearVelocity>>(entity)
-            .map(|correction| correction.error.clone()),
+            .map(|correction| correction.error),
         Some(LinearVelocity::default()),
         "a correction is carrying the difference"
     );
     assert_ne!(
         world
             .get::<VisualCorrection<AngularVelocity>>(entity)
-            .map(|correction| correction.error.clone()),
+            .map(|correction| correction.error),
         Some(AngularVelocity(0.0)),
         "a correction is carrying the difference"
     );

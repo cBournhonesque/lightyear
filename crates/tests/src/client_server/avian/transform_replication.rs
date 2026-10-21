@@ -1,6 +1,6 @@
 use crate::stepper::{ClientServerStepper, StepperConfig};
 use approx::assert_relative_eq;
-use avian2d::math::Vector;
+use avian2d::math::RVector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
@@ -164,7 +164,7 @@ fn test_replicate_transform_child_collider() {
             Replicate::to_clients(NetworkTarget::All),
             RigidBody::Kinematic,
             Transform::from_xyz(1.0, 0.0, 0.0),
-            LinearVelocity(Vector::new(100.0, 0.0)),
+            LinearVelocity(RVector::new(100.0, 0.0)),
             Collider::circle(1.0),
         ))
         .id();

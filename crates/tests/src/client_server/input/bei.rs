@@ -257,7 +257,7 @@ fn test_bound_action_spawned_from_received_context_sends_inputs_after_mapping() 
             ActionOf::<BEIContext>::new(client_entity),
             Action::<BEIAction1>::default(),
             ActionMock::once(TriggerState::Fired, true),
-            bindings![KeyCode::Space,],
+            Bindings::spawn_one(Binding::from(KeyCode::Space)),
             PreSpawned::new(TEST_HASH),
             bei::prelude::InputMarker::<BEIContext>::default(),
         ))
@@ -341,7 +341,7 @@ fn test_server_replicated_action_sends_inputs_after_client_adds_bindings() {
         .entity_mut(client_action)
         .insert((
             ActionMock::once(TriggerState::Fired, true),
-            bindings![KeyCode::Space,],
+            Bindings::spawn_one(Binding::from(KeyCode::Space)),
         ));
 
     stepper.frame_step(5);

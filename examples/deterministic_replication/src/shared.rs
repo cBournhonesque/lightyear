@@ -25,11 +25,12 @@ impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
         let is_p2p = is_p2p(app);
-        app.insert_resource(if is_p2p {
+        let catch_up_mode = if is_p2p {
             CatchUpMode::InputOnly
         } else {
             catch_up_mode_from_env()
-        });
+        };
+        app.insert_resource(catch_up_mode);
         // bundles
         if !is_p2p {
             app.add_systems(Startup, init);
@@ -69,6 +70,12 @@ impl Plugin for SharedPlugin {
             warm_start_coefficient: 0.0,
             ..default()
         });
+        if catch_up_mode == CatchUpMode::StateBasedCatchUp {
+            app.insert_resource(NarrowPhaseConfig {
+                recycle_distance: 0.0,
+                ..default()
+            });
+        }
         // Game logic
         app.add_systems(FixedUpdate, player_movement);
 

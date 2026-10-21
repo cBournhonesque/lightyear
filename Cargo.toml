@@ -50,7 +50,7 @@ version = "0.30.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.97.1"
 license = "MIT OR Apache-2.0"
 
 # Enable max optimizations for dependencies, but not for our code:
@@ -204,6 +204,7 @@ bevy = { version = "0.20", default-features = false, features = [
   "serialize",
   "bevy_asset",
   "bevy_color",
+  "bevy_curve",
   "multi_threaded",
   "sysinfo_plugin",
   "zstd_rust",
@@ -226,6 +227,7 @@ bevy_text = { version = "0.20", default-features = false }
 bevy_time = { version = "0.20", default-features = false }
 bevy_transform = { version = "0.20", default-features = false }
 bevy_ui = { version = "0.20", default-features = false }
+bevy_ui_widgets = { version = "0.20", default-features = false }
 bevy_utils = { version = "0.20", default-features = false, features = [
   "debug",
 ] }
@@ -233,39 +235,39 @@ bevy_winit = { version = "0.20", default-features = false }
 tracy-client = { version = "0.18" }
 
 # input
-bevy_enhanced_input = { git = "https://github.com/simgine/bevy_enhanced_input.git", rev = "357f100abf690aca7ad60e5e90956ad21823afd7", version = "0.26", default-features = false, features = [
+bevy_enhanced_input = { version = "0.27", default-features = false, features = [
   "serialize",
 ] }
-leafwing-input-manager = { git = "https://github.com/andriyDev/leafwing-input-manager.git", rev = "721a9edb777915193aac53ecf463f811d84b76a0", version = "0.21", default-features = false, features = [
+leafwing-input-manager = { version = "0.22", default-features = false, features = [
   "keyboard",
 ] }
 # replication
-bevy_replicon = { git = "https://github.com/simgine/bevy_replicon.git", branch = "bevy-0.20", version = "0.44", default-features = false, features = [
+bevy_replicon = { version = "0.45.2", default-features = false, features = [
   "client",
   "server",
 ] }
 
 # physics
-avian2d = { git = "https://github.com/andriyDev/avian.git", rev = "9f7e28238a7e33977047c8e8f068475967fb6dff", version = "0.8.0-dev", default-features = false }
-avian3d = { git = "https://github.com/andriyDev/avian.git", rev = "9f7e28238a7e33977047c8e8f068475967fb6dff", version = "0.8.0-dev", default-features = false }
-obvhs = { version = "0.3" }
+avian2d = { version = "0.8", default-features = false }
+avian3d = { version = "0.8", default-features = false }
+obvhs = { version = "0.4" }
 # Avian 0.7's 2D `serialize` feature derives Serde for an ArrayVec without enabling this feature.
 arrayvec = { version = "0.7", features = ["serde"] }
-bevy_transform_interpolation = { git = "https://github.com/andriyDev/bevy_transform_interpolation.git", rev = "4b9ff214bd782e5003da602025c77210abe27545", version = "0.6.0-dev", default-features = false }
+bevy_transform_interpolation = { version = "0.6", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { git = "https://github.com/taboky-dev/bevy-inspector-egui.git", rev = "6c4689637f289647ecad5897da35c29032fcc086", version = "0.37", default-features = false, features = [
+bevy-inspector-egui = { version = "0.38", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.43.0-rc.1", default-features = false, features = [
+bevy_egui = { version = "0.43.1", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
-egui_extras = "0.34"
+egui_extras = "0.36"
 
 # WASM things
 console_error_panic_hook = "0.1.7"

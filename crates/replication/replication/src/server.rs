@@ -279,7 +279,7 @@ mod tests {
     #[test]
     fn started_lifecycle_transitions_server_state() {
         let mut app = app_with_server_state(ServerState::Stopped);
-        let server = app.world_mut().spawn((Server::default(), Started)).id();
+        let server = app.world_mut().spawn((Server, Started)).id();
 
         app.update();
 
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn despawned_started_entity_transitions_server_state_to_stopped() {
         let mut app = app_with_server_state(ServerState::Stopped);
-        let server = app.world_mut().spawn((Server::default(), Started)).id();
+        let server = app.world_mut().spawn((Server, Started)).id();
 
         app.update();
         assert_eq!(
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn started_and_despawned_in_same_flush_remains_stopped() {
         let mut app = app_with_server_state(ServerState::Stopped);
-        let server = app.world_mut().spawn(Server::default()).id();
+        let server = app.world_mut().spawn(Server).id();
         app.world_mut()
             .commands()
             .entity(server)

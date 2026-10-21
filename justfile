@@ -199,14 +199,14 @@ test:
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d udp websocket crossbeam steam"
+    input_native leafwing input_bei avian2d lightyear_avian2d/default udp websocket crossbeam steam"
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d udp websocket crossbeam steam"
+    input_native leafwing input_bei avian3d lightyear_avian3d/default udp websocket crossbeam steam"
     cargo test -p lightyear_aeronet --all-features
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
-    cargo test -p lightyear_avian --no-default-features --features="std 2d lag_compensation"
-    cargo test -p lightyear_avian --no-default-features --features="std 3d lag_compensation"
+    cargo test -p lightyear_avian2d --all-features
+    cargo test -p lightyear_avian3d --all-features
     cargo test -p lightyear_connection --all-features
     cargo test -p lightyear_core --all-features
     cargo test -p lightyear_crossbeam --all-features

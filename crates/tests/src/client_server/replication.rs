@@ -2522,7 +2522,7 @@ fn test_prediction_visibility_observer_spawn_late_join() {
     // Register observer on the SERVER that spawns player entities when clients connect
     // (mimicking simple_box handle_connected)
     stepper.server_app.add_observer(
-        |trigger: bevy::prelude::On<bevy::prelude::Add, Connected>,
+        |trigger: bevy::prelude::On<bevy::prelude::Add<Connected>>,
          query: bevy::prelude::Query<
             &RemoteId,
             bevy::prelude::With<lightyear_connection::client_of::ClientOf>,

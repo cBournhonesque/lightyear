@@ -466,18 +466,6 @@ impl NetcodeServerPlugin {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn max_clients_is_forwarded_to_the_server() {
-        let server = NetcodeServer::new(NetcodeConfig::default().with_max_clients(42));
-
-        assert_eq!(server.inner.cfg.max_clients, 42);
-    }
-}
-
 impl Plugin for NetcodeServerPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<lightyear_connection::client::ConnectionPlugin>() {
@@ -513,5 +501,17 @@ impl Plugin for NetcodeServerPlugin {
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
         app.add_observer(Self::reset_on_stopped);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_clients_is_forwarded_to_the_server() {
+        let server = NetcodeServer::new(NetcodeConfig::default().with_max_clients(42));
+
+        assert_eq!(server.inner.cfg.max_clients, 42);
     }
 }

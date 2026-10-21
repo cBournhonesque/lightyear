@@ -1,7 +1,7 @@
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
-use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fire};
+use lightyear::input::bei::prelude::{preset, Action, ActionOf, Bindings, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
 
@@ -77,9 +77,13 @@ pub(crate) fn add_bindings_to_controlled_actions(
     if has_bindings || controlled_players.get(action_of.get()).is_err() {
         return;
     }
-    commands
-        .entity(trigger.entity)
-        .insert(Bindings::spawn((Cardinal::wasd_keys(), Cardinal::arrows())));
+    commands.entity(trigger.entity).apply_scene(bsn! {
+        Bindings [
+                {preset::cardinal::wasd_keys()}
+            --
+                {preset::cardinal::arrows()}
+        ]
+    });
 }
 
 /// Lower the saturation on interpolated entities so they are visually distinct.

@@ -201,7 +201,7 @@ mod tests {
     fn server_mapping_is_cleared_when_stopped() {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
-        let server = app.world_mut().spawn((Server::default(), Started)).id();
+        let server = app.world_mut().spawn((Server, Started)).id();
 
         assert_eq!(
             app.world()
@@ -235,7 +235,7 @@ mod tests {
     fn despawned_server_clears_peer_map() {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
-        let server = app.world_mut().spawn((Server::default(), Started)).id();
+        let server = app.world_mut().spawn((Server, Started)).id();
 
         assert_eq!(
             app.world()

@@ -162,7 +162,7 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 ## Adds support for Avian
 ##
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
-##       enable essential features (like f32 or f64).
+##       enable a collision backend (like parry-f32 or parry-f64).
 ## Use avian2d
 avian2d = ["dep:lightyear_avian2d", "lightyear_replication?/avian2d"]
 ## Use avian3d
