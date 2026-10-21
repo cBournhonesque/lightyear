@@ -128,7 +128,7 @@ impl RemoteTimeline {
         if self
             .context
             .last_received_tick
-            .is_none_or(|previous_tick| remote_tick >= previous_tick)
+            .is_none_or(|previous_tick| remote_tick > previous_tick)
         {
             // only update if the remote tick is newer than the last received tick
             self.context.received_packet = true;
@@ -284,5 +284,33 @@ impl SyncTargetTimeline for RemoteTimeline {
 
     fn received_packet(&self) -> bool {
         self.received_packet
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_ticks_do_not_update_remote_estimate() {
+        let mut remote = RemoteTimeline::default();
+        remote.handshake_pings = 0;
+        let ping = PingManager::default();
+        let interval = Duration::from_millis(10);
+        remote.update(Tick(0), &ping, interval);
+        assert_eq!(remote.last_received_tick(), Some(Tick(0)));
+
+        remote.update(Tick(20), &ping, interval);
+        let offset = remote.offset;
+        remote.received_packet = false;
+        for tick in [Tick(19), Tick(20), Tick(20)] {
+            remote.update(tick, &ping, interval);
+            assert_eq!(remote.offset, offset);
+            assert!(!remote.received_packet);
+        }
+
+        remote.update(Tick(21), &ping, interval);
+        assert_ne!(remote.offset, offset);
+        assert!(remote.received_packet);
     }
 }
