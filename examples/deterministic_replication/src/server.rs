@@ -95,7 +95,7 @@ fn update_player_activation_ticks(
     }
 }
 
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
@@ -109,7 +109,7 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 /// connecting client time to accumulate the rebroadcast-input window
 /// required to deterministically replay from the snapshot tick to "now".
 pub(crate) fn handle_connected(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     query: Query<&RemoteId, With<ClientOf>>,
     players: Query<(Entity, &PlayerId)>,
     mode: Res<CatchUpMode>,
@@ -163,7 +163,7 @@ pub(crate) fn handle_connected(
 /// the reconnecting client then assigns local input to both, and the next
 /// catch-up snapshot diverges immediately.
 pub(crate) fn handle_disconnected(
-    trigger: On<Add, Disconnected>,
+    trigger: On<Add<Disconnected>>,
     query: Query<&RemoteId, With<ClientOf>>,
     players: Query<(Entity, &PlayerId)>,
     mut commands: Commands,

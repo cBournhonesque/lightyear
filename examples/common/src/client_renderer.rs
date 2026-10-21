@@ -1,5 +1,5 @@
-use bevy::picking::prelude::{Click, Pointer};
 use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, Button};
 #[cfg(feature = "bevygap_client")]
 use bevygap_client_plugin::prelude::*;
 use lightyear::connection::client::ClientState;
@@ -102,7 +102,7 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                     Button,
                 ))
                 .observe(
-                    |_: On<Pointer<Click>>,
+                    |_: On<Activate>,
                      mut commands: Commands,
                      query: Query<(Entity, ClientState), With<Client>>| {
                         let Ok((entity, state)) = query.single() else {
@@ -144,7 +144,7 @@ pub struct ClientIdText;
 /// Listen for events to know when the client is connected, and spawn a text entity
 /// to display the client id
 pub(crate) fn handle_connection(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     query: Query<&LocalId, Or<((With<LinkOf>, With<Client>), Without<LinkOf>)>>,
     mut commands: Commands,
 ) {
@@ -160,7 +160,7 @@ pub(crate) fn handle_connection(
 /// Listen for events to know when the client is disconnected, and print out the reason
 /// of the disconnection
 pub(crate) fn handle_disconnection(
-    trigger: On<Add, Disconnected>,
+    trigger: On<Add<Disconnected>>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
     disconnected: Query<(Entity, &Disconnected)>,

@@ -46,6 +46,7 @@ bevy_log = { workspace = true, optional = true }
 bevy_platform.workspace = true
 bevy_reflect.workspace = true
 bevy_ui.workspace = true
+bevy_ui_widgets.workspace = true
 bevy_utils.workspace = true
 bevy_text.workspace = true
 bevy_time.workspace = true

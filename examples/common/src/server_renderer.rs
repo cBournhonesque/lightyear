@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, Button};
 use lightyear::connection::server::Started;
 use lightyear::prelude::server::{Server, Start, Stop, Stopped};
 
@@ -96,7 +97,7 @@ pub(crate) fn spawn_start_button(app: &mut App) {
                     Button,
                 ))
                 .observe(
-                    |_: On<Pointer<Click>>,
+                    |_: On<Activate>,
                      mut commands: Commands,
                      query: Single<(Entity, Has<Started>, Has<Stopped>), With<Server>>| {
                         let (entity, started, stopped) = query.into_inner();

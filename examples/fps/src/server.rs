@@ -47,12 +47,12 @@ impl Plugin for ExampleServerPlugin {
     }
 }
 
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 pub(crate) fn spawn_player(
-    trigger: On<Add, Connected>,
+    trigger: On<Add<Connected>>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {

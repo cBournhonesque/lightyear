@@ -44,7 +44,7 @@ impl Plugin for ExampleClientPlugin {
 /// We only add the physical properties on the ball that is displayed on screen (i.e the Predicted ball)
 /// We want the ball to be rigid so that when players collide with it, they bounce off.
 fn add_ball_physics(
-    trigger: On<Add, BallMarker>,
+    trigger: On<Add<BallMarker>>,
     ball_query: Query<&BallMarker, With<Predicted>>,
     mut commands: Commands,
 ) {
@@ -97,7 +97,7 @@ fn strip_interpolated_bullet_rigid_body(
 /// inside `Add<Predicted>` is brittle. We instead wait for `Controlled`
 /// explicitly and then add the `InputMap` once ownership is definitely known.
 fn handle_new_player(
-    trigger: On<Add, (Player, Predicted)>,
+    trigger: On<Add<(Player, Predicted)>>,
     mut commands: Commands,
     player_query: Query<&Player, With<Predicted>>,
 ) {
@@ -113,7 +113,7 @@ fn handle_new_player(
 
 /// Add the local InputMap once ownership is definitely known.
 fn handle_controlled_player(
-    trigger: On<Add, Controlled>,
+    trigger: On<Add<Controlled>>,
     mut commands: Commands,
     player_query: Query<
         (&Player, Option<&ControlledBy>),

@@ -5,8 +5,8 @@ use bevy_ecs::{
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Components},
     prelude::*,
-    query::{FilteredAccess, FilteredAccessSet},
-    system::{SystemMeta, SystemParam, SystemParamValidationError},
+    query::FilteredAccess,
+    system::{SystemAccess, SystemMeta, SystemParam, SystemParamValidationError},
     world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
 use bevy_platform::collections::HashMap;
@@ -77,7 +77,7 @@ unsafe impl SystemParam for FrameInterpolationWorld<'_, '_> {
     fn init_access(
         state: &Self::State,
         _system_meta: &mut SystemMeta,
-        system_access: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
@@ -91,11 +91,9 @@ unsafe impl SystemParam for FrameInterpolationWorld<'_, '_> {
         }
 
         let access = filtered_access;
-        assert!(
-            system_access.get_conflicts_single(&access).is_empty(),
+        system_access.try_add(access).expect(
             "error[B0001]: dynamic component access conflicts with a previous system parameter",
         );
-        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(

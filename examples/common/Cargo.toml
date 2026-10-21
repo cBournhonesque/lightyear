@@ -40,6 +40,7 @@ gui2d = [
   "bevy/2d_api",
   "bevy/bevy_text",
   "bevy/bevy_ui",
+  "bevy/bevy_ui_widgets",
   "bevy/bevy_ui_render",
 ]
 gui3d = [
@@ -49,6 +50,7 @@ gui3d = [
   "bevy/3d_api",
   "bevy/bevy_text",
   "bevy/bevy_ui",
+  "bevy/bevy_ui_widgets",
   "bevy/bevy_ui_render",
 ]
 

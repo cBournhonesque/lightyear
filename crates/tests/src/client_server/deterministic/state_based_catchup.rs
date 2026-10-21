@@ -976,12 +976,10 @@ fn dump_catchup_trace(stepper: &mut DetStepper, peers: &[PeerId]) {
                     .map(MotionSubject::Player)
                     .chain([MotionSubject::Ball])
                 {
-                    let server = server_motion_samples
-                        .get(&(tick.0, subject.clone()))
-                        .copied();
+                    let server = server_motion_samples.get(&(tick.0, subject)).copied();
                     let client = client_motion_samples
                         .get(client_id)
-                        .and_then(|samples| samples.get(&(tick.0, subject.clone())).copied());
+                        .and_then(|samples| samples.get(&(tick.0, subject)).copied());
                     motion_row.push((subject, server, client));
                 }
                 println!("  motion tick={tick:?} {motion_row:?}");
@@ -1074,12 +1072,10 @@ fn dump_catchup_trace(stepper: &mut DetStepper, peers: &[PeerId]) {
                 .map(MotionSubject::Player)
                 .chain([MotionSubject::Ball])
             {
-                let server = server_motion_samples
-                    .get(&(tick.0, subject.clone()))
-                    .copied();
+                let server = server_motion_samples.get(&(tick.0, subject)).copied();
                 let client = client_motion_samples
                     .get(client_id)
-                    .and_then(|samples| samples.get(&(tick.0, subject.clone())).copied());
+                    .and_then(|samples| samples.get(&(tick.0, subject)).copied());
                 motion_row.push((subject, server, client));
             }
             println!("  mismatch motion tick={tick:?} {motion_row:?}");
@@ -1098,7 +1094,7 @@ fn dump_player_entities(world: &mut World, label: &str) {
 
 fn stage_motion_window(
     samples: &[StageMotionSample],
-    ticks: std::ops::RangeInclusive<u32>,
+    ticks: core::ops::RangeInclusive<u32>,
 ) -> Vec<StageMotionSample> {
     samples
         .iter()
@@ -1109,7 +1105,7 @@ fn stage_motion_window(
 
 fn contact_window(
     samples: &[ContactSample],
-    ticks: std::ops::RangeInclusive<u32>,
+    ticks: core::ops::RangeInclusive<u32>,
 ) -> Vec<ContactSample> {
     samples
         .iter()
@@ -1120,7 +1116,7 @@ fn contact_window(
 
 fn execution_window(
     samples: &[ExecutionSample],
-    ticks: std::ops::RangeInclusive<u32>,
+    ticks: core::ops::RangeInclusive<u32>,
 ) -> Vec<ExecutionSample> {
     samples
         .iter()
@@ -1129,7 +1125,7 @@ fn execution_window(
         .collect()
 }
 
-fn dump_input_window(world: &mut World, label: &str, ticks: std::ops::RangeInclusive<u32>) {
+fn dump_input_window(world: &mut World, label: &str, ticks: core::ops::RangeInclusive<u32>) {
     use bevy::ecs::relationship::Relationship;
 
     let mut players = world.query::<(Entity, &DetPlayerId, Option<&DetPlayerActivationTick>)>();

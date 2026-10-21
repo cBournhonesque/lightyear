@@ -202,21 +202,21 @@ impl Plugin for NetworkTopologyPlugin {
 }
 
 fn mark_dirty_on_insert(
-    _trigger: On<Insert, TopologyComponents>,
+    _trigger: On<Insert<TopologyComponents>>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
 fn mark_dirty_on_remove(
-    _trigger: On<Remove, TopologyComponents>,
+    _trigger: On<Remove<TopologyComponents>>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
 fn mark_dirty_on_discard(
-    _trigger: On<Discard, TopologyComponents>,
+    _trigger: On<Discard<TopologyComponents>>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
@@ -400,7 +400,7 @@ mod tests {
     }
 
     fn start_server(app: &mut App) -> Entity {
-        app.world_mut().spawn((Server::default(), Started)).id()
+        app.world_mut().spawn((Server, Started)).id()
     }
 
     fn mode(app: &App) -> &NetworkTopology {
@@ -426,7 +426,7 @@ mod tests {
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
-        let server = app.world_mut().spawn(Server::default()).id();
+        let server = app.world_mut().spawn(Server).id();
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn host_client_requires_a_connected_client_and_its_started_server() {
         let mut app = test_app();
-        let server = app.world_mut().spawn(Server::default()).id();
+        let server = app.world_mut().spawn(Server).id();
         let client = app
             .world_mut()
             .spawn((
@@ -565,7 +565,7 @@ mod tests {
         app.world_mut()
             .spawn((P2P::Candidate, RemoteId(PeerId::Local(1)), Connected));
         app.world_mut().spawn(Client);
-        app.world_mut().spawn(Server::default());
+        app.world_mut().spawn(Server);
 
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Undefined);

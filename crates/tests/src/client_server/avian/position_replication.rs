@@ -1,6 +1,6 @@
 use crate::stepper::{ClientServerStepper, StepperConfig};
 use approx::assert_relative_eq;
-use avian2d::math::Vector;
+use avian2d::math::RVector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_replicon::prelude::Remote;
@@ -178,7 +178,7 @@ fn test_replicate_position_child_collider() {
             // on the parent before the child is spawned, and the child's Transform
             // becomes incorrect
             Transform::from_xyz(1.0, 1.0, 0.0),
-            LinearVelocity(Vector::new(100.0, 0.0)),
+            LinearVelocity(RVector::new(100.0, 0.0)),
             Collider::circle(1.0),
             Rotation::default(),
         ))

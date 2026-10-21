@@ -97,7 +97,7 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
 
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: On<Add, PlayerId>,
+    trigger: On<Add<PlayerId>>,
     query: Query<(Has<Predicted>, &ColorComponent), Without<BulletMarker>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -120,7 +120,7 @@ fn add_player_visuals(
 
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
-    trigger: On<Add, BulletMarker>,
+    trigger: On<Add<BulletMarker>>,
     query: Query<
         (&ColorComponent, &Position, &Rotation, Has<Interpolated>),
         (With<BulletMarker>, Without<Mesh2d>),
@@ -318,7 +318,7 @@ fn point_segment_distance_sq(point: Vec2, start: Vec2, end: Vec2) -> f32 {
 
 /// Add visuals to newly spawned bots
 fn add_interpolated_bot_visuals(
-    trigger: On<Add, InterpolatedBot>,
+    trigger: On<Add<InterpolatedBot>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -336,7 +336,7 @@ fn add_interpolated_bot_visuals(
 }
 
 fn add_predicted_bot_visuals(
-    trigger: On<Add, PredictedBot>,
+    trigger: On<Add<PredictedBot>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,

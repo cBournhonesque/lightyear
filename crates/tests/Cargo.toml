@@ -88,12 +88,7 @@ lightyear_udp = { workspace = true, features = ["server"], optional = true }
 
 bevy_replicon.workspace = true
 
-avian2d = { workspace = true, features = [
-  "2d",
-  "f32",
-  "parry-f32",
-  "serialize",
-] }
+avian2d = { workspace = true, features = ["2d", "parry-f32", "serialize"] }
 
 # inputs
 leafwing-input-manager.workspace = true

@@ -702,8 +702,10 @@ fn test_prespawn_local_despawn_match() {
     let mut stepper = ClientServerStepper::from_config(config);
     let tick_duration = stepper.tick_duration;
     // add a conditioner to make sure that the client is ahead of the server, and make sure there is a resync
-    let mut sync_config = SyncConfig::default();
-    sync_config.max_error_margin = 0.5;
+    let sync_config = SyncConfig {
+        max_error_margin: 0.5,
+        ..default()
+    };
     stepper
         .client_app()
         .world_mut()

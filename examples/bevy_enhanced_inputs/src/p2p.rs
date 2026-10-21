@@ -8,9 +8,7 @@ use crate::protocol::{Movement, Player, PlayerColor, PlayerId, PlayerPosition};
 use crate::shared;
 use bevy::prelude::*;
 use bevy_enhanced_input::context::ExternallyMocked;
-use lightyear::input::bei::prelude::{
-    Action, ActionOf, BEIBuffer, Bindings, Cardinal, InputMarker,
-};
+use lightyear::input::bei::prelude::{preset, Action, ActionOf, BEIBuffer, Bindings, InputMarker};
 use lightyear::p2p::Lobby;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
@@ -74,10 +72,10 @@ fn spawn_fixed_roster(
             ))
             .id();
         if Some(*peer) == local {
-            commands.entity(action).insert((
-                Bindings::spawn(Cardinal::wasd_keys()),
-                InputMarker::<Player>::default(),
-            ));
+            commands
+                .entity(action)
+                .insert(InputMarker::<Player>::default())
+                .apply_scene(bsn! { Bindings [ {preset::cardinal::wasd_keys()} ] });
         } else {
             commands.entity(action).insert(ExternallyMocked);
         }

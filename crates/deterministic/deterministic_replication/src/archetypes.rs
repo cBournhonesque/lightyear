@@ -5,8 +5,10 @@ use bevy_ecs::archetype::{Archetype, ArchetypeGeneration, ArchetypeId};
 use bevy_ecs::change_detection::Tick;
 use bevy_ecs::component::{ComponentId, StorageType};
 use bevy_ecs::prelude::World;
-use bevy_ecs::query::{FilteredAccess, FilteredAccessSet};
-use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
+use bevy_ecs::query::FilteredAccess;
+use bevy_ecs::system::{
+    ReadOnlySystemParam, SystemAccess, SystemMeta, SystemParam, SystemParamValidationError,
+};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_prediction::registry::PopUntilTickAndHashFn;
@@ -141,7 +143,7 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
     fn init_access(
         state: &Self::State,
         _system_meta: &mut SystemMeta,
-        system_access: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         _world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
@@ -162,11 +164,9 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
                 }
             });
         let access = filtered_access;
-        assert!(
-            system_access.get_conflicts_single(&access).is_empty(),
+        system_access.try_add(access).expect(
             "error[B0001]: dynamic component access conflicts with a previous system parameter",
         );
-        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(

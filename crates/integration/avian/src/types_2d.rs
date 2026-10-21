@@ -1,5 +1,7 @@
 //! Implement lightyear traits for some common bevy types
-use avian2d::math::{AdjustPrecision, AsF32, Quaternion, Scalar};
+#[cfg(test)]
+use avian2d::math::ToF32Precision;
+use avian2d::math::{Real, ToRealPrecision};
 use avian2d::prelude::*;
 use bevy_math::Vec3;
 use bevy_transform::components::Transform;
@@ -14,7 +16,7 @@ pub mod position {
     use super::*;
 
     pub fn lerp(start: &Position, other: &Position, t: f32) -> Position {
-        let u = Scalar::from(t);
+        let u = Real::from(t);
         let res = Position::new(start.0 * (1.0 - u) + other.0 * u);
         trace!(
             "position lerp: start: {:?} end: {:?} t: {} res: {:?}",
@@ -25,8 +27,8 @@ pub mod position {
 
     #[cfg(feature = "deterministic")]
     pub fn hash(pos: &Position, hasher: &mut seahash::SeaHasher) {
-        hasher.write_u32(pos.x.to_bits());
-        hasher.write_u32(pos.y.to_bits());
+        hasher.write(&pos.x.to_le_bytes());
+        hasher.write(&pos.y.to_le_bytes());
     }
 }
 
@@ -34,10 +36,9 @@ pub mod rotation {
     use super::*;
 
     pub fn lerp(start: &Rotation, other: &Rotation, t: f32) -> Rotation {
-        let u = Scalar::from(t);
         let shortest_angle =
             ((((other.as_degrees() - start.as_degrees()) % 360.0) + 540.0) % 360.0) - 180.0;
-        let res = Rotation::degrees(start.as_degrees() + shortest_angle * u);
+        let res = Rotation::degrees(start.as_degrees() + shortest_angle * t);
         // // as_radians() returns a value between -Pi and Pi
         // // add Pi to get positive values, for interpolation
         // let res = Rotation::from_radians(
@@ -65,8 +66,7 @@ pub mod linear_velocity {
     use super::*;
 
     pub fn lerp(start: &LinearVelocity, other: &LinearVelocity, t: f32) -> LinearVelocity {
-        let u = Scalar::from(t);
-        let res = LinearVelocity(start.0 * (1.0 - u) + other.0 * u);
+        let res = LinearVelocity(start.0 * (1.0 - t) + other.0 * t);
         trace!(
             "linear velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
             start, other, t, res
@@ -79,8 +79,7 @@ pub mod angular_velocity {
     use super::*;
 
     pub fn lerp(start: &AngularVelocity, other: &AngularVelocity, t: f32) -> AngularVelocity {
-        let u = Scalar::from(t);
-        let res = AngularVelocity(start.0 * (1.0 - u) + other.0 * u);
+        let res = AngularVelocity(start.0 * (1.0 - t) + other.0 * t);
         trace!(
             "angular velocity lerp: start: {:?} end: {:?} t: {} res: {:?}",
             start, other, t, res
@@ -90,6 +89,8 @@ pub mod angular_velocity {
 }
 
 pub mod position_rotation {
+    use bevy_math::Quat;
+
     use super::*;
 
     /// Interpolates `(Position, Rotation, LinearVelocity, AngularVelocity)`
@@ -113,25 +114,23 @@ pub mod position_rotation {
         ctx: InterpolationSampleContext,
     ) -> (Position, Rotation, LinearVelocity, AngularVelocity) {
         let (position, rotation) = if let Some(sample_delta_secs) = ctx.sample_delta_secs {
-            let position = hermite_vec3(
-                start.0.0.f32().extend(0.0),
-                end.0.0.f32().extend(0.0),
-                start.2.0.f32().extend(0.0) * sample_delta_secs,
-                end.2.0.f32().extend(0.0) * sample_delta_secs,
-                ctx.t,
-            );
+            let t = Real::from(ctx.t);
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let dt = Real::from(sample_delta_secs);
+            let position = start.0.0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                + end.0.0 * (3.0 * t2 - 2.0 * t3)
+                + (start.2.0.real() * dt) * (t3 - 2.0 * t2 + t)
+                + (end.2.0.real() * dt) * (t3 - t2);
             let rotation = hermite_quat(
-                Quaternion::from(start.1).f32(),
-                Quaternion::from(end.1).f32(),
-                Vec3::Z * scalar_to_f32(start.3.0) * sample_delta_secs,
-                Vec3::Z * scalar_to_f32(end.3.0) * sample_delta_secs,
+                Quat::from(start.1),
+                Quat::from(end.1),
+                Vec3::Z * start.3.0 * sample_delta_secs,
+                Vec3::Z * end.3.0 * sample_delta_secs,
                 ctx.t,
                 true,
             );
-            (
-                Position(position.truncate().adjust_precision()),
-                Rotation::from(rotation),
-            )
+            (Position(position), Rotation::from(rotation))
         } else {
             (
                 super::position::lerp(&start.0, &end.0, ctx.t),
@@ -145,13 +144,6 @@ pub mod position_rotation {
             super::linear_velocity::lerp(&start.2, &end.2, ctx.t),
             super::angular_velocity::lerp(&start.3, &end.3, ctx.t),
         )
-    }
-
-    fn scalar_to_f32(value: Scalar) -> f32 {
-        #[allow(clippy::unnecessary_cast)]
-        {
-            value as f32
-        }
     }
 }
 
@@ -188,10 +180,10 @@ pub mod transform {
         ctx: InterpolationSampleContext,
     ) -> (Transform, AngularVelocity, LinearVelocity) {
         let transform = if let Some(sample_delta_secs) = ctx.sample_delta_secs {
-            let start_linear_velocity = start.2.0.f32().extend(0.0) * sample_delta_secs;
-            let end_linear_velocity = end.2.0.f32().extend(0.0) * sample_delta_secs;
-            let start_angular_velocity = Vec3::Z * scalar_to_f32(start.1.0) * sample_delta_secs;
-            let end_angular_velocity = Vec3::Z * scalar_to_f32(end.1.0) * sample_delta_secs;
+            let start_linear_velocity = start.2.0.extend(0.0) * sample_delta_secs;
+            let end_linear_velocity = end.2.0.extend(0.0) * sample_delta_secs;
+            let start_angular_velocity = Vec3::Z * start.1.0 * sample_delta_secs;
+            let end_angular_velocity = Vec3::Z * end.1.0 * sample_delta_secs;
             Transform {
                 translation: hermite_vec3(
                     start.0.translation,
@@ -228,20 +220,13 @@ pub mod transform {
             scale: start.scale.lerp(end.scale, t),
         }
     }
-
-    fn scalar_to_f32(value: Scalar) -> f32 {
-        #[allow(clippy::unnecessary_cast)]
-        {
-            value as f32
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avian2d::math::Vector;
-    use bevy_math::Quat;
+    use avian2d::math::RVector;
+    use bevy_math::{Quat, Vec2};
 
     fn state(
         transform: Transform,
@@ -250,11 +235,8 @@ mod tests {
     ) -> (Transform, AngularVelocity, LinearVelocity) {
         (
             transform,
-            AngularVelocity(Scalar::from(angular_velocity)),
-            LinearVelocity(Vector::new(
-                Scalar::from(linear_velocity.0),
-                Scalar::from(linear_velocity.1),
-            )),
+            AngularVelocity(angular_velocity),
+            LinearVelocity(Vec2::new(linear_velocity.0, linear_velocity.1)),
         )
     }
 
@@ -265,16 +247,10 @@ mod tests {
         angular_velocity: f32,
     ) -> (Position, Rotation, LinearVelocity, AngularVelocity) {
         (
-            Position(Vector::new(
-                Scalar::from(position.0),
-                Scalar::from(position.1),
-            )),
-            Rotation::radians(Scalar::from(rotation)),
-            LinearVelocity(Vector::new(
-                Scalar::from(linear_velocity.0),
-                Scalar::from(linear_velocity.1),
-            )),
-            AngularVelocity(Scalar::from(angular_velocity)),
+            Position(RVector::new(Real::from(position.0), Real::from(position.1))),
+            Rotation::radians(rotation),
+            LinearVelocity(Vec2::new(linear_velocity.0, linear_velocity.1)),
+            AngularVelocity(angular_velocity),
         )
     }
 
@@ -375,10 +351,9 @@ mod tests {
             position_rotation::hermite(start, end, InterpolationSampleContext::new(0.5, Some(1.0)));
 
         assert_vec3_close(midpoint.0.0.f32().extend(0.0), Vec3::X * 0.5);
-        assert_vec3_close(Quaternion::from(midpoint.1).f32() * Vec3::X, -Vec3::X);
-        assert_vec3_close(midpoint.2.0.f32().extend(0.0), Vec3::X * 2.0);
-        #[allow(clippy::unnecessary_cast)]
-        let angular_velocity = midpoint.3.0 as f32;
+        assert_vec3_close(Quat::from(midpoint.1) * Vec3::X, -Vec3::X);
+        assert_vec3_close(midpoint.2.0.extend(0.0), Vec3::X * 2.0);
+        let angular_velocity = midpoint.3.0;
         assert!((angular_velocity - core::f32::consts::TAU).abs() <= 1e-5);
     }
 
@@ -393,26 +368,55 @@ mod tests {
 
         assert_vec3_close(result.0.0.f32().extend(0.0), Vec3::new(2.0, 1.0, 0.0));
         assert_vec3_close(
-            Quaternion::from(result.1).f32() * Vec3::X,
+            Quat::from(result.1) * Vec3::X,
             Quat::from_rotation_z(core::f32::consts::FRAC_PI_8) * Vec3::X,
         );
+    }
+
+    #[test]
+    fn position_rotation_hermite_preserves_world_position_precision() {
+        let base = Real::from(16_777_216.0_f32);
+        let start = (
+            Position(RVector::X * (base + 1.0)),
+            Rotation::default(),
+            LinearVelocity::default(),
+            AngularVelocity::default(),
+        );
+        let end = (
+            Position(RVector::X * (base + 5.0)),
+            start.1,
+            start.2,
+            start.3,
+        );
+        for (t, expected) in [
+            (0.0, start.0),
+            (0.5, Position((start.0.0 + end.0.0) * 0.5)),
+            (1.0, end.0),
+        ] {
+            let sample = position_rotation::hermite(
+                start,
+                end,
+                InterpolationSampleContext::new(t, Some(1.0)),
+            );
+            assert_eq!(sample.0, expected);
+        }
     }
 
     #[test]
     fn velocity_diff_roundtrip() {
         use lightyear_replication::diffable::Diffable;
 
-        let start = LinearVelocity(Vector::new(Scalar::from(1.0_f32), Scalar::from(-2.0_f32)));
-        let end = LinearVelocity(Vector::new(Scalar::from(8.0_f32), Scalar::from(0.5_f32)));
+        let start = LinearVelocity(Vec2::new(1.0_f32, -2.0_f32));
+        let end = LinearVelocity(Vec2::new(8.0_f32, 0.5_f32));
         assert_eq!(start.diff(&start), LinearVelocity::default());
-        let mut value = start.clone();
+        let mut value = start;
         value.apply_diff(&start.diff(&end));
         assert_eq!(value, end);
 
-        let start = AngularVelocity(Scalar::from(0.5_f32));
-        let end = AngularVelocity(Scalar::from(-4.0_f32));
+        let start = AngularVelocity(0.5_f32);
+        let end = AngularVelocity(-4.0_f32);
         assert_eq!(start.diff(&start), AngularVelocity::default());
-        let mut value = start.clone();
+        let mut value = start;
         value.apply_diff(&start.diff(&end));
         assert_eq!(value, end);
     }

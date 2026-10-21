@@ -12,6 +12,8 @@ use bevy::prelude::*;
 use bevy::tasks::futures_lite::future;
 use bevy::tasks::{block_on, IoTaskPool, Task};
 use bevy::time::common_conditions::on_timer;
+#[cfg(feature = "gui")]
+use bevy::ui_widgets::{Activate, Button};
 use core::time::Duration;
 use lightyear::connection::client::ClientState;
 use lightyear::netcode::{ConnectToken, CONNECT_TOKEN_BYTES};
@@ -142,7 +144,7 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
 
 /// Remove all entities when the client disconnect
 fn on_disconnect(
-    trigger: On<Insert, Disconnected>,
+    trigger: On<Insert<Disconnected>>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
 ) {
@@ -187,7 +189,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     Button,
                 ))
                 .observe(
-                    |trigger: On<Pointer<Click>>,
+                    |trigger: On<Activate>,
                      mut commands: Commands,
                      mut task_state: ResMut<ConnectTokenRequestTask>,
                      client: Single<(Entity, ClientState), With<Client>>| {

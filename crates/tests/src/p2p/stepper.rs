@@ -12,6 +12,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 use core::time::Duration;
 
 use bevy::MinimalPlugins;
+use bevy::input::InputPlugin;
 use bevy::log::LogPlugin;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
@@ -75,6 +76,7 @@ impl LobbyPeer {
             MinimalPlugins,
             TransformPlugin,
             StatesPlugin,
+            InputPlugin,
             LogPlugin::default(),
         ));
         app.add_plugins(client::ClientPlugins {

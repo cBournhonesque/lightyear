@@ -16,6 +16,7 @@ use bevy_reflect::prelude::Reflect;
 use bevy_text::prelude::*;
 use bevy_time::prelude::*;
 use bevy_ui::prelude::*;
+use bevy_ui_widgets::{Activate, ActivateOnPress, Button, ButtonPlugin};
 use bevy_utils::prelude::*;
 
 use bevy_platform::collections::HashMap;
@@ -474,6 +475,10 @@ impl Plugin for DebugUIPlugin {
         if !app.is_plugin_added::<MetricsPlugin>() {
             app.add_plugins(MetricsPlugin::default());
         }
+        if !app.is_plugin_added::<ButtonPlugin>() {
+            app.add_plugins(ButtonPlugin);
+        }
+        app.add_observer(handle_button_interactions);
         app.init_resource::<MetricsPanelSettings>();
         app.init_resource::<MetricsPanelLayout>();
         app.insert_resource(VisibilityFilter {
@@ -487,7 +492,6 @@ impl Plugin for DebugUIPlugin {
             Last,
             (
                 update_visibility,
-                handle_button_interactions,
                 update_collapsible_displays,
                 sample_metrics_history,
                 update_metrics,
@@ -573,6 +577,7 @@ fn setup_metrics_panel(
                 cmd.spawn((
                     SendToggle,
                     Button,
+                    ActivateOnPress,
                     Text::new("Send"),
                     TextFont {
                         font_size: FontSize::Px(10.0),
@@ -583,6 +588,7 @@ fn setup_metrics_panel(
                 cmd.spawn((
                     RecvToggle,
                     Button,
+                    ActivateOnPress,
                     Text::new("Receive"),
                     TextFont {
                         font_size: FontSize::Px(10.0),
@@ -641,6 +647,7 @@ fn build_sections(
         cmd.spawn((
             SectionHeader { id: section_id },
             Button,
+            ActivateOnPress,
             Node {
                 display: Display::Flex,
                 justify_content: JustifyContent::SpaceBetween,
@@ -675,6 +682,7 @@ fn build_sections(
                 cmd.spawn((
                     SubsectionHeader { id: subsection_id },
                     Button,
+                    ActivateOnPress,
                     Node {
                         display: Display::Flex,
                         justify_content: JustifyContent::SpaceBetween,
@@ -712,110 +720,55 @@ fn build_sections(
 }
 
 fn handle_button_interactions(
+    activate: On<Activate>,
     mut collapse: ResMut<CollapseState>,
     mut vis: ResMut<VisibilityFilter>,
     settings: Res<MetricsPanelSettings>,
-    mut uis: ParamSet<(
-        Query<(&SectionHeader, &mut Interaction, &mut Children)>,
-        Query<(&SubsectionHeader, &mut Interaction, &mut Children)>,
-        Query<(&mut Interaction, &mut BackgroundColor), With<SendToggle>>,
-        Query<(&mut Interaction, &mut BackgroundColor), With<RecvToggle>>,
-        Query<&mut Text>,
-    )>,
+    sections: Query<(&SectionHeader, &Children)>,
+    subsections: Query<(&SubsectionHeader, &Children)>,
+    mut toggles: Query<(&mut BackgroundColor, Has<SendToggle>, Has<RecvToggle>)>,
+    mut texts: Query<&mut Text>,
 ) {
-    // Section toggles
-    {
-        let section_events: Vec<(u32, Option<Entity>)> = {
-            let mut out = Vec::new();
-            for (header, interaction, children) in uis.p0().iter() {
-                if *interaction == Interaction::Pressed {
-                    out.push((header.id, children.first().copied()));
-                }
-            }
-            out
-        };
-        for (id, first_child) in section_events {
-            let entry = collapse.sections.entry(id).or_insert(false);
-            *entry = !*entry;
-            if let Some(child) = first_child
-                && let Ok(mut text) = uis.p4().get_mut(child)
-            {
-                let label = text
-                    .0
-                    .trim_start_matches('V')
-                    .trim_start_matches('>')
-                    .trim();
-                text.0 = if *entry {
-                    format!("> {}", label)
-                } else {
-                    format!("V {}", label)
-                };
-            }
-        }
-        // reset interactions
-        for (_h, mut interaction, _c) in &mut uis.p0() {
-            if *interaction == Interaction::Pressed {
-                *interaction = Interaction::None;
-            }
+    let header = if let Ok((header, children)) = sections.get(activate.entity) {
+        Some((
+            collapse.sections.entry(header.id).or_insert(false),
+            children,
+        ))
+    } else if let Ok((header, children)) = subsections.get(activate.entity) {
+        Some((
+            collapse.subsections.entry(header.id).or_insert(false),
+            children,
+        ))
+    } else {
+        None
+    };
+    if let Some((collapsed, children)) = header {
+        *collapsed = !*collapsed;
+        if let Some(child) = children.first()
+            && let Ok(mut text) = texts.get_mut(*child)
+        {
+            let label = text
+                .0
+                .trim_start_matches('V')
+                .trim_start_matches('>')
+                .trim();
+            text.0 = format!("{} {}", if *collapsed { ">" } else { "V" }, label);
         }
     }
-    // Subsection toggles
-    {
-        let subsection_events: Vec<(u32, Option<Entity>)> = {
-            let mut out = Vec::new();
-            for (header, interaction, children) in uis.p1().iter() {
-                if *interaction == Interaction::Pressed {
-                    out.push((header.id, children.first().copied()));
-                }
-            }
-            out
+    if let Ok((mut bg, send, recv)) = toggles.get_mut(activate.entity) {
+        let visible = if send {
+            &mut vis.show_send
+        } else if recv {
+            &mut vis.show_recv
+        } else {
+            return;
         };
-        for (id, first_child) in subsection_events {
-            let entry = collapse.subsections.entry(id).or_insert(false);
-            *entry = !*entry;
-            if let Some(child) = first_child
-                && let Ok(mut text) = uis.p4().get_mut(child)
-            {
-                let label = text
-                    .0
-                    .trim_start_matches('V')
-                    .trim_start_matches('>')
-                    .trim();
-                text.0 = if *entry {
-                    format!("> {}", label)
-                } else {
-                    format!("V {}", label)
-                };
-            }
-        }
-        for (_h, mut interaction, _c) in &mut uis.p1() {
-            if *interaction == Interaction::Pressed {
-                *interaction = Interaction::None;
-            }
-        }
-    }
-    // Send/Recv toggles
-    if let Ok((mut inter, mut bg)) = uis.p2().single_mut()
-        && *inter == Interaction::Pressed
-    {
-        vis.show_send = !vis.show_send;
-        bg.0 = if vis.show_send {
+        *visible = !*visible;
+        bg.0 = if *visible {
             Color::srgba(0.0, 0.6, 0.0, settings.alpha)
         } else {
             Color::srgba(0.2, 0.2, 0.2, settings.alpha)
         };
-        *inter = Interaction::None;
-    }
-    if let Ok((mut inter, mut bg)) = uis.p3().single_mut()
-        && *inter == Interaction::Pressed
-    {
-        vis.show_recv = !vis.show_recv;
-        bg.0 = if vis.show_recv {
-            Color::srgba(0.0, 0.6, 0.0, settings.alpha)
-        } else {
-            Color::srgba(0.2, 0.2, 0.2, settings.alpha)
-        };
-        *inter = Interaction::None;
     }
 }
 

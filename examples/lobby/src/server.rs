@@ -66,7 +66,7 @@ fn start_dedicated_server(mut commands: Commands, mut room_allocator: ResMut<Roo
     ));
 }
 
-pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add<LinkOf>>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
         .insert((ReplicationSender, Name::from("Client")));
@@ -113,7 +113,7 @@ mod game {
     /// This is only for the HostServer mode (for the dedicated server mode, the clients are already connected to the server
     /// to join the lobby list)
     pub(crate) fn handle_connections(
-        trigger: On<Add, Connected>,
+        trigger: On<Add<Connected>>,
         query: Query<&RemoteId, With<ClientOf>>,
         mut commands: Commands,
     ) {
@@ -127,7 +127,7 @@ mod game {
 
     /// Delete the player's entity when the client disconnects
     pub(crate) fn handle_disconnections(
-        trigger: On<Add, Disconnected>,
+        trigger: On<Add<Disconnected>>,
         query: Query<&RemoteId, With<ClientOf>>,
         mut lobbies: Single<&mut Lobbies>,
         mut commands: Commands,

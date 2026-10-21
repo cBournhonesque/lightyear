@@ -115,14 +115,14 @@ impl EntityMetricHandles {
 }
 
 pub(crate) fn add_input_metric_handles<S: ActionStateSequence>(
-    trigger: On<Add, InputBuffer<S::Snapshot, S::Action>>,
+    trigger: On<Add<InputBuffer<S::Snapshot, S::Action>>>,
     mut metric_handles: ResMut<InputMetricHandles<S>>,
 ) {
     metric_handles.insert_entity(trigger.entity);
 }
 
 pub(crate) fn remove_input_metric_handles<S: ActionStateSequence>(
-    trigger: On<Remove, InputBuffer<S::Snapshot, S::Action>>,
+    trigger: On<Remove<InputBuffer<S::Snapshot, S::Action>>>,
     mut metric_handles: ResMut<InputMetricHandles<S>>,
 ) {
     metric_handles.remove_entity(trigger.entity);

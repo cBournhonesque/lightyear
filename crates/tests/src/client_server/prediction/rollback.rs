@@ -396,8 +396,8 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
     let rollback_tick = current_tick - 3;
     let later_confirmed_tick = current_tick - 1;
 
-    let rollback_replicon_tick = RepliconTick::new(u32::from(rollback_tick.0));
-    let later_replicon_tick = RepliconTick::new(u32::from(later_confirmed_tick.0));
+    let rollback_replicon_tick = RepliconTick::new(rollback_tick.0);
+    let later_replicon_tick = RepliconTick::new(later_confirmed_tick.0);
 
     let world = stepper.client_app().world_mut();
     world

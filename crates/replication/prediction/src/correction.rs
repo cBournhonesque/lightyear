@@ -85,12 +85,13 @@ use crate::rollback::RollbackSystems;
 use crate::switch::{SwitchBlend, SwitchDirection};
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
+use bevy_ecs::system::SystemAccess;
 use bevy_ecs::{
     archetype::{Archetype, ArchetypeGeneration, ArchetypeId, Archetypes},
     change_detection::Tick as ChangeTick,
     component::{ComponentId, Mutable},
     prelude::*,
-    query::{FilteredAccess, FilteredAccessSet},
+    query::FilteredAccess,
     system::{SystemMeta, SystemParam, SystemParamValidationError},
     world::unsafe_world_cell::UnsafeWorldCell,
 };
@@ -294,7 +295,7 @@ unsafe impl SystemParam for CorrectionWorld<'_> {
     fn init_access(
         state: &Self::State,
         system_meta: &mut SystemMeta,
-        system_access: &mut FilteredAccessSet,
+        system_access: &mut SystemAccess,
         world: &mut World,
     ) {
         <Res<'static, PredictionRegistry> as SystemParam>::init_access(
@@ -304,11 +305,9 @@ unsafe impl SystemParam for CorrectionWorld<'_> {
             world,
         );
         let access = state.declared_access.clone();
-        assert!(
-            system_access.get_conflicts_single(&access).is_empty(),
+        system_access.try_add(access).expect(
             "error[B0001]: dynamic component access conflicts with a previous system parameter",
         );
-        system_access.add(access);
     }
 
     unsafe fn get_param<'world, 'state>(
@@ -417,7 +416,7 @@ pub fn add_correction_systems<
 /// causes is measured from it. The system that computes corrections decides when
 /// a saved value is past saving; see [`crate::correction`]'s creation system.
 fn remove_correction_state_on_live_removed<C: Component, D: Send + Sync + 'static>(
-    trigger: On<Remove, C>,
+    trigger: On<Remove<C>>,
     mut commands: Commands,
 ) {
     commands
@@ -1109,11 +1108,8 @@ impl CorrectionPolicy {
 mod tests {
     use core::time::Duration;
 
+    use bevy_curve::{Curve, Ease, FunctionCurve, Interval};
     use bevy_ecs::system::{RunSystemOnce, SystemState};
-    use bevy_math::{
-        Curve,
-        curve::{Ease, FunctionCurve, Interval},
-    };
     use bevy_replicon::prelude::*;
     use bevy_state::app::StatesPlugin;
     use lightyear_interpolation::{

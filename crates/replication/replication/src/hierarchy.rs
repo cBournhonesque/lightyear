@@ -87,7 +87,7 @@ struct ChildPropagationQuery {
 
 impl HierarchyPlugin {
     fn propagate_when_replicate_like_added(
-        trigger: On<Insert, ReplicateLike>,
+        trigger: On<Insert<ReplicateLike>>,
         child_query: Query<ChildPropagationQuery>,
         root_query: Query<PropagationQuery>,
         mut commands: Commands,
@@ -185,7 +185,7 @@ fn sync_inherited_aspect<T, CloneMarker>(
 /// overwrites are caught as well. System mirror writes always equal the root
 /// at convergence, so they keep the marker and stop.
 fn unmark_inherited_on_manual_insert<T, CloneMarker>(
-    trigger: On<Insert, T>,
+    trigger: On<Insert<T>>,
     marked: Query<Has<CloneMarker>>,
     values: Query<&T>,
     replicate_like: Query<&ReplicateLike>,
@@ -222,7 +222,7 @@ fn unmark_inherited_on_manual_insert<T, CloneMarker>(
 /// inherit from the ultimate root, whose own push reaches them directly since
 /// every live link is flattened to it.
 fn push_inherited_aspect_to_members<T, CloneMarker>(
-    trigger: On<Insert, T>,
+    trigger: On<Insert<T>>,
     children: Query<&ReplicateLikeChildren>,
     values: Query<&T>,
     replicate_like: Query<&ReplicateLike>,
@@ -273,7 +273,7 @@ fn push_inherited_aspect_to_members<T, CloneMarker>(
 /// later re-add re-inherits. Member-side removals need no handling: absence is
 /// transient and re-syncs on the next push, reparent, or link.
 fn clear_inherited_aspect_on_members<T, CloneMarker>(
-    trigger: On<Remove, T>,
+    trigger: On<Remove<T>>,
     children: Query<&ReplicateLikeChildren>,
     replicate_like: Query<&ReplicateLike>,
     cloned: Query<Has<CloneMarker>>,
@@ -639,7 +639,7 @@ impl<R: Relationship> HierarchySendPlugin<R> {
     ///
     /// If a child entity already has the `Replicate` component, we ignore it and its descendants.
     pub(crate) fn propagate_replicate_like_replication_marker_removed(
-        trigger: On<Remove, Replicate>,
+        trigger: On<Remove<Replicate>>,
         root_query: Query<
             (),
             (

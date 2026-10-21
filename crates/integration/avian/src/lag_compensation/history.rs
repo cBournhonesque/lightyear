@@ -2,9 +2,9 @@
 //! so that they can be used for lag compensation.
 
 #[cfg(all(feature = "2d", not(feature = "3d")))]
-use avian2d::{math::Vector, prelude::*};
+use avian2d::{math::ToRealPrecision, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
-use avian3d::{math::Vector, prelude::*};
+use avian3d::{math::ToRealPrecision, prelude::*};
 use bevy_app::prelude::*;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
@@ -12,6 +12,10 @@ use bevy_ecs::{
     hierarchy::{ChildOf, Children},
     schedule::{IntoScheduleConfigs, SystemSet},
 };
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+use bevy_math::Vec2 as Vector;
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+use bevy_math::Vec3 as Vector;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_link::prelude::Server;
@@ -117,7 +121,7 @@ impl Plugin for LagCompensationPlugin {
 /// Spawns a child entity with a collider that represents the broad-phase aabb envelope
 /// for lag compensation purposes
 fn spawn_broad_phase_aabb_envelope(
-    trigger: On<Add, LagCompensationHistory>,
+    trigger: On<Add<LagCompensationHistory>>,
     query: Query<Option<&CollisionLayers>>,
     mut commands: Commands,
 ) {
@@ -207,7 +211,7 @@ fn update_collider_history(
                 (Vector::MAX, Vector::MIN),
                 |(min, max), (_, (_, _, aabb))| (min.min(aabb.min), max.max(aabb.max)),
             );
-            let aabb_envelope = ColliderAabb::from_min_max(min, max);
+            let aabb_envelope = ColliderAabb::from_min_max(min.real(), max.real());
             // we cannot use the aabb_envelope directly because the SpatialQuery uses Position, Rotation, Collider
             // instead we will use a cuboid collider with the same dimensions as the aabb envelope, and whose position
             // is the center of the aabb envelope.

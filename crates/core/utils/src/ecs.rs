@@ -158,17 +158,17 @@ mod tests {
         let mut query_state = world.query::<&mut Value>();
 
         {
-            let mut query = query_state.query_mut(world);
+            let mut query = query_state.query_mut(&mut *world);
             crate::adaptive_for_each_mut!(query, |mut value| value.0 += 1);
         }
 
         let second = world.spawn(Value(0)).id();
         {
-            let mut query = query_state.query_mut(world);
+            let mut query = query_state.query_mut(&mut *world);
             crate::adaptive_for_each_mut!(query, 2, |mut value| value.0 += 1);
         }
         {
-            let mut query = query_state.query_mut(world);
+            let mut query = query_state.query_mut(&mut *world);
             crate::adaptive_for_each_mut!(query, |mut value| value.0 += 1);
         }
 

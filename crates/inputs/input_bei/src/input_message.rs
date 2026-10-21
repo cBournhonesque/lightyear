@@ -371,9 +371,11 @@ mod tests {
     #[test]
     fn test_update_buffer_empty_buffer() {
         let mut input_buffer = BEIBuffer::<Context1>::default();
-        let mut state = ActionsSnapshot::default();
-        state.state = TriggerState::Fired;
-        state.value = ActionValue::Bool(true);
+        let mut state = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            ..Default::default()
+        };
         let sequence = BEIStateSequence::<Context1> {
             start_state: state,
             diffs: vec![Compressed::SameAsPrecedent, Compressed::Absent],
@@ -430,11 +432,12 @@ mod tests {
     fn test_update_buffer_action_mismatch() {
         let mut input_buffer = BEIBuffer::<Context1>::default();
 
-        let mut state = ActionsSnapshot::default();
-
         // Set up buffer with one action at tick 5
-        state.state = TriggerState::Fired;
-        state.value = ActionValue::Bool(true);
+        let mut state = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            ..Default::default()
+        };
         input_buffer.set(Tick(5), state);
         input_buffer.last_remote_tick = Some(Tick(5));
 
@@ -465,9 +468,11 @@ mod tests {
         let mut input_buffer = BEIBuffer::<Context1>::default();
 
         // Set up buffer with an action at tick 5
-        let mut state = ActionsSnapshot::default();
-        state.state = TriggerState::Fired;
-        state.value = ActionValue::Bool(true);
+        let state = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            ..Default::default()
+        };
         input_buffer.set(Tick(5), state);
         input_buffer.last_remote_tick = Some(Tick(5));
 
@@ -497,9 +502,11 @@ mod tests {
         let mut input_buffer = BEIBuffer::<Context1>::default();
 
         // Set up buffer with actions at ticks 5 and 6
-        let mut state = ActionsSnapshot::default();
-        state.state = TriggerState::Fired;
-        state.value = ActionValue::Bool(true);
+        let mut state = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            ..Default::default()
+        };
         let first_state = state;
         let mut first_state_decayed = first_state;
         first_state_decayed.decay_tick(Duration::default());
@@ -591,9 +598,11 @@ mod tests {
         let mut input_buffer = BEIBuffer::default();
 
         // Set up buffer with actions at ticks 5 and 6
-        let mut state = ActionsSnapshot::default();
-        state.state = TriggerState::Fired;
-        state.value = ActionValue::Bool(true);
+        let state = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            ..Default::default()
+        };
 
         let first_state = state;
         input_buffer.set(Tick(6), first_state);
@@ -624,9 +633,11 @@ mod tests {
     #[test]
     fn test_build_update_roundtrip() {
         let mut sender = BEIBuffer::<Context1>::default();
-        let mut fired = ActionsSnapshot::default();
-        fired.state = TriggerState::Fired;
-        fired.value = ActionValue::Bool(true);
+        let fired = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            ..Default::default()
+        };
         for tick in 5..=8u32 {
             sender.set(Tick(tick), fired);
         }

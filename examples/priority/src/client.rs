@@ -1,7 +1,7 @@
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
-use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fire};
+use lightyear::input::bei::prelude::{preset, Action, ActionOf, Bindings, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
 
@@ -50,7 +50,7 @@ fn player_movement(
 
 /// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
-    trigger: On<Add, (PlayerId, Predicted)>,
+    trigger: On<Add<(PlayerId, Predicted)>>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
 ) {
     let entity = trigger.entity;
@@ -66,7 +66,7 @@ pub(crate) fn handle_predicted_spawn(
 /// Add local movement bindings when we receive an Action entity for a player
 /// that we control.
 pub(crate) fn add_bindings_to_controlled_actions(
-    trigger: On<Add, (Action<Movement>, ActionOf<Player>)>,
+    trigger: On<Add<(Action<Movement>, ActionOf<Player>)>>,
     actions: Query<(&ActionOf<Player>, Has<Bindings>), With<Action<Movement>>>,
     controlled_players: Query<(), (With<Player>, With<Controlled>)>,
     mut commands: Commands,
@@ -77,14 +77,18 @@ pub(crate) fn add_bindings_to_controlled_actions(
     if has_bindings || controlled_players.get(action_of.get()).is_err() {
         return;
     }
-    commands
-        .entity(trigger.entity)
-        .insert(Bindings::spawn((Cardinal::wasd_keys(), Cardinal::arrows())));
+    commands.entity(trigger.entity).apply_scene(bsn! {
+        Bindings [
+                {preset::cardinal::wasd_keys()}
+            --
+                {preset::cardinal::arrows()}
+        ]
+    });
 }
 
 /// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
-    trigger: On<Add, PlayerColor>,
+    trigger: On<Add<PlayerColor>>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
 ) {
     if let Ok(mut color) = interpolated.get_mut(trigger.entity) {

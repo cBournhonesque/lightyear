@@ -308,7 +308,7 @@ pub(crate) unsafe fn prune_history_diff_receiver_component<C: RepliconDiffable>(
 /// If a predicted component is removed on the [`Predicted`] entity, add the removal to the history.
 /// [`SyncedLocalTimeline`] skips this observer before timeline synchronization has completed.
 pub(crate) fn apply_component_removal_predicted<C: Component>(
-    trigger: On<Remove, C>,
+    trigger: On<Remove<C>>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
     timeline: SyncedLocalTimeline,
 ) {
@@ -341,14 +341,13 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// materialize that confirmed value as the live component.
 pub(crate) fn add_prediction_history<C: Component + Clone>(
     trigger: On<
-        Add,
-        (
+        Add<(
             C,
             Predicted,
             PreSpawned,
             DeterministicPredicted,
             CatchUpGated,
-        ),
+        )>,
     >,
     query: Query<
         (),
@@ -397,7 +396,7 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
 /// receive another update, leaving state-based prediction unable to compare it
 /// at later completed server ticks.
 pub(crate) fn backfill_confirmed_history_on_predicted<C: SyncComponent>(
-    trigger: On<Add, Predicted>,
+    trigger: On<Add<Predicted>>,
     query: Query<(&C, &ConfirmHistory), Without<ConfirmedHistory<C>>>,
     component_id: ComponentIdFor<C>,
     checkpoints: Option<Res<ReplicationCheckpointMap>>,
@@ -429,7 +428,7 @@ pub(crate) fn backfill_confirmed_history_on_predicted<C: SyncComponent>(
 }
 
 pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
-    trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
+    trigger: On<Add<(C, Predicted, PreSpawned, DeterministicPredicted)>>,
     query: Query<
         (),
         (
@@ -905,15 +904,16 @@ mod tests {
         let frame_interpolation_history_id = app
             .world_mut()
             .register_component::<FrameInterpolationHistory<TestDiffValue>>();
-        let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
-        registry.register_rollback::<TestDiffValue>(
-            prediction_history_id,
-            confirmed_history_id,
-            frame_interpolation_history_id,
-        );
-        registry.register::<TestDiffValue>();
-        registry.set_pending_diff_tick::<TestDiffValue>();
-        drop(registry);
+        {
+            let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
+            registry.register_rollback::<TestDiffValue>(
+                prediction_history_id,
+                confirmed_history_id,
+                frame_interpolation_history_id,
+            );
+            registry.register::<TestDiffValue>();
+            registry.set_pending_diff_tick::<TestDiffValue>();
+        }
         app.add_systems(Update, prune_history_diff_receiver);
 
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
@@ -958,15 +958,16 @@ mod tests {
         let frame_interpolation_history_id = app
             .world_mut()
             .register_component::<FrameInterpolationHistory<TestValue>>();
-        let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
-        registry.register_rollback::<TestValue>(
-            prediction_history_id,
-            confirmed_history_id,
-            frame_interpolation_history_id,
-        );
-        registry.register::<TestValue>();
-        registry.set_snap_to_confirmed::<TestValue>();
-        drop(registry);
+        {
+            let mut registry = app.world_mut().resource_mut::<PredictionRegistry>();
+            registry.register_rollback::<TestValue>(
+                prediction_history_id,
+                confirmed_history_id,
+                frame_interpolation_history_id,
+            );
+            registry.register::<TestValue>();
+            registry.set_snap_to_confirmed::<TestValue>();
+        }
 
         let mut timeline = LocalTimeline::default();
         timeline.apply_delta(TICK.0 as i32);

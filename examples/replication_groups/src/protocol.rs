@@ -1,8 +1,8 @@
 extern crate alloc;
 use alloc::collections::VecDeque;
 use bevy::app::{App, Plugin};
+use bevy::curve::Curve;
 use bevy::ecs::entity::MapEntities;
-use bevy::math::Curve;
 use bevy::prelude::*;
 use core::ops::{Add, Mul};
 use lightyear::input::native::plugin::InputPlugin;

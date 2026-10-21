@@ -123,19 +123,10 @@ impl DetBallBodyBundle {
 /// frame-interpolation on Position/Rotation (required to preserve
 /// post-rollback state under
 /// `AvianReplicationMode::Position { sync_to_transform: false }`).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DetProtocolPlugin {
     pub enable_islands: bool,
     pub compound_ball: bool,
-}
-
-impl Default for DetProtocolPlugin {
-    fn default() -> Self {
-        Self {
-            enable_islands: false,
-            compound_ball: false,
-        }
-    }
 }
 
 impl Plugin for DetProtocolPlugin {
@@ -174,6 +165,10 @@ impl Plugin for DetProtocolPlugin {
         }
         app.add_plugins(physics_plugins);
         app.insert_resource(Gravity(Vec2::ZERO));
+        app.insert_resource(NarrowPhaseConfig {
+            recycle_distance: 0.0,
+            ..default()
+        });
 
         // Keep frame interpolation in shared code so rendered and headless clients use the same
         // frame-history and correction pipeline. Position mode itself no longer depends on this
@@ -449,7 +444,7 @@ fn apply_movement(
 /// Insert `FrameInterpolate` on every
 /// `DeterministicPredicted` entity that has `Position`.
 fn add_frame_interpolation(
-    trigger: On<Add, DeterministicPredicted>,
+    trigger: On<Add<DeterministicPredicted>>,
     query: Query<(), (With<Position>, Without<FrameInterpolate>)>,
     mut commands: Commands,
 ) {

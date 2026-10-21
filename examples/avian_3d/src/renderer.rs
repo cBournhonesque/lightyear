@@ -6,7 +6,7 @@ use crate::{
         FLOOR_WIDTH, PROJECTILE_RADIUS,
     },
 };
-use avian3d::{math::AsF32, prelude::*};
+use avian3d::prelude::*;
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
 use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::rollback::DeterministicPredicted;
@@ -72,7 +72,7 @@ fn init(mut commands: Commands) {
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: On<Add, Position>,
+    trigger: On<Add<Position>>,
     query: Query<
         Entity,
         (

@@ -281,7 +281,7 @@ fn test_spawn_new_connection_respects_rooms() {
         .expect("entity is not present in room-sharing client entity map");
 
     // second client connects; it joins room B before its link is admitted
-    // into replication (same as inserting client Rooms in `On<Add, Connected>`)
+    // into replication (same as inserting client Rooms in `On<Add<Connected>>`)
     stepper.new_client(ClientType::Netcode, None);
     stepper
         .server_app
@@ -2522,7 +2522,7 @@ fn test_prediction_visibility_observer_spawn_late_join() {
     // Register observer on the SERVER that spawns player entities when clients connect
     // (mimicking simple_box handle_connected)
     stepper.server_app.add_observer(
-        |trigger: bevy::prelude::On<bevy::prelude::Add, Connected>,
+        |trigger: bevy::prelude::On<bevy::prelude::Add<Connected>>,
          query: bevy::prelude::Query<
             &RemoteId,
             bevy::prelude::With<lightyear_connection::client_of::ClientOf>,

@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_enhanced_input::prelude::{
-    ActionMock, ActionValue, ActionValueDim, Binding, Bindings, Cardinal, MockSpan,
+    ActionMock, ActionValue, ActionValueDim, Binding, Bindings, MockSpan, preset,
 };
 use lightyear::input::bei::prelude::*;
 use lightyear::interpolation::plugin::InterpolationSystems;
@@ -63,7 +63,7 @@ impl Plugin for ExampleClientPlugin {
 /// entity at the origin. Predicted players and linear state projectiles still
 /// need a kinematic body so Avian integrates their replicated velocity.
 fn add_rigid_body_to_predicted_simulation(
-    trigger: On<Add, (Predicted, Position, LinearVelocity)>,
+    trigger: On<Add<(Predicted, Position, LinearVelocity)>>,
     simulated: Query<
         (),
         (
@@ -87,7 +87,7 @@ fn add_rigid_body_to_predicted_simulation(
 /// Seeding it from the first real sampled position makes the first segment
 /// zero-length instead of incorrectly sweeping from the world origin.
 fn seed_interpolated_projectile_sweep_start(
-    trigger: On<Add, (BulletMarker, Interpolated, Position)>,
+    trigger: On<Add<(BulletMarker, Interpolated, Position)>>,
     projectiles: Query<
         &Position,
         (
@@ -138,13 +138,12 @@ fn clear_projectiles_on_reset(
 /// ready. This covers the ordering where the action arrives after its player.
 fn configure_player_action_on_insert(
     trigger: On<
-        Insert,
-        (
+        Insert<(
             ActionOf<PlayerContext>,
             Action<MovePlayer>,
             Action<MoveCursor>,
             Action<Shoot>,
-        ),
+        )>,
     >,
     action_of: Query<&ActionOf<PlayerContext>>,
     controlled_players: Query<(), (With<PlayerMarker>, With<Controlled>)>,
@@ -189,7 +188,7 @@ fn configure_player_action_on_insert(
 
 /// Configure existing actions when `Controlled` arrives after them.
 fn configure_controlled_player_actions(
-    trigger: On<Add, (PlayerMarker, Controlled, Actions<PlayerContext>)>,
+    trigger: On<Add<(PlayerMarker, Controlled, Actions<PlayerContext>)>>,
     players: Query<&Actions<PlayerContext>, (With<PlayerMarker>, With<Controlled>)>,
     movement_actions: Query<
         (
@@ -317,7 +316,7 @@ fn configure_player_action(
         }
         match source {
             PlayerActionSource::Movement { has_bindings } if !has_bindings => {
-                action.insert(Bindings::spawn(Cardinal::wasd_keys()));
+                action.apply_scene(bsn! { Bindings [ {preset::cardinal::wasd_keys()} ] });
             }
             PlayerActionSource::Cursor { mock } if !mock.is_some_and(|mock| mock.enabled) => {
                 let value = mock
@@ -351,15 +350,14 @@ fn configure_player_action(
 #[allow(clippy::type_complexity)]
 fn configure_global_action_on_insert(
     trigger: On<
-        Insert,
-        (
+        Insert<(
             ClientContext,
             ActionOf<ClientContext>,
             Action<CycleTrajectory>,
             Action<CycleRepresentation>,
             Action<CycleHitPolicy>,
             Action<CycleTimeline>,
-        ),
+        )>,
     >,
     contexts: Query<&Actions<ClientContext>, With<ClientContext>>,
     trajectory: Query<

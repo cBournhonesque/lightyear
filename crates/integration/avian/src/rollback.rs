@@ -6,21 +6,24 @@
 //! correctness mechanism: it saves the persistent tree data while leaving the reusable
 //! `ColliderTreeWorkspace` scratch buffers in the live world.
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 #[cfg(all(feature = "2d", not(feature = "3d"), feature = "xpbd_joints"))]
 use avian2d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, RevoluteJointSolverData};
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{
     collider_tree::{
         ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-        MovedProxies, ProxyId,
+        MovedProxies, MovedProxyList,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
+    dynamics::{
+        joints::joint_graph::{JointGraph, JointGraphChange},
+        solver::{
+            apply_joint_graph_changes,
+            constraint_graph::ConstraintGraph,
+            islands::{BodyIslandNode, PhysicsIslands},
+        },
     },
     prelude::*,
 };
@@ -30,19 +33,24 @@ use avian3d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 use avian3d::{
     collider_tree::{
         ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-        MovedProxies, ProxyId,
+        MovedProxies, MovedProxyList,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
-    dynamics::solver::{
-        constraint_graph::ConstraintGraph,
-        islands::{BodyIslandNode, PhysicsIslands},
-        joint_graph::JointGraph,
+    dynamics::{
+        joints::joint_graph::{JointGraph, JointGraphChange},
+        solver::{
+            apply_joint_graph_changes,
+            constraint_graph::ConstraintGraph,
+            islands::{BodyIslandNode, PhysicsIslands},
+        },
     },
     prelude::*,
 };
 use bevy_app::{App, FixedPostUpdate, PreUpdate};
+use bevy_ecs::message::MessageCursor;
 use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::SystemWithAccess;
 use bevy_time::Time;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_prediction::plugin::PredictionSystems;
@@ -60,7 +68,7 @@ use obvhs::bvh2::Bvh2;
 struct ColliderTreeSnapshot {
     bvh: Bvh2,
     proxies: StableVec<ColliderTreeProxy>,
-    moved_proxies: Vec<ProxyId>,
+    moved_proxies: MovedProxyList,
 }
 
 impl ColliderTreeSnapshot {
@@ -128,6 +136,22 @@ impl ColliderBroadPhaseSnapshot {
 #[derive(Resource, Clone, Default)]
 struct RollbackColliderBroadPhase(Arc<ColliderBroadPhaseSnapshot>);
 
+/// Contact lifecycle changes that Avian has queued but has not applied to the solver yet.
+///
+/// Collider observers can append changes outside the physics schedule. These must travel with
+/// the contact and constraint graph histories, otherwise replay would apply changes from the
+/// discarded future to restored contacts. The Avian queue itself does not implement `Clone`.
+#[derive(Resource, Clone, Default)]
+struct RollbackContactStatusChanges(Vec<ContactStatusChange>);
+
+/// The unread joint changes at a history tick, without Bevy's monotonically increasing IDs.
+#[derive(Resource, Clone, Default)]
+struct RollbackJointGraphChanges(Vec<JointGraphChange>);
+
+/// Mirrors Avian's private reader cursor. This live cursor must never be rewound.
+#[derive(Resource, Default)]
+struct JointGraphChangesReadCursor(MessageCursor<JointGraphChange>);
+
 /// Enrolls collider-local state that cannot be reconstructed from the broad-phase snapshot.
 ///
 /// This is independent of the scratch-space optimization above. In particular, `ColliderAabb` is
@@ -156,6 +180,8 @@ pub(super) fn register_rollback(app: &mut App) {
     app.init_resource::<ColliderTrees>();
     app.init_resource::<MovedProxies>();
     app.init_resource::<RollbackColliderBroadPhase>();
+    app.init_resource::<ContactStatusChangeQueue>();
+    app.init_resource::<RollbackContactStatusChanges>();
     app.init_resource::<Time<Physics>>();
     app.init_resource::<Time<Substeps>>();
 
@@ -163,6 +189,8 @@ pub(super) fn register_rollback(app: &mut App) {
     app.resource::<ConstraintGraph>().local_rollback();
     app.resource::<JointGraph>().local_rollback();
     app.resource::<RollbackColliderBroadPhase>()
+        .local_rollback();
+    app.resource::<RollbackContactStatusChanges>()
         .local_rollback();
     app.resource::<Time<Physics>>().local_rollback();
     app.resource::<Time<Substeps>>().local_rollback();
@@ -183,7 +211,10 @@ pub(super) fn register_rollback(app: &mut App) {
     backfill_existing_collider_rollback_histories(app.world_mut());
     app.add_systems(
         FixedPostUpdate,
-        record_collider_broad_phase_for_rollback
+        (
+            record_collider_broad_phase_for_rollback,
+            record_contact_status_changes_for_rollback,
+        )
             .after(PhysicsSystems::StepSimulation)
             .before(PredictionSystems::UpdateHistory),
     );
@@ -191,6 +222,7 @@ pub(super) fn register_rollback(app: &mut App) {
         PreUpdate,
         (
             restore_collider_broad_phase,
+            restore_contact_status_changes,
             reregister_invalid_proxies,
             restore_colliding_entities_from_contact_graph,
         )
@@ -199,6 +231,20 @@ pub(super) fn register_rollback(app: &mut App) {
             .before(RollbackSystems::Rollback)
             .run_if(is_in_rollback),
     );
+}
+
+fn record_contact_status_changes_for_rollback(
+    changes: Res<ContactStatusChangeQueue>,
+    mut rollback_state: ResMut<RollbackContactStatusChanges>,
+) {
+    rollback_state.0.clone_from(&changes.0);
+}
+
+fn restore_contact_status_changes(
+    rollback_state: Res<RollbackContactStatusChanges>,
+    mut changes: ResMut<ContactStatusChangeQueue>,
+) {
+    changes.0.clone_from(&rollback_state.0);
 }
 
 /// Captures the exact broad-phase inputs needed by the next physics tick.
@@ -309,6 +355,112 @@ pub(super) fn register_island_rollback(app: &mut App, rollback_sleeping: bool) {
         app.local_rollback::<Sleeping>();
         app.local_rollback::<SleepTimer>();
     }
+    register_joint_change_rollback(app);
+}
+
+fn register_joint_change_rollback(app: &mut App) {
+    let Some(physics) = app.get_schedule_mut(PhysicsSchedule) else {
+        return;
+    };
+    if !checkpoint_joint_change_reader(physics) {
+        return;
+    }
+
+    app.init_resource::<JointGraphChangesReadCursor>();
+    app.init_resource::<RollbackJointGraphChanges>();
+    app.resource::<RollbackJointGraphChanges>().local_rollback();
+    app.add_systems(
+        FixedPostUpdate,
+        record_joint_changes_for_rollback
+            .after(PhysicsSystems::StepSimulation)
+            .before(PredictionSystems::UpdateHistory),
+    );
+    app.add_systems(
+        PreUpdate,
+        restore_joint_changes
+            .after(RollbackSystems::Prepare)
+            .before(RollbackSystems::Rollback)
+            .run_if(is_in_rollback),
+    );
+}
+
+/// Wraps Avian's existing system before its first initialization, retaining its schedule node.
+///
+/// The node carries the ordering edge from the contact solver, set membership, and run conditions.
+/// Replacing it in place preserves all of those. A pipe keeps consumption and cursor capture atomic;
+/// a separate ordered system could accidentally checkpoint a writer that ran between the two.
+fn checkpoint_joint_change_reader(physics: &mut Schedule) -> bool {
+    let joint_changes_type = apply_joint_graph_changes.system_type_id();
+    let joint_changes_set = apply_joint_graph_changes.into_system_set().intern();
+    let has_reader = |system: &bevy_ecs::system::ScheduleSystem| {
+        let is_original = system.system_type() == joint_changes_type;
+        assert!(
+            is_original || !system.default_system_sets().contains(&joint_changes_set),
+            "Avian joint rollback requires the unwrapped apply_joint_graph_changes system"
+        );
+        is_original
+    };
+    if let Ok(systems) = physics.systems() {
+        assert!(
+            !systems.into_iter().any(|(_, system)| has_reader(system)),
+            "Avian joint rollback must be registered before PhysicsSchedule is initialized"
+        );
+    }
+    let mut readers = physics
+        .graph()
+        .systems
+        .iter()
+        .filter(|(_, system, _)| has_reader(system))
+        .map(|(key, _, _)| key);
+    let Some(key) = readers.next() else {
+        return false;
+    };
+    assert!(
+        readers.next().is_none(),
+        "expected one Avian joint change reader"
+    );
+    drop(readers);
+    let node = physics.graph_mut().systems.get_mut(key).unwrap();
+    assert!(
+        node.access().is_none(),
+        "Avian joint rollback must be registered before PhysicsSchedule is initialized"
+    );
+    let original = core::mem::replace(
+        node,
+        SystemWithAccess::new(Box::new(IntoSystem::into_system(|| {}))),
+    );
+    *node = SystemWithAccess::new(Box::new(IntoSystem::into_system(
+        original.pipe(record_joint_change_reader_cursor),
+    )));
+    true
+}
+
+fn record_joint_change_reader_cursor(
+    changes: Res<Messages<JointGraphChange>>,
+    mut cursor: ResMut<JointGraphChangesReadCursor>,
+) {
+    cursor.0 = changes.get_cursor_current();
+}
+
+fn record_joint_changes_for_rollback(
+    changes: Res<Messages<JointGraphChange>>,
+    cursor: Res<JointGraphChangesReadCursor>,
+    mut rollback_state: ResMut<RollbackJointGraphChanges>,
+) {
+    rollback_state.0.clear();
+    rollback_state
+        .0
+        .extend(cursor.0.clone().read(&changes).copied());
+}
+
+fn restore_joint_changes(
+    rollback_state: Res<RollbackJointGraphChanges>,
+    mut changes: ResMut<Messages<JointGraphChange>>,
+    mut cursor: ResMut<JointGraphChangesReadCursor>,
+) {
+    changes.clear();
+    cursor.0 = changes.get_cursor_current();
+    changes.write_batch(rollback_state.0.iter().copied());
 }
 
 /// Adds component histories to every collider, including unmarked children and sensors.
@@ -319,7 +471,7 @@ pub(super) fn register_island_rollback(app: &mut App, rollback_sleeping: bool) {
 /// history systems record only changed components, and `insert_if_new` preserves histories already
 /// installed through an ordinary prediction marker.
 fn add_collider_rollback_histories(
-    trigger: On<Add, (ColliderTreeProxyKey, ColliderAabb, EnlargedAabb)>,
+    trigger: On<Add<(ColliderTreeProxyKey, ColliderAabb, EnlargedAabb)>>,
     colliders: Query<
         (),
         (
@@ -396,10 +548,28 @@ fn restore_colliding_entities_from_contact_graph(
 mod tests {
     use super::*;
     #[cfg(all(feature = "2d", not(feature = "3d")))]
-    use avian2d::math::Vector;
+    use avian2d::{
+        collider_tree::ProxyId,
+        dynamics::{
+            joints::joint_graph::{JointGraphEdge, JointId},
+            solver::apply_contact_status_changes,
+        },
+        math::RVector,
+    };
     #[cfg(all(feature = "3d", not(feature = "2d")))]
-    use avian3d::math::Vector;
+    use avian3d::{
+        collider_tree::ProxyId,
+        dynamics::{
+            joints::joint_graph::{JointGraphEdge, JointId},
+            solver::apply_contact_status_changes,
+        },
+        math::RVector,
+    };
     use bevy_ecs::system::RunSystemOnce;
+    #[cfg(all(feature = "2d", not(feature = "3d")))]
+    use bevy_math::Vec2 as Vector;
+    #[cfg(all(feature = "3d", not(feature = "2d")))]
+    use bevy_math::Vec3 as Vector;
     use lightyear_prediction::prelude::{Predicted, PredictionRegistry};
 
     fn assert_resource_history<R: Resource + Clone>(app: &App) {
@@ -442,6 +612,7 @@ mod tests {
         assert_resource_history::<ConstraintGraph>(&app);
         assert_resource_history::<JointGraph>(&app);
         assert_resource_history::<RollbackColliderBroadPhase>(&app);
+        assert_resource_history::<RollbackContactStatusChanges>(&app);
         assert_resource_history::<Time<Physics>>(&app);
         assert_resource_history::<Time<Substeps>>(&app);
 
@@ -456,6 +627,186 @@ mod tests {
     }
 
     #[test]
+    fn rollback_replays_saved_contact_changes_instead_of_future_removals() {
+        let mut app = App::new();
+        app.init_resource::<ContactGraph>();
+        app.init_resource::<ConstraintGraph>();
+        app.init_resource::<ContactStatusChangeQueue>();
+        app.init_resource::<RollbackContactStatusChanges>();
+
+        let body1 = app.world_mut().spawn_empty().id();
+        let body2 = app.world_mut().spawn_empty().id();
+        let contact = app
+            .world_mut()
+            .resource_mut::<ContactGraph>()
+            .add_edge_with(ContactEdge::new(body1, body2), |pair| {
+                pair.body1 = Some(body1);
+                pair.body2 = Some(body2);
+                pair.flags.insert(ContactPairFlags::TOUCHING);
+                pair.manifolds
+                    .push(ContactManifold::new([], Default::default()));
+            })
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<ContactStatusChangeQueue>()
+            .push(ContactStatusChange::StartedGeneratingConstraints(contact));
+        app.world_mut()
+            .run_system_once(record_contact_status_changes_for_rollback)
+            .unwrap();
+
+        app.world_mut()
+            .run_system_once(apply_contact_status_changes)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<ConstraintGraph>()
+                .manifold_count(contact),
+            1
+        );
+        app.world_mut()
+            .resource_mut::<ContactStatusChangeQueue>()
+            .push(ContactStatusChange::StoppedGeneratingConstraints {
+                contact_id: contact,
+                body1,
+                body2,
+            });
+
+        app.insert_resource(ConstraintGraph::default());
+        app.world_mut()
+            .run_system_once(restore_contact_status_changes)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(apply_contact_status_changes)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<ConstraintGraph>()
+                .manifold_count(contact),
+            1,
+            "the restored touching contact must still participate in the solver"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "requires the unwrapped apply_joint_graph_changes system")]
+    fn joint_reader_checkpoint_rejects_a_custom_pipe() {
+        let mut physics = Schedule::default();
+        physics.add_systems(apply_joint_graph_changes.pipe(
+            |mut changes: MessageWriter<JointGraphChange>| {
+                changes.write(JointGraphChange::Removed(JointId::PLACEHOLDER));
+            },
+        ));
+        checkpoint_joint_change_reader(&mut physics);
+    }
+
+    #[test]
+    fn rollback_replays_saved_joint_changes_instead_of_future_removals() {
+        let mut app = App::new();
+        app.init_resource::<PredictionRegistry>();
+        app.init_resource::<JointGraph>();
+        app.init_resource::<PhysicsIslands>();
+        app.add_message::<JointGraphChange>();
+        app.add_systems(PhysicsSchedule, apply_joint_graph_changes);
+        register_island_rollback(&mut app, false);
+        assert_resource_history::<RollbackJointGraphChanges>(&app);
+
+        let body1 = app.world_mut().spawn(BodyIslandNode::default()).id();
+        let body2 = app.world_mut().spawn(BodyIslandNode::default()).id();
+        let joint_entity = app.world_mut().spawn_empty().id();
+        let joint = app
+            .world_mut()
+            .resource_mut::<JointGraph>()
+            .add_joint(JointGraphEdge::new(joint_entity, body1, body2, false));
+        app.world_mut()
+            .write_message(JointGraphChange::Added(joint));
+
+        app.world_mut().run_schedule(PhysicsSchedule);
+        assert!(
+            app.world()
+                .resource::<PhysicsIslands>()
+                .joint_node(joint)
+                .is_some()
+        );
+
+        app.world_mut()
+            .resource_mut::<JointGraph>()
+            .remove_joint(joint_entity);
+        let relinked = app
+            .world_mut()
+            .resource_mut::<JointGraph>()
+            .add_joint(JointGraphEdge::new(joint_entity, body1, body2, false));
+        assert_eq!(relinked, joint);
+        let second_entity = app.world_mut().spawn_empty().id();
+        let second = app
+            .world_mut()
+            .resource_mut::<JointGraph>()
+            .add_joint(JointGraphEdge::new(second_entity, body1, body2, false));
+        let pending = [
+            JointGraphChange::Removed(joint),
+            JointGraphChange::Added(joint),
+            JointGraphChange::Added(second),
+        ];
+        app.world_mut()
+            .resource_mut::<Messages<JointGraphChange>>()
+            .write_batch(pending);
+        app.world_mut()
+            .run_system_once(record_joint_changes_for_rollback)
+            .unwrap();
+        assert_eq!(
+            app.world().resource::<RollbackJointGraphChanges>().0,
+            pending
+        );
+        let saved_changes = app.world().resource::<RollbackJointGraphChanges>().clone();
+        let joint_graph = app.world().resource::<JointGraph>().clone();
+        let islands = app.world().resource::<PhysicsIslands>().clone();
+
+        app.world_mut().run_schedule(PhysicsSchedule);
+        for _ in 0..2 {
+            app.world_mut()
+                .resource_mut::<JointGraph>()
+                .remove_joint(joint_entity);
+            app.world_mut()
+                .write_message(JointGraphChange::Removed(joint));
+            app.insert_resource(joint_graph.clone());
+            app.insert_resource(islands.clone());
+            app.insert_resource(saved_changes.clone());
+            app.world_mut()
+                .run_system_once(restore_joint_changes)
+                .unwrap();
+
+            app.world_mut()
+                .run_system_once(record_joint_changes_for_rollback)
+                .unwrap();
+            assert_eq!(
+                app.world().resource::<RollbackJointGraphChanges>().0,
+                pending
+            );
+            app.world_mut().run_schedule(PhysicsSchedule);
+            let restored = app.world().resource::<PhysicsIslands>();
+            assert!(restored.joint_node(joint).is_some());
+            assert!(restored.joint_node(second).is_some());
+            assert_eq!(
+                restored
+                    .iter()
+                    .map(|island| island.joint_count())
+                    .sum::<u32>(),
+                2
+            );
+            app.world_mut()
+                .run_system_once(record_joint_changes_for_rollback)
+                .unwrap();
+            assert!(
+                app.world()
+                    .resource::<RollbackJointGraphChanges>()
+                    .0
+                    .is_empty()
+            );
+
+            app.world_mut().run_schedule(PhysicsSchedule);
+        }
+    }
+
+    #[test]
     fn broad_phase_snapshot_restores_state_but_preserves_live_workspace() {
         let mut app = App::new();
         app.init_resource::<ColliderTrees>();
@@ -466,7 +817,7 @@ mod tests {
         let proxy_id = {
             let mut trees = app.world_mut().resource_mut::<ColliderTrees>();
             let tree = &mut trees.dynamic_tree;
-            tree.workspace.insertion_stack.reserve(4_096);
+            tree.workspace.temp_flags.resize(4_096, false);
             tree.bvh.primitive_indices.push(17);
             let proxy_id = ProxyId::new(tree.proxies.push(ColliderTreeProxy {
                 collider,
@@ -492,7 +843,7 @@ mod tests {
             tree.bvh.primitive_indices.clear();
             tree.proxies.clear();
             tree.moved_proxies.clear();
-            tree.workspace.insertion_stack.reserve(8_192);
+            tree.workspace.temp_flags.resize(8_192, true);
         }
         app.world_mut().resource_mut::<MovedProxies>().clear();
 
@@ -507,8 +858,9 @@ mod tests {
             tree.proxies.get(proxy_id.index()).unwrap().collider,
             collider
         );
-        assert_eq!(tree.moved_proxies, [proxy_id]);
-        assert_eq!(tree.workspace.insertion_stack.cap(), 8_192);
+        assert_eq!(&*tree.moved_proxies, &[proxy_id]);
+        assert_eq!(tree.workspace.temp_flags.len(), 8_192);
+        assert!(tree.workspace.temp_flags[4_096..].iter().all(|flag| *flag));
         assert!(app.world().resource::<MovedProxies>().contains(proxy_key));
     }
 
@@ -724,7 +1076,7 @@ mod tests {
         app.world_mut()
             .get_mut::<Position>(unrecordered_collider)
             .unwrap()
-            .0 += Vector::X;
+            .0 += RVector::X;
         app.update();
 
         // Both colliders should own the entries their proxy keys identify.
@@ -903,7 +1255,10 @@ mod tests {
     fn island_resources_and_components_have_live_histories() {
         let mut app = App::new();
         app.init_resource::<PredictionRegistry>();
+        app.add_systems(PhysicsSchedule, || {});
+        app.world_mut().run_schedule(PhysicsSchedule);
         register_island_rollback(&mut app, true);
+        assert!(!app.world().contains_resource::<RollbackJointGraphChanges>());
 
         let body = app
             .world_mut()

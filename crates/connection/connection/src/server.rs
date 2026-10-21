@@ -129,7 +129,7 @@ impl ConnectionPlugin {
 
     /// If the underlying link fails, we also stop the server
     fn stop_if_link_fails(
-        trigger: On<Add, Unlinked>,
+        trigger: On<Add<Unlinked>>,
         // TODO: is Start/Stop reserved for the `Server` and not the `ServerLink`?
         query: Query<(), (With<Server>, With<Started>)>,
         mut commands: Commands,
@@ -201,7 +201,7 @@ mod tests {
     fn server_mapping_is_cleared_when_stopped() {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
-        let server = app.world_mut().spawn((Server::default(), Started)).id();
+        let server = app.world_mut().spawn((Server, Started)).id();
 
         assert_eq!(
             app.world()
@@ -235,7 +235,7 @@ mod tests {
     fn despawned_server_clears_peer_map() {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
-        let server = app.world_mut().spawn((Server::default(), Started)).id();
+        let server = app.world_mut().spawn((Server, Started)).id();
 
         assert_eq!(
             app.world()
