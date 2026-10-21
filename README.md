@@ -9,7 +9,7 @@ via WebTransport.
 
 ## Getting started
 
-For the upcoming Lightyear 0.31 release with Bevy 0.20 (Rust 1.97.1 or newer), add Lightyear to your project with:
+For Bevy 0.20 (Rust 1.97.1 or newer), add Lightyear to your project with:
 
 ```toml
 [dependencies]
@@ -95,7 +95,7 @@ Workspace crate sources live under `crates/`, grouped by role. Directory names d
 
 | Lightyear | Bevy |
 |-----------|------|
-| 0.31 (unreleased) | 0.20 |
+| 0.31 | 0.20 |
 | 0.28-0.30 | 0.19 |
 | 0.26-0.27 | 0.18 |
 | 0.25      | 0.17 |
