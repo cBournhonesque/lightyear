@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
-- Use Bevy's `Time<Real>` for ping/pong timestamps so RTT samples follow the application clock, including manual time updates.
+- Use Bevy's `Time<Real>` for ping/pong timestamps so RTT samples follow the application clock, including manual time updates. Samples are frame-granular and include intra-frame processing; the pong's `frame_time` corrects waits across frame-clock updates.
+
+### Changed
+
+- `PingStore::push_new` and `PingStore::remove` use `bevy_platform::time::Instant`, including when `lightyear_core/test_utils` enables mock instants elsewhere.
 
 ## v0.21.0 (2025-07-03)
 

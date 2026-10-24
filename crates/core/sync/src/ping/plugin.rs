@@ -73,8 +73,10 @@ impl PingPlugin {
         )
     }
 
-    /// Send pings/pongs to the remote
-    /// Record the application time spent waiting to send each buffered pong.
+    /// Send pings/pongs using the application's frame timestamp.
+    ///
+    /// [`Pong::frame_time`] corrects waits across application time updates. Receive and send
+    /// normally share a frame timestamp, so intra-frame processing is included in measured RTT.
     fn send(
         real_time: Res<Time<Real>>,
         tick_duration: Res<TickDuration>,
@@ -217,71 +219,76 @@ mod tests {
 
     #[test]
     fn ping_rtt_follows_manual_real_time() {
-        let mut app = App::new();
-        app.add_plugins((
-            bevy_app::TaskPoolPlugin::default(),
-            CorePlugins {
-                tick_duration: Duration::from_millis(10),
-            },
-            PingPlugin,
-            MessagePlugin,
-        ));
-        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs(1)));
-        app.finish();
-        app.update();
-        // Networking must keep using Real time even when gameplay time is paused.
-        app.world_mut().resource_mut::<Time<Virtual>>().pause();
+        // Cover both normal same-frame replies and pongs held across a clock update.
+        for pong_wait in [Duration::ZERO, Duration::from_millis(30)] {
+            let mut app = App::new();
+            app.add_plugins((
+                bevy_app::TaskPoolPlugin::default(),
+                CorePlugins {
+                    tick_duration: Duration::from_millis(10),
+                },
+                PingPlugin,
+                MessagePlugin,
+            ));
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs(1)));
+            app.finish();
+            app.update();
+            // Networking must keep using Real time even when gameplay time is paused.
+            app.world_mut().resource_mut::<Time<Virtual>>().pause();
 
-        let registry = app.world().resource::<ChannelRegistry>();
-        let mut transport = Transport::default();
-        transport.add_channel_send_from_registry::<PingChannel>(registry);
-        transport.add_channel_receive_from_registry::<PingChannel>(registry);
-        let entity = app
-            .world_mut()
-            .spawn((
-                Link::default(),
-                Linked,
-                transport,
-                RemoteId(PeerId::Server),
-                Connected,
-                PingManager::new(crate::ping::manager::PingConfig {
-                    ping_interval: Duration::from_secs(1),
-                }),
-            ))
-            .id();
+            let registry = app.world().resource::<ChannelRegistry>();
+            let mut transport = Transport::default();
+            transport.add_channel_send_from_registry::<PingChannel>(registry);
+            transport.add_channel_receive_from_registry::<PingChannel>(registry);
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Link::default(),
+                    Linked,
+                    transport,
+                    RemoteId(PeerId::Server),
+                    Connected,
+                    PingManager::new(crate::ping::manager::PingConfig {
+                        ping_interval: Duration::from_secs(1),
+                    }),
+                ))
+                .id();
 
-        app.update();
-        assert_eq!(
-            app.world().get::<PingManager>(entity).unwrap().pings_sent,
-            1
-        );
-        loopback_ping_packet(&mut app, entity);
+            app.update();
+            assert_eq!(
+                app.world().get::<PingManager>(entity).unwrap().pings_sent,
+                1
+            );
+            loopback_ping_packet(&mut app, entity);
 
-        // Receive the ping after 40 ms of application time, then hold its pong for 30 ms.
-        app.world_mut()
-            .resource_mut::<Time<Real>>()
-            .update_with_duration(Duration::from_millis(40));
-        app.world_mut().run_schedule(PreUpdate);
-        app.world_mut()
-            .resource_mut::<Time<Real>>()
-            .update_with_duration(Duration::from_millis(30));
-        app.world_mut().run_schedule(PostUpdate);
-        loopback_ping_packet(&mut app, entity);
+            // Receive the ping after 40 ms of application time, then optionally hold its pong.
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .update_with_duration(Duration::from_millis(40));
+            app.world_mut().run_schedule(PreUpdate);
+            if !pong_wait.is_zero() {
+                app.world_mut()
+                    .resource_mut::<Time<Real>>()
+                    .update_with_duration(pong_wait);
+            }
+            app.world_mut().run_schedule(PostUpdate);
+            loopback_ping_packet(&mut app, entity);
 
-        app.world_mut()
-            .resource_mut::<Time<Real>>()
-            .update_with_duration(Duration::from_millis(60));
-        app.world_mut().run_schedule(PreUpdate);
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .update_with_duration(Duration::from_millis(60));
+            app.world_mut().run_schedule(PreUpdate);
 
-        let manager = app.world().get::<PingManager>(entity).unwrap();
-        assert_eq!(manager.pongs_recv, 1);
-        assert_eq!(manager.latency_samples_recv(), 1);
-        // RTT excludes the 30 ms spent waiting to send the pong: 40 + 60 = 100 ms.
-        assert_eq!(manager.rtt(), Duration::from_millis(100));
-        assert_eq!(
-            app.world().get::<Link>(entity).unwrap().stats.rtt,
-            Duration::from_millis(100)
-        );
+            let manager = app.world().get::<PingManager>(entity).unwrap();
+            assert_eq!(manager.pongs_recv, 1);
+            assert_eq!(manager.latency_samples_recv(), 1);
+            // RTT excludes any wait across clock updates: 40 + 60 = 100 ms in both cases.
+            assert_eq!(manager.rtt(), Duration::from_millis(100));
+            assert_eq!(
+                app.world().get::<Link>(entity).unwrap().stats.rtt,
+                Duration::from_millis(100)
+            );
+        }
     }
 
     fn loopback_ping_packet(app: &mut App, entity: Entity) {
