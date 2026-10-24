@@ -410,6 +410,7 @@ impl TransportPlugin {
         query.for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
+            transport.bandwidth_limiter.update(real_time.elapsed());
             let mtu = link.mtu();
 
             // buffer all new messages in the Sender
@@ -780,6 +781,40 @@ mod tests {
             pending_candidates::<DiscardChannel>(world, discard_entity),
             0
         );
+    }
+
+    #[test]
+    fn bandwidth_limited_flush_refills_from_real_time() {
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            retry_unsent_messages: true,
+            ..Default::default()
+        };
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<RetryChannel>(settings);
+        let mut app = App::new();
+        app.add_plugins(bevy_app::TaskPoolPlugin::default());
+        let world = app.world_mut();
+        world.insert_resource(registry);
+        world.init_resource::<Time<Real>>();
+        world.init_resource::<LocalTimeline>();
+        let entity = spawn_transport::<RetryChannel>(world, settings, channel_kind, channel_id);
+
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+        assert_eq!(world.get::<Link>(entity).unwrap().send.len(), 1);
+        assert_eq!(pending_candidates::<RetryChannel>(world, entity), 1);
+
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+        assert_eq!(world.get::<Link>(entity).unwrap().send.len(), 1);
+
+        // The helper configures 1 byte/s with a 1200-byte burst. Refill the entire burst
+        // without sleeping or advancing Governor's default wall clock.
+        world
+            .resource_mut::<Time<Real>>()
+            .advance_by(Duration::from_secs(1200));
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+        assert_eq!(world.get::<Link>(entity).unwrap().send.len(), 2);
+        assert_eq!(pending_candidates::<RetryChannel>(world, entity), 0);
     }
 
     #[test]
