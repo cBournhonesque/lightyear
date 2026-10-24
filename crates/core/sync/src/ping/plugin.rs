@@ -11,7 +11,6 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
 use lightyear_core::tick::TickDuration;
-use lightyear_core::time::Instant;
 use lightyear_core::time::TickDelta;
 use lightyear_link::Link;
 use lightyear_messages::plugin::MessageSystems;
@@ -50,6 +49,9 @@ impl PingPlugin {
             (With<Connected>, Without<HostClient>),
         >,
     ) {
+        let Some(now) = real_time.last_update() else {
+            return;
+        };
         adaptive_for_each_mut!(query).for_each(
             |(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
                 // update
@@ -57,12 +59,12 @@ impl PingPlugin {
 
                 // receive pings
                 ping_receiver.receive().for_each(|ping| {
-                    m.buffer_pending_pong(&ping, Instant::now());
+                    m.buffer_pending_pong(&ping, now);
                 });
                 // receive pongs
                 pong_receiver.receive().for_each(|pong| {
                     // process the pong
-                    m.process_pong(&pong, Instant::now(), tick_duration.0);
+                    m.process_pong(&pong, now, tick_duration.0);
                 });
 
                 link.stats.rtt = m.rtt();
@@ -72,9 +74,9 @@ impl PingPlugin {
     }
 
     /// Send pings/pongs to the remote
-    /// We modify the pongs that were buffered so that we can write the correct
-    /// time spent between PostUpdate and PreUpdate
+    /// Record the application time spent waiting to send each buffered pong.
     fn send(
+        real_time: Res<Time<Real>>,
         tick_duration: Res<TickDuration>,
         mut query: Query<
             (
@@ -86,13 +88,10 @@ impl PingPlugin {
             (With<Connected>, Without<HostClient>),
         >,
     ) {
-        let now = Instant::now();
-        // NOTE: the real_time.last_update() is the time from the Render World! It seems like it cannot be compared directly
-        //  with the time from Instant::now(), so we stick to only using Instant::now() for now.
-        // let Some(frame_start) = real_time.last_update() else {
-        //     return
-        // };
-        // let frame_time = now - frame_start;
+        // Use the same clock as ping timers, transport timers and timeline synchronization.
+        let Some(now) = real_time.last_update() else {
+            return;
+        };
         adaptive_for_each_mut!(query).for_each(
             |(entity, mut m, mut ping_sender, mut pong_sender)| {
                 // send the pings
@@ -208,8 +207,89 @@ impl Plugin for PingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_time::{TimeUpdateStrategy, Virtual};
     use lightyear_core::id::{PeerId, RemoteId};
+    use lightyear_core::plugin::CorePlugins;
+    use lightyear_link::{Linked, recv_payload_from_bytes};
+    use lightyear_messages::plugin::MessagePlugin;
+    use lightyear_transport::prelude::{ChannelRegistry, Transport};
     use lightyear_transport::{packet::PacketId, plugin::PacketAcked};
+
+    #[test]
+    fn ping_rtt_follows_manual_real_time() {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy_app::TaskPoolPlugin::default(),
+            CorePlugins {
+                tick_duration: Duration::from_millis(10),
+            },
+            PingPlugin,
+            MessagePlugin,
+        ));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs(1)));
+        app.finish();
+        app.update();
+        // Networking must keep using Real time even when gameplay time is paused.
+        app.world_mut().resource_mut::<Time<Virtual>>().pause();
+
+        let registry = app.world().resource::<ChannelRegistry>();
+        let mut transport = Transport::default();
+        transport.add_channel_send_from_registry::<PingChannel>(registry);
+        transport.add_channel_receive_from_registry::<PingChannel>(registry);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Link::default(),
+                Linked,
+                transport,
+                RemoteId(PeerId::Server),
+                Connected,
+                PingManager::new(crate::ping::manager::PingConfig {
+                    ping_interval: Duration::from_secs(1),
+                }),
+            ))
+            .id();
+
+        app.update();
+        assert_eq!(
+            app.world().get::<PingManager>(entity).unwrap().pings_sent,
+            1
+        );
+        loopback_ping_packet(&mut app, entity);
+
+        // Receive the ping after 40 ms of application time, then hold its pong for 30 ms.
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .update_with_duration(Duration::from_millis(40));
+        app.world_mut().run_schedule(PreUpdate);
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .update_with_duration(Duration::from_millis(30));
+        app.world_mut().run_schedule(PostUpdate);
+        loopback_ping_packet(&mut app, entity);
+
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .update_with_duration(Duration::from_millis(60));
+        app.world_mut().run_schedule(PreUpdate);
+
+        let manager = app.world().get::<PingManager>(entity).unwrap();
+        assert_eq!(manager.pongs_recv, 1);
+        assert_eq!(manager.latency_samples_recv(), 1);
+        // RTT excludes the 30 ms spent waiting to send the pong: 40 + 60 = 100 ms.
+        assert_eq!(manager.rtt(), Duration::from_millis(100));
+        assert_eq!(
+            app.world().get::<Link>(entity).unwrap().stats.rtt,
+            Duration::from_millis(100)
+        );
+    }
+
+    fn loopback_ping_packet(app: &mut App, entity: Entity) {
+        let mut link = app.world_mut().get_mut::<Link>(entity).unwrap();
+        assert_eq!(link.send.len(), 1);
+        let packet = link.send.pop().unwrap();
+        link.recv.push_raw(recv_payload_from_bytes(packet));
+    }
 
     #[test]
     fn traffic_packet_ack_bursts_do_not_update_ping_rtt() {
