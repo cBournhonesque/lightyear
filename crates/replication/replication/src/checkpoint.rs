@@ -100,10 +100,19 @@ impl ReplicationCheckpointMap {
     /// happens when several replication sends are produced for the same simulation step.
     pub fn record(&mut self, replicon_tick: RepliconTick, authoritative_tick: Tick) {
         if !self.entries.contains_key(&replicon_tick) {
-            self.order.push_back(replicon_tick);
+            // Replicon applies buffered mutate messages newest-first, so after a long stall the
+            // newest checkpoints are recorded first. Keep `order` sorted by tick and evict the
+            // oldest tick rather than the first-inserted one, or the newest mappings are lost.
+            let index = self
+                .order
+                .partition_point(|tick| tick.is_older(replicon_tick));
+            self.order.insert(index, replicon_tick);
             if self.order.len() > MAX_STORED_CHECKPOINTS
                 && let Some(oldest) = self.order.pop_front()
             {
+                if oldest == replicon_tick {
+                    return;
+                }
                 self.entries.remove(&oldest);
             }
         }
@@ -294,6 +303,26 @@ pub(crate) fn record_authoritative_tick_userdata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_map_prunes_oldest_tick_when_recorded_newest_first() {
+        let mut map = ReplicationCheckpointMap::default();
+
+        // Replicon applies a stalled client's mutate backlog newest-first.
+        for i in (0..(MAX_STORED_CHECKPOINTS as u32 + 1)).rev() {
+            map.record(RepliconTick::new(i), Tick::from(i));
+        }
+
+        assert_eq!(map.get(RepliconTick::new(0)), None);
+        assert_eq!(
+            map.get(RepliconTick::new(MAX_STORED_CHECKPOINTS as u32)),
+            Some(Tick::from(MAX_STORED_CHECKPOINTS as u32))
+        );
+        assert!(
+            map.record_last_confirmed_checkpoint(RepliconTick::new(MAX_STORED_CHECKPOINTS as u32))
+                .is_some()
+        );
+    }
 
     #[test]
     fn checkpoint_map_prunes_old_entries() {
