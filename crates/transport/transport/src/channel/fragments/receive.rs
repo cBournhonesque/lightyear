@@ -17,11 +17,18 @@ use core::time::Duration;
 use lightyear_core::tick::Tick;
 use tracing::trace;
 
+/// Default maximum size, in bytes, of a message reassembled from fragments.
+///
+/// The fragment count comes from the remote peer and the reassembly buffer is allocated up front,
+/// so it has to be bounded before allocating.
+pub(crate) const DEFAULT_MAX_FRAGMENTED_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug)]
 pub struct FragmentReceiver {
     fragment_messages: HashMap<MessageId, FragmentConstructor>,
     fragment_size: usize,
+    max_fragmented_message_size: usize,
 }
 
 impl FragmentReceiver {
@@ -29,7 +36,12 @@ impl FragmentReceiver {
         Self {
             fragment_messages: HashMap::default(),
             fragment_size: FRAGMENT_SIZE,
+            max_fragmented_message_size: DEFAULT_MAX_FRAGMENTED_MESSAGE_SIZE,
         }
+    }
+
+    pub(crate) fn set_max_fragmented_message_size(&mut self, max_size: usize) {
+        self.max_fragmented_message_size = max_size;
     }
 
     pub(crate) fn set_fragment_size(&mut self, fragment_size: usize) {
@@ -79,6 +91,15 @@ impl FragmentReceiver {
         let message_id = fragment.message_id;
         let fragment_compression = fragment.compression;
         if !self.fragment_messages.contains_key(&message_id) {
+            let size = num_fragments
+                .checked_mul(self.fragment_size)
+                .ok_or(ChannelReceiveError::FragmentedMessageSizeOverflow)?;
+            if size > self.max_fragmented_message_size {
+                return Err(ChannelReceiveError::FragmentedMessageTooLarge {
+                    size,
+                    limit: self.max_fragmented_message_size,
+                });
+            }
             let constructor =
                 FragmentConstructor::new(remote_sent_tick, num_fragments, self.fragment_size)?;
             self.fragment_messages.insert(message_id, constructor);
@@ -283,6 +304,7 @@ mod tests {
     use crate::packet::compression::CompressionScratch;
 
     use super::*;
+    use crate::packet::message::FragmentIndex;
 
     #[test]
     fn test_receiver() -> Result<()> {
@@ -350,6 +372,49 @@ mod tests {
             Some((Tick(2), message_bytes))
         );
         Ok(())
+    }
+
+    #[test]
+    fn huge_declared_fragment_count_is_rejected_before_allocating() {
+        let mut receiver = FragmentReceiver::new();
+        let fragment = FragmentData {
+            message_id: MessageId(0),
+            fragment_id: FragmentIndex(0),
+            // ~1 TiB of reassembly buffer if trusted
+            num_fragments: FragmentIndex(1 << 30),
+            compression: Some(FragmentCompression::None),
+            bytes: Bytes::from(vec![0u8; FRAGMENT_SIZE]),
+        };
+
+        let result =
+            receiver.receive_fragment(fragment, Tick(0), None, CompressionConfig::DISABLED);
+
+        assert!(matches!(
+            result,
+            Err(ChannelReceiveError::FragmentedMessageTooLarge { .. })
+        ));
+        assert!(receiver.fragment_messages.is_empty());
+    }
+
+    #[test]
+    fn fragmented_message_limit_is_configurable() {
+        let mut receiver = FragmentReceiver::new();
+        receiver.set_max_fragmented_message_size(FRAGMENT_SIZE);
+        let fragments = FragmentSender::new()
+            .build_fragments(MessageId(0), Bytes::from(vec![1u8; FRAGMENT_SIZE + 1]));
+
+        let result = receiver.receive_fragment(
+            fragments[0].clone(),
+            Tick(0),
+            None,
+            CompressionConfig::DISABLED,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ChannelReceiveError::FragmentedMessageTooLarge { size, limit })
+                if size == 2 * FRAGMENT_SIZE && limit == FRAGMENT_SIZE
+        ));
     }
 
     #[cfg(feature = "compression_lz4")]

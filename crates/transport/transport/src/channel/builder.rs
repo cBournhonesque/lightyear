@@ -1,4 +1,5 @@
 //! This module contains the [`Channel`] trait
+use crate::channel::fragments::DEFAULT_MAX_FRAGMENTED_MESSAGE_SIZE;
 use crate::channel::receive::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::send::ChannelSend;
@@ -214,6 +215,8 @@ pub struct Transport {
     pub(crate) compression_scratch: CompressionScratch,
     /// Stable fragment payload size derived from the link's minimum MTU.
     fragment_size: usize,
+    /// Maximum size of a message reassembled from received fragments.
+    max_fragmented_message_size: usize,
     pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
@@ -247,6 +250,7 @@ impl Transport {
             packet_manager: PacketBuilder::default(),
             compression_scratch: CompressionScratch::default(),
             fragment_size: FRAGMENT_SIZE,
+            max_fragmented_message_size: DEFAULT_MAX_FRAGMENTED_MESSAGE_SIZE,
             compression: CompressionConfig::default(),
             packet_message_acks: Default::default(),
             send_channel,
@@ -263,6 +267,26 @@ impl Transport {
 
     pub fn set_compression(&mut self, compression: CompressionConfig) {
         self.compression = compression;
+    }
+
+    /// Sets the maximum size, in bytes, of a message reassembled from received fragments.
+    ///
+    /// The size is checked against the fragment count declared by the remote peer (rounded up to
+    /// whole fragments) before the reassembly buffer is allocated. Larger messages are rejected.
+    /// Defaults to 16 MiB.
+    pub fn with_max_fragmented_message_size(mut self, max_size: usize) -> Self {
+        self.set_max_fragmented_message_size(max_size);
+        self
+    }
+
+    /// Sets the maximum size, in bytes, of a message reassembled from received fragments.
+    ///
+    /// See [`Self::with_max_fragmented_message_size`].
+    pub fn set_max_fragmented_message_size(&mut self, max_size: usize) {
+        self.max_fragmented_message_size = max_size;
+        self.receivers
+            .values_mut()
+            .for_each(|channel| channel.set_max_fragmented_message_size(max_size));
     }
 
     /// Sets the policy used to classify unacknowledged packets as lost.
@@ -436,6 +460,7 @@ impl Transport {
     ) {
         let mut channel = ChannelReceive::new(ChannelKind::of::<C>(), &settings);
         channel.set_fragment_size(self.fragment_size);
+        channel.set_max_fragmented_message_size(self.max_fragmented_message_size);
         self.receivers.insert(channel_id, channel);
     }
 
@@ -527,6 +552,7 @@ impl Transport {
             let settings = registry.settings_from_net_id(*channel_id).unwrap();
             let mut channel = ChannelReceive::new(r.channel_kind(), settings);
             channel.set_fragment_size(self.fragment_size);
+            channel.set_max_fragmented_message_size(self.max_fragmented_message_size);
             *r = channel;
         });
         self.senders.iter_mut().for_each(|(channel_kind, s)| {
