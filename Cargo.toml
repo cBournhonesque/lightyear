@@ -127,7 +127,7 @@ governor = "0.10"
 hashbrown = { version = "0.17", default-features = false }
 indexmap = { version = "2.9.0", default-features = false }
 nonzero_ext = "0.3.0"
-parking_lot = "0.12.3"
+parking_lot = "0.13.0"
 pastey = { version = "0.2.3", default-features = false }
 rand = "0.10"
 ringbuffer = "0.16"
