@@ -2,7 +2,13 @@ use crate::channel::registry::ChannelRegistry;
 use crate::packet::message::{MessageData, SendCandidate};
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
-use governor::{DefaultDirectRateLimiter, Quota};
+use core::time::Duration;
+use governor::{
+    Quota, RateLimiter,
+    clock::{Clock, FakeRelativeClock},
+    middleware::NoOpMiddleware,
+    state::{InMemoryState, direct::NotKeyed},
+};
 use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
@@ -66,7 +72,13 @@ pub struct PriorityManager {
 #[derive(Debug)]
 pub(crate) struct BandwidthLimiter {
     enabled: bool,
-    limiter: DefaultDirectRateLimiter,
+    limiter: RateLimiter<
+        NotKeyed,
+        InMemoryState,
+        FakeRelativeClock,
+        NoOpMiddleware<<FakeRelativeClock as Clock>::Instant>,
+    >,
+    updated: Duration,
 }
 
 impl Default for PriorityManager {
@@ -162,7 +174,19 @@ impl BandwidthLimiter {
     pub(crate) fn new(config: PriorityConfig) -> Self {
         Self {
             enabled: config.enabled,
-            limiter: DefaultDirectRateLimiter::direct(config.bandwidth_quota),
+            limiter: RateLimiter::direct_with_clock(
+                config.bandwidth_quota,
+                FakeRelativeClock::default(),
+            ),
+            updated: Duration::ZERO,
+        }
+    }
+
+    /// Refill quota from the same application clock as transport timers.
+    pub(crate) fn update(&mut self, elapsed: Duration) {
+        if let Some(delta) = elapsed.checked_sub(self.updated) {
+            self.limiter.clock().advance(delta);
+            self.updated = elapsed;
         }
     }
 
@@ -496,5 +520,32 @@ mod tests {
 
         assert!(limiter.consume_packet_quota(300));
         assert!(!limiter.consume_packet_quota(301));
+    }
+
+    #[test]
+    fn bandwidth_refill_obeys_elapsed_time_boundaries() {
+        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1000));
+        assert!(limiter.consume_packet_quota(1000));
+        assert!(!limiter.consume_packet_quota(1));
+
+        limiter.update(Duration::from_millis(249));
+        assert!(!limiter.consume_packet_quota(250));
+        limiter.update(Duration::from_millis(250));
+        assert!(limiter.consume_packet_quota(250));
+        assert!(!limiter.consume_packet_quota(1));
+
+        // Repeated or backward timestamps cannot refill quota or rewind its clock.
+        limiter.update(Duration::from_millis(250));
+        assert!(!limiter.consume_packet_quota(1));
+        limiter.update(Duration::from_millis(100));
+        assert!(!limiter.consume_packet_quota(1));
+
+        limiter.update(Duration::from_secs(1));
+        assert!(limiter.consume_packet_quota(750));
+        assert!(!limiter.consume_packet_quota(1));
+        limiter.update(Duration::from_secs(10));
+        assert!(!limiter.consume_packet_quota(1001));
+        assert!(limiter.consume_packet_quota(1000));
+        assert!(!limiter.consume_packet_quota(1));
     }
 }
