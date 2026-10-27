@@ -444,7 +444,8 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .get::<CompFull>(predicted_b)
             .unwrap()
             .0,
-        203.0,
+        // 200 is the state at the end of `later_confirmed_tick`, then 2 more ticks run (#1775)
+        202.0,
         "Later confirmed value on another entity should be preserved and replayed across the remaining rollback ticks and the current frame tick"
     );
 }
@@ -500,7 +501,8 @@ fn test_batched_confirmed_values_survive_older_rollback() {
             .get::<CompFull>(predicted)
             .unwrap()
             .0,
-        203.0,
+        // 200 is the state at the end of `later_confirmed_tick`, then 2 more ticks run (#1775)
+        202.0,
         "rollback replay should still snap to the later confirmed sample"
     );
 }
@@ -1488,7 +1490,8 @@ fn test_completed_mutate_tick_rollback_preserves_later_confirmed_values() {
             .get::<CompFull>(predicted_b)
             .unwrap()
             .0,
-        203.0,
+        // 200 is the state at the end of `later_confirmed_tick`, then 2 more ticks run (#1775)
+        202.0,
         "Later confirmed value on another entity should be preserved across rollback"
     );
     assert_eq!(

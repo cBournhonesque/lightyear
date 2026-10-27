@@ -479,8 +479,11 @@ pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
     });
 }
 
-/// During rollback re-simulation, check if we have a confirmed value for this tick.
+/// During rollback re-simulation, check if we have a confirmed value for the start of this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
+///
+/// This runs in `FixedPreUpdate`, before tick `T` is simulated, while the confirmed value stored
+/// at `T` is the state *after* `T` ran. So the start of `T` is the confirmed value at `T - 1`.
 ///
 /// [`PredictionSystems::SnapToConfirmed`](crate::plugin::PredictionSystems::SnapToConfirmed) gates
 /// this system with [`is_in_rollback`](lightyear_core::timeline::is_in_rollback), so the global
@@ -496,7 +499,7 @@ pub(crate) fn snap_to_confirmed_during_rollback(
     let Some(timeline) = timeline else {
         return;
     };
-    let tick = timeline.tick();
+    let tick = timeline.tick() - 1;
     prediction_world.update_archetypes(&prediction_registry, &component_registry);
 
     let world = prediction_world.world;
@@ -561,7 +564,7 @@ pub(crate) unsafe fn snap_to_confirmed_component<C: SyncComponent>(
             .deref::<C>()
         });
 
-        // Check if there's a confirmed value at exactly this tick
+        // Check if there's a confirmed value at exactly this tick (the end of the previous tick)
         if let Some(confirmed_state) = history.get_state_at(tick) {
             match confirmed_state {
                 HistoryState::Updated(confirmed_value) => {
@@ -969,8 +972,9 @@ mod tests {
             registry.set_snap_to_confirmed::<TestValue>();
         }
 
+        // Replaying tick TICK + 1: its starting state is the confirmed state at the end of TICK.
         let mut timeline = LocalTimeline::default();
-        timeline.apply_delta(TICK.0 as i32);
+        timeline.apply_delta(TICK.0 as i32 + 1);
         app.insert_resource(timeline);
 
         let present_history = |value| {
@@ -1004,6 +1008,15 @@ mod tests {
         let disabled = app
             .world_mut()
             .spawn((Predicted, Disabled, TestValue(6.0), present_history(7.0)))
+            .id();
+
+        // A confirmed value for the tick being replayed is the state *after* that tick ran,
+        // so it must not be written before the tick's FixedUpdate (#1775).
+        let mut current_tick_history = ConfirmedHistory::default();
+        current_tick_history.insert_present(TICK + 1, TestValue(9.0));
+        let current_tick = app
+            .world_mut()
+            .spawn((Predicted, TestValue(8.0), current_tick_history))
             .id();
 
         app.world_mut().clear_trackers();
@@ -1056,6 +1069,11 @@ mod tests {
             app.world().get::<TestValue>(disabled),
             Some(&TestValue(6.0)),
             "default-disabled entities must stay outside the cached query universe"
+        );
+        assert_eq!(
+            app.world().get::<TestValue>(current_tick),
+            Some(&TestValue(8.0)),
+            "the confirmed value at the replayed tick is its end state, not its start state"
         );
     }
 }
