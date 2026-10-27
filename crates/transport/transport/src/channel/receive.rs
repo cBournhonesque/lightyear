@@ -28,6 +28,8 @@ pub enum ChannelReceiveError {
     FragmentCountMismatch { expected: usize, actual: usize },
     #[error("fragmented message size overflows the local address space")]
     FragmentedMessageSizeOverflow,
+    #[error("fragmented message size {size} exceeds configured limit {limit}")]
+    FragmentedMessageTooLarge { size: usize, limit: usize },
     #[error(
         "fragment compression changed while reassembling message: expected {expected}, got {actual}"
     )]
@@ -138,6 +140,10 @@ impl ChannelReceive {
 
     pub(crate) fn set_fragment_size(&mut self, fragment_size: usize) {
         self.fragments.set_fragment_size(fragment_size);
+    }
+
+    pub(crate) fn set_max_fragmented_message_size(&mut self, max_size: usize) {
+        self.fragments.set_max_fragmented_message_size(max_size);
     }
 
     pub(crate) fn update(&mut self, now: Duration) {
