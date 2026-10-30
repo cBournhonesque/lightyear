@@ -27,6 +27,7 @@ mod disconnection_log_tests {
     use alloc::sync::Arc;
     use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
     use core::sync::atomic::{AtomicUsize, Ordering};
+    use lightyear_connection::client::{Disconnect, Disconnected};
     use lightyear_connection::server::Stop;
     use lightyear_link::{UnlinkReason, Unlinked};
     use tracing::{Event, Level, Subscriber};
@@ -109,6 +110,39 @@ mod disconnection_log_tests {
                     .get_entity(server_client)
                     .is_err(),
                 "server-side client entity should be removed after server-requested disconnection"
+            );
+            assert_no_lightyear_errors(capture);
+        });
+    }
+
+    /// The server disconnects a single client by triggering `Disconnect` on its `ClientOf`
+    /// entity. The server must remove that entity without emitting Lightyear errors (see
+    /// https://github.com/cBournhonesque/lightyear/issues/697), and the client must receive the
+    /// disconnect well before the netcode timeout.
+    #[test]
+    fn server_disconnecting_one_client_does_not_emit_error_logs() {
+        with_lightyear_error_capture(|capture| {
+            let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+            use_single_threaded_schedules(&mut stepper);
+            let server_client = stepper.client_of_entities[0];
+
+            capture.clear();
+            stepper.server_app.world_mut().trigger(Disconnect {
+                entity: server_client,
+            });
+            stepper.frame_step_server_first(20);
+
+            assert!(
+                stepper
+                    .server_app
+                    .world()
+                    .get_entity(server_client)
+                    .is_err(),
+                "server-side client entity should be removed after the server disconnects it"
+            );
+            assert!(
+                stepper.client(0).contains::<Disconnected>(),
+                "client should receive the server's disconnect before the netcode timeout"
             );
             assert_no_lightyear_errors(capture);
         });
