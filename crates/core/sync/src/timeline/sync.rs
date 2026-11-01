@@ -9,13 +9,15 @@ use bevy_utils::prelude::DebugName;
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected, Disconnected};
 use lightyear_connection::host::HostClient;
-use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
-use lightyear_connection::p2p::P2P;
+use lightyear_connection::network_topology::{
+    NetworkTopology, NetworkTopologySystems, NetworkingMetadata,
+};
+use lightyear_connection::p2p::{P2P, P2PSessionPhase};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickInstant;
 use lightyear_core::timeline::{LocalTimelineShift, NetworkTimeline};
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 /// Triggered when a running P2P timeline is too far ahead to correct with bounded pacing.
 ///
@@ -377,12 +379,12 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
         prediction_window_wait: Res<PredictionWindowWait>,
         local_timeline: Res<LocalTimeline>,
         sync: Res<LocalTimelineSync>,
-        p2p_links: Query<&P2P>,
         mut virtual_time: ResMut<Time<Virtual>>,
     ) {
         let is_synced = sync.is_synced();
-        let p2p_timeline =
-            metadata.mode.is_p2p() || p2p_links.iter().any(|state| *state == P2P::Candidate);
+        // Any P2P session at all, including one that is still being formed or joined: the
+        // prediction window must be able to stop the fixed clock even before it starts playing.
+        let p2p_timeline = metadata.mode.p2p_roster().is_some();
         if is_synced
             && prediction_window_wait.is_waiting()
             && (metadata.mode.is_client() || p2p_timeline)
@@ -474,31 +476,57 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
         }
     }
 
-    /// Synchronize against a candidate barrier cohort or an active joined cohort.
+    /// Synchronize against a candidate barrier cohort or an active started cohort.
+    ///
+    /// `adopt_cohort_tick` selects the alignment rule used for the **first** sample, when this
+    /// application is not synchronized yet:
+    ///
+    /// - `false` — this application is forming its own cohort through the start barrier, or it is
+    ///   already a started peer of one. The objective is the furthest-behind peer's estimate when
+    ///   this application leads, or its own clock otherwise, so the peers that run ahead come back
+    ///   to the slowest starter and every participant converges on one shared start.
+    /// - `true` — this application is a **join candidate**: it is adopting the clock of a cohort
+    ///   that is already running. The objective is the furthest-**ahead** peer's estimate, so the
+    ///   latecomer moves forward onto the cohort instead of staying at its own tick.
+    ///
+    /// A join candidate must move forward. Under the `false` rule a peer that trails every one of
+    /// its peers is left where it is and is marked synchronized anyway, which would strand it at
+    /// tick zero while the rest of the session plays on.
     fn sync_p2p_peers(
         synchronization_peers: impl Iterator<Item = Entity>,
         local_now: TickInstant,
         is_synced: bool,
+        adopt_cohort_tick: bool,
         sync: &mut LocalTimelineSync,
         config: &InputTimelineConfig,
         remotes: &Query<
             (&Remote, &PingManager),
             (With<Client>, With<Connected>, Without<HostClient>),
         >,
+        uninitialized: &mut alloc::vec::Vec<Entity>,
         commands: &mut Commands,
     ) {
         let mut found_any = false;
         let mut all_initialized = true;
         let mut sampled_any = false;
+        // Which Links are holding synchronization up. A join candidate is synchronized against the
+        // peers it was admitted to, and it cannot tell from the outside which of them is silent, so
+        // the peers with no estimate are named here.
+        uninitialized.clear();
+        // The furthest-behind peer, i.e. the one this app leads the most.
         let mut limiting = None;
+        // The furthest-ahead peer, i.e. the one this app trails the most.
+        let mut leading = None;
         for link_entity in synchronization_peers {
             found_any = true;
             let Ok((remote, _ping_manager)) = remotes.get(link_entity) else {
                 all_initialized = false;
+                uninitialized.push(link_entity);
                 continue;
             };
             if !remote.is_initialized() {
                 all_initialized = false;
+                uninitialized.push(link_entity);
                 continue;
             }
             sampled_any |= remote.received_packet();
@@ -507,17 +535,37 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
             if limiting.is_none_or(|(_, worst, _)| lead > worst) {
                 limiting = Some((link_entity, lead, remote_estimate));
             }
+            if leading.is_none_or(|(_, best, _)| lead < best) {
+                leading = Some((link_entity, lead, remote_estimate));
+            }
         }
         all_initialized &= found_any;
 
         if !is_synced {
             if !all_initialized || !sampled_any {
+                debug!(
+                    ?uninitialized,
+                    all_initialized,
+                    sampled_any,
+                    "P2P timeline synchronization is waiting for these Links"
+                );
                 return;
             }
             let Some((limiting_link, worst_lead, remote_estimate)) = limiting else {
                 return;
             };
-            let objective = if worst_lead > 0.0 {
+            let objective = if adopt_cohort_tick {
+                // Adopting a session that is already running: aim at the furthest-ahead peer so
+                // this application lands at, or just ahead of, the running cohort. Overshooting a
+                // little is safe, because the inputs of the peer that is ahead are simply buffered;
+                // landing behind would make this application the laggard that everyone else waits
+                // for. The measured lead is noisy, and the bounded speed controller in the
+                // synchronized path below corrects any overshoot on later frames.
+                let Some((_, _, leading_estimate)) = leading else {
+                    return;
+                };
+                leading_estimate
+            } else if worst_lead > 0.0 {
                 remote_estimate
             } else {
                 local_now
@@ -533,6 +581,7 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
                 sample_point = "PostUpdate",
                 ?limiting_link,
                 worst_lead,
+                adopt_cohort_tick,
                 ?objective,
                 tick_delta,
                 "initial P2P timeline aligned before input capture became ready"
@@ -546,7 +595,14 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
         let Some((limiting_link, worst_lead, _)) = limiting else {
             return;
         };
-        let adjustment = sync.speed_adjustment(config, worst_lead.max(0.0));
+        // A join candidate may fall behind while rebuilding/replaying its world. It must catch
+        // back up by pacing, not relabel already received inputs with another timeline snap.
+        let offset = if adopt_cohort_tick {
+            worst_lead.clamp(-config.sync.max_error_margin, config.sync.max_error_margin)
+        } else {
+            worst_lead.max(0.0)
+        };
+        let adjustment = sync.speed_adjustment(config, offset);
         if matches!(adjustment, SyncAdjustment::Resync) {
             sync.set_relative_speed(1.0);
             commands.trigger(P2PTimelineDiverged {
@@ -589,17 +645,22 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
             (&Remote, &PingManager),
             (With<Client>, With<Connected>, Without<HostClient>),
         >,
-        p2p_links: Query<(Entity, Ref<P2P>)>,
+        mut uninitialized: Local<alloc::vec::Vec<Entity>>,
         mut commands: Commands,
     ) {
         let mut is_synced = sync.is_synced();
         let local_now = local_timeline.instant(&fixed_time);
-        let has_candidates = p2p_links.iter().any(|(_, state)| *state == P2P::Candidate);
-        let candidates_changed = p2p_links
-            .iter()
-            .any(|(_, state)| *state == P2P::Candidate && state.is_changed());
+        // The session membership and phase are cached in the topology, so a session change arrives
+        // as a metadata change and needs no separate link query here.
+        let roster = metadata.mode.p2p_roster();
+        // A started peer synchronizes against the Links it plays with, even while it admits peers
+        // that are not playing yet. Any other P2P lifecycle — a start candidate, or a peer that has
+        // been admitted as a join candidate — must not pace a running session, so those follow
+        // their candidate Links only.
+        let is_started_peer =
+            roster.is_some_and(|roster| matches!(roster.phase, P2PSessionPhase::Active));
 
-        if metadata.is_changed() || candidates_changed {
+        if metadata.is_changed() {
             let preserve_running_p2p =
                 is_synced && matches!(&metadata.mode, NetworkTopology::P2P(_));
             sync.reset();
@@ -607,19 +668,38 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
             is_synced = preserve_running_p2p;
         }
 
-        if has_candidates {
-            Self::sync_p2p_peers(
-                p2p_links
-                    .iter()
-                    .filter_map(|(entity, state)| (*state == P2P::Candidate).then_some(entity)),
-                local_now,
-                is_synced,
-                &mut sync,
-                &config,
-                &remotes,
-                &mut commands,
-            );
-            return;
+        if let Some(roster) = roster {
+            // A session with no declared Link has no remote clock to sample from, so its timeline
+            // is usable immediately, exactly like a host-client application with no remote. Without
+            // this a solo peer could neither capture its own input nor complete its own start
+            // barrier: readiness gates both, and nothing else would ever set it.
+            if roster.started.is_empty() && !roster.has_declared_candidates() {
+                if !is_synced {
+                    sync.set_synced(true);
+                }
+                return;
+            }
+
+            // A peer that is forming a cohort or being admitted follows its candidate Links;
+            // readiness waits for every declared peer, connected or not.
+            if !is_started_peer && roster.has_declared_candidates() {
+                Self::sync_p2p_peers(
+                    roster
+                        .connected_candidates
+                        .iter()
+                        .chain(roster.unconnected_candidates.iter())
+                        .copied(),
+                    local_now,
+                    is_synced,
+                    matches!(roster.phase, P2PSessionPhase::Joining),
+                    &mut sync,
+                    &config,
+                    &remotes,
+                    &mut uninitialized,
+                    &mut commands,
+                );
+                return;
+            }
         }
 
         match &metadata.mode {
@@ -638,13 +718,22 @@ impl<Remote: SyncTargetTimeline> LocalTimelineSyncPlugin<Remote> {
                     &mut commands,
                 );
             }
-            NetworkTopology::P2P(synchronization_peers) => Self::sync_p2p_peers(
-                synchronization_peers.iter().copied(),
+            // A started peer whose declared Links are all unjoined has nobody to sample either. It
+            // must stay usable, or it could never capture the input that starts the next session.
+            NetworkTopology::P2P(roster) if roster.started.is_empty() => {
+                if !is_synced {
+                    sync.set_synced(true);
+                }
+            }
+            NetworkTopology::P2P(roster) => Self::sync_p2p_peers(
+                roster.started.iter().copied(),
                 local_now,
                 is_synced,
+                false,
                 &mut sync,
                 &config,
                 &remotes,
+                &mut uninitialized,
                 &mut commands,
             ),
             NetworkTopology::HostClient { .. } if !is_synced => {
@@ -681,12 +770,23 @@ impl<Remote: SyncTargetTimeline> Plugin for LocalTimelineSyncPlugin<Remote> {
         app.init_resource::<LocalTimelineSync>();
         app.init_resource::<InputTimelineConfig>();
         app.init_resource::<PredictionWindowWait>();
+        // The synchronization policy branches on how this application participates in a P2P
+        // session. `ConnectionPlugin` owns the resource; initialize it here as well so that a
+        // standalone synchronization app is usable on its own.
+        app.init_resource::<P2PSessionPhase>();
 
         app.add_observer(Self::handle_connect);
         app.add_observer(Self::handle_host_client);
         app.add_observer(Self::handle_disconnect);
         app.add_observer(Self::handle_local_timeline_shift);
-        app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSystems::Sync));
+        // The session roster is cached by the topology projection, so it must be refreshed before
+        // synchronization reads it.
+        app.add_systems(
+            PostUpdate,
+            Self::sync_timelines
+                .in_set(SyncSystems::Sync)
+                .after(NetworkTopologySystems::Update),
+        );
         app.add_systems(Last, Self::update_virtual_time);
     }
 }
@@ -696,6 +796,20 @@ mod tests {
     use super::*;
     use crate::timeline::input::{InputTimelineConfig, LocalTimelineSync};
     use alloc::vec::Vec;
+    use lightyear_connection::p2p::{P2P, P2PRoster, P2PSessionPhase};
+
+    /// Install the cached P2P roster that the topology projection would publish for these Links.
+    ///
+    /// Synchronization reads the membership from the cached topology, so a test that wants a
+    /// particular session state publishes it there.
+    fn set_p2p_roster(
+        app: &mut App,
+        phase: P2PSessionPhase,
+        links: impl IntoIterator<Item = (Entity, P2P, bool)>,
+    ) {
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::P2P(P2PRoster::from_links(phase, links));
+    }
     use bevy_app::{FixedUpdate, PostUpdate};
     use bevy_time::TimeUpdateStrategy;
     use lightyear_core::id::{PeerId, RemoteId};
@@ -748,7 +862,7 @@ mod tests {
             .resource_mut::<LocalTimelineSync>()
             .set_synced(true);
         app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P([Entity::PLACEHOLDER].into_iter().collect());
+            NetworkTopology::P2P(P2PRoster::from_started_links([Entity::PLACEHOLDER]));
         {
             let mut wait = app.world_mut().resource_mut::<PredictionWindowWait>();
             wait.update(Tick(0), None, 1);
@@ -777,6 +891,87 @@ mod tests {
     }
 
     #[test]
+    fn a_peer_adopting_a_running_cohort_moves_forward_onto_its_peers() {
+        let mut app = App::new();
+        app.add_plugins((
+            CorePlugins {
+                tick_duration: Duration::from_millis(10),
+            },
+            LocalTimelineSyncPlugin::<TestRemote>::default(),
+        ));
+        app.init_resource::<NetworkingMetadata>();
+        app.update();
+
+        app.insert_resource(InputTimelineConfig::default().with_sync_config(SyncConfig {
+            handshake_pings: 0,
+            ..Default::default()
+        }));
+        // A join candidate: this application is adopting a session that is already running, so its
+        // candidate Links are the only peers it may follow.
+
+        // The local peer is far behind the peers it is dialling.
+        let local_now = TickInstant::from(app.world().resource::<LocalTimeline>().tick());
+        assert_eq!(local_now.tick(), Tick(0));
+        let mut links = Vec::new();
+        for (peer, ahead) in [(1, 500), (2, 504)] {
+            let estimate = local_now + TickDelta::from_i32(ahead);
+            links.push((
+                app.world_mut()
+                    .spawn((
+                        P2P::Candidate,
+                        RemoteId(PeerId::Local(peer)),
+                        Connected,
+                        TestRemote {
+                            now: estimate,
+                            estimate,
+                            initialized: true,
+                            received_packet: true,
+                        },
+                        PingManager::default(),
+                    ))
+                    .id(),
+                P2P::Candidate,
+                true,
+            ));
+        }
+        set_p2p_roster(&mut app, P2PSessionPhase::Joining, links);
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        // Aiming at the furthest-ahead peer is what lets a latecomer reach the running cohort. The
+        // barrier rule would have targeted the furthest-behind peer at +500, and a peer that is
+        // behind all of its peers would not move at all.
+        assert_eq!(
+            app.world().resource::<LocalTimeline>().tick(),
+            Tick(504),
+            "an adopting peer must move forward onto the cohort, not stay at its own tick"
+        );
+        assert!(app.world().resource::<LocalTimelineSync>().is_synced());
+
+        // Replay can block this candidate for much longer than the normal resync margin.
+        for mut remote in app
+            .world_mut()
+            .query::<&mut TestRemote>()
+            .iter_mut(app.world_mut())
+        {
+            remote.estimate = remote.estimate + TickDelta::from_i32(1000);
+            remote.received_packet = true;
+        }
+        for _ in 0..4 {
+            app.world_mut().run_schedule(PostUpdate);
+        }
+        assert!(
+            app.world().resource::<LocalTimelineSync>().relative_speed() > 1.0,
+            "an admitted candidate must close the gap left by its replay pause"
+        );
+        assert_eq!(
+            app.world().resource::<LocalTimeline>().tick(),
+            Tick(504),
+            "catching up must not relabel the inputs already received"
+        );
+    }
+
+    #[test]
     fn prediction_window_wait_also_pauses_during_p2p_candidate_sync() {
         let mut app = App::new();
         app.add_plugins((
@@ -786,7 +981,14 @@ mod tests {
             LocalTimelineSyncPlugin::<TestRemote>::default(),
         ));
         app.init_resource::<NetworkingMetadata>();
-        app.world_mut().spawn(P2P::Candidate);
+        let candidate = app.world_mut().spawn(P2P::Candidate).id();
+        // A start candidate: the prediction window must be able to stop the fixed clock even
+        // before the session starts playing.
+        set_p2p_roster(
+            &mut app,
+            P2PSessionPhase::Starting,
+            [(candidate, P2P::Candidate, true)],
+        );
         app.world_mut()
             .resource_mut::<LocalTimelineSync>()
             .set_synced(true);
@@ -876,7 +1078,8 @@ mod tests {
         let mut links = Vec::new();
         // The middle Link has the slowest observed execution phase. Declare the final Link without
         // connecting it first to verify that the first connection cannot start input capture while
-        // a member of the fixed roster is still joining.
+        // a member of the declared roster has still to connect.
+        let mut roster_links = Vec::new();
         for (peer, lead) in [(1, 1), (2, 4), (3, 0)] {
             let estimate = local_now - TickDelta::from_i32(lead);
             let entity = app
@@ -896,8 +1099,14 @@ mod tests {
             if peer != 3 {
                 app.world_mut().entity_mut(entity).insert(Connected);
             }
+            roster_links.push((entity, P2P::Candidate, peer != 3));
             links.push(entity);
         }
+        // The session layer publishes a forming cohort, which is what selects the barrier's
+        // alignment rule: a trailing peer stays put and the leading peers come back to it. Without
+        // this the application would be treated as a latecomer adopting a running cohort, which
+        // aims at the furthest-ahead peer instead.
+        set_p2p_roster(&mut app, P2PSessionPhase::Starting, roster_links);
         app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(
@@ -925,6 +1134,8 @@ mod tests {
             .get_mut::<TestRemote>()
             .unwrap()
             .initialized = true;
+        // The declared roster is unchanged by connecting the final Link, so the forming cohort's
+        // membership stays as published above.
         app.world_mut().run_schedule(PostUpdate);
 
         let initial_objective = local_now - TickDelta::from_i32(4);
@@ -947,8 +1158,14 @@ mod tests {
         for &link in &links {
             app.world_mut().entity_mut(link).insert(P2P::Joined);
         }
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P(links.iter().copied().collect());
+        set_p2p_roster(
+            &mut app,
+            P2PSessionPhase::Active,
+            links
+                .iter()
+                .map(|link| (*link, P2P::Joined, true))
+                .collect::<Vec<_>>(),
+        );
 
         // After readiness, only the middle Link exceeds the controller deadband. A correct
         // maximum aggregate must therefore slow the app, independent of the controller's exact

@@ -1,19 +1,24 @@
 use alloc::vec::Vec;
-use bevy_app::{App, FixedFirst, Plugin, PreUpdate};
+use bevy_app::{App, FixedFirst, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
 use core::hash::Hasher;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_connection::network_target::NetworkTarget;
+use lightyear_connection::network_topology::{
+    NetworkTopology, NetworkTopologySystems, NetworkingMetadata,
+};
 use lightyear_connection::p2p::P2P;
+use lightyear_connection::p2p::{P2PRoster, P2PSessionPhase};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_core::prelude::{LocalTimeline, Tick, TimelineSystems};
 use lightyear_link::prelude::{Unlink, UnlinkReason};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
 use lightyear_serde::ToBytes;
+use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::SyncedLocalTimeline;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
@@ -21,6 +26,7 @@ use smallvec::SmallVec;
 
 const DEFAULT_START_DELAY_TICKS: u16 = 120;
 const DEFAULT_START_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_MIN_PLAYERS: u8 = 2;
 
 /// Public lifecycle of the deterministic P2P session.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -63,11 +69,26 @@ impl RemotePeerStart {
 
 /// Application-global bookkeeping and state for one deterministic P2P session.
 ///
-/// [`P2PSessionPlugin`] initializes this resource. Applications normally only declare [`P2P`]
-/// Links and trigger [`P2PStart`]; they do not need to create or update the resource themselves.
-#[derive(Resource, Debug)]
+/// [`P2PSessionPlugin`] initializes this resource, so an application that wants non-default policy
+/// inserts a configured value *before* adding the plugin:
+///
+/// ```ignore
+/// app.insert_resource(
+///     P2PSession::default()
+///         .with_min_players(1)
+///         .with_start_delay_ticks(60),
+/// )
+/// .add_plugins(P2PSessionPlugin);
+/// ```
+///
+/// Applications declare [`P2P`] Links and trigger [`P2PStart`] with the desired cohort.
+/// The session freezes the selected peer identities for the barrier; it does not retain the
+/// event's selection policy.
+#[derive(Resource, Debug, Clone)]
 pub struct P2PSession {
-    /// Lead added to the local tick when this peer becomes ready.
+    /// Smallest number of players, including the local peer, that may start a session.
+    min_players: u8,
+    /// Lead added to the local tick when this peer proposes a shared future tick.
     start_delay_ticks: u16,
     /// Maximum wall-clock time allowed for one start attempt.
     start_timeout: Duration,
@@ -100,6 +121,7 @@ pub struct P2PSession {
 impl Default for P2PSession {
     fn default() -> Self {
         Self {
+            min_players: DEFAULT_MIN_PLAYERS,
             start_delay_ticks: DEFAULT_START_DELAY_TICKS,
             start_timeout: DEFAULT_START_TIMEOUT,
             start_started_at: None,
@@ -116,6 +138,24 @@ impl Default for P2PSession {
 }
 
 impl P2PSession {
+    /// Set the smallest number of players, including the local peer, that may start a session.
+    ///
+    /// The default of `2` refuses a start with no remote candidate, which is a mistake for an
+    /// application that declared P2P Links but has not connected them: it would replace a
+    /// conventional topology with a solo P2P one. A value of `1` opts into starting alone.
+    pub fn with_min_players(mut self, min_players: u8) -> Self {
+        self.min_players = min_players.max(1);
+        self
+    }
+
+    /// The smallest roster, including the local peer, that may start a session.
+    ///
+    /// An application that waits for more peers than this is choosing to; the session itself only
+    /// requires this many, because a peer that is not here yet can join a running session.
+    pub fn min_players(&self) -> u8 {
+        self.min_players
+    }
+
     /// Set the lead time used when proposing a common future start tick.
     pub fn with_start_delay_ticks(mut self, ticks: u16) -> Self {
         self.start_delay_ticks = ticks;
@@ -151,7 +191,7 @@ impl P2PSession {
     fn begin(
         &mut self,
         remote_peer_ids: SmallVec<[PeerId; 4]>,
-        roster_hash: u64,
+        roster_hash: Option<u64>,
         started_at: Duration,
     ) {
         self.generation = self.generation.wrapping_add(1);
@@ -159,7 +199,7 @@ impl P2PSession {
         self.local_ready_tick = None;
         self.local_ready_sent = false;
         self.local_acknowledgement_sent = false;
-        self.roster_hash = Some(roster_hash);
+        self.roster_hash = roster_hash;
         self.remote_peers = remote_peer_ids
             .into_iter()
             .map(RemotePeerStart::new)
@@ -189,9 +229,9 @@ impl P2PSession {
         self.remote_peers.iter().any(|peer| peer.peer_id == peer_id)
     }
 
-    fn timed_out_at(&self, now: Duration) -> bool {
+    fn timed_out_at(&self, now: Duration, start_timeout: Duration) -> bool {
         self.start_started_at
-            .is_some_and(|started_at| now.saturating_sub(started_at) >= self.start_timeout)
+            .is_some_and(|started_at| now.saturating_sub(started_at) >= start_timeout)
     }
 
     /// Record one message received from a remote Link in the current start attempt.
@@ -264,7 +304,12 @@ impl P2PSession {
     /// is the common start tick. Every peer must then acknowledge that same value. The transition
     /// to Started happens separately in `FixedFirst`, immediately before the [`LocalTimeline`]
     /// advances to the agreed tick.
-    fn advance(&mut self, tick: Tick, timeline_synced: bool) -> AdvanceResult {
+    fn advance(
+        &mut self,
+        tick: Tick,
+        timeline_synced: bool,
+        start_delay_ticks: u16,
+    ) -> AdvanceResult {
         if !matches!(self.state, P2PSessionState::Starting { .. }) {
             return AdvanceResult::Waiting;
         }
@@ -274,7 +319,7 @@ impl P2PSession {
 
         // Do not advertise readiness until the shared input timeline is usable.
         if timeline_synced && self.local_ready_tick.is_none() {
-            self.local_ready_tick = Some(tick + i32::from(self.start_delay_ticks));
+            self.local_ready_tick = Some(tick + i32::from(start_delay_ticks));
         }
         let Some(local_ready_tick) = self.local_ready_tick else {
             return AdvanceResult::Waiting;
@@ -377,16 +422,25 @@ impl P2PSession {
     }
 }
 
-/// Trigger this locally on every peer after declaring the P2P Links that should form the initial
-/// session cohort.
+/// Start a deterministic session with the selected declared P2P Links.
 ///
-/// The Links don't have to be connected yet when `P2PStart` is called. Lightyear waits for every
-/// captured Link and the synchronized input timeline, negotiates a common future tick, then
-/// triggers [`P2PStarted`]. Every Link must expose the same stable [`LocalId`] and a distinct
-/// [`RemoteId`]. If the barrier does not complete within the configured timeout (5 seconds by
-/// default), its candidates return to [`P2P::Inactive`].
-#[derive(Event, Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct P2PStart;
+/// The Links need not be connected yet. Every peer must select the same cohort; Lightyear freezes
+/// its identities, waits for the Links and synchronized input timeline, then agrees a future tick.
+/// Selection is explicit rather than inferred from connectivity, which can differ between peers.
+/// The default selects all declared inactive Links. Excluded Links remain available for later joins.
+#[derive(Event, Debug, Clone, PartialEq)]
+pub struct P2PStart {
+    /// Remote peers to include in this start attempt.
+    pub cohort: NetworkTarget,
+}
+
+impl Default for P2PStart {
+    fn default() -> Self {
+        Self {
+            cohort: NetworkTarget::All,
+        }
+    }
+}
 
 /// Trigger this locally to leave the deterministic session.
 ///
@@ -438,12 +492,8 @@ enum P2PSessionMessage {
     },
 }
 
-/// Private unordered-reliable channel shared by the P2P control protocols.
-///
-/// Carries both the session's start handshake and the lobby's announces: both are small, both
-/// tolerate reordering, and both want reliable delivery, so one channel serves them without
-/// coupling P2P traffic to the replication channels.
-pub(crate) struct P2PChannel;
+/// Reliable control channel shared by P2P startup, admission, and activation.
+pub struct P2PChannel;
 
 /// Registers the private P2P control protocol.
 ///
@@ -455,10 +505,6 @@ pub struct P2PProtocolPlugin;
 
 impl Plugin for P2PProtocolPlugin {
     fn build(&self, app: &mut App) {
-        // No generic reliable control channel exists at this layer. Replication's reliable
-        // channels are optional and must not become a dependency of the P2P session. The two
-        // handshake messages tolerate reordering, so a private unordered-reliable channel is
-        // sufficient and avoids coupling their delivery queue to gameplay traffic.
         app.add_channel::<P2PChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             ..Default::default()
@@ -477,6 +523,10 @@ impl Plugin for P2PSessionPlugin {
         if !app.is_plugin_added::<P2PProtocolPlugin>() {
             app.add_plugins(P2PProtocolPlugin);
         }
+        // `init_resource` keeps an application-provided session, so policy can be set through
+        // `P2PSession`'s builders before this plugin is added. `P2PSessionPhase` belongs to
+        // `ConnectionPlugin`; reach for it directly in case this plugin is used standalone.
+        app.init_resource::<P2PSessionPhase>();
         app.init_resource::<P2PSession>();
 
         app.add_observer(start_session);
@@ -490,6 +540,32 @@ impl Plugin for P2PSessionPlugin {
             FixedFirst,
             start_session_before_agreed_tick.before(TimelineSystems::IncrementLocal),
         );
+        // Publish the session lifecycle to the layers below this crate. PostUpdate runs after both
+        // PreUpdate and the fixed schedules, so every transition this frame is visible before the
+        // topology projection, timeline synchronization, and input routing read it.
+        app.add_systems(
+            PostUpdate,
+            sync_session_phase
+                .before(NetworkTopologySystems::Update)
+                .before(SyncSystems::Sync),
+        );
+    }
+}
+
+/// Publish the session lifecycle where the layers below this crate can read it.
+///
+/// [`NetworkTopology`], timeline synchronization, and input routing cannot read [`P2PSession`],
+/// which lives above them, so they branch on [`P2PSessionPhase`] instead.
+fn sync_session_phase(session: Res<P2PSession>, mut phase: ResMut<P2PSessionPhase>) {
+    let next = match session.state() {
+        P2PSessionState::Stopped => P2PSessionPhase::Stopped,
+        P2PSessionState::Starting { .. } => P2PSessionPhase::Starting,
+        P2PSessionState::Started { .. } => P2PSessionPhase::Active,
+    };
+    // Only write on a real transition: a `DerefMut` would mark the resource as changed and make
+    // the topology projection re-run on every frame.
+    if *phase != next {
+        *phase = next;
     }
 }
 
@@ -519,16 +595,9 @@ fn roster_hash(local_id: PeerId, remote_ids: &[PeerId]) -> u64 {
     hasher.finish()
 }
 
-/// Signal the start of a new deterministic P2P session.
-///
-/// Every currently declared P2P Link is used as a candidate for the new session.
-/// Remove the P2P component from Links that should not participate before triggering this event.
-///
-/// Starting the session involves coordinating between each peer so that they can agree
-/// on a common start tick. After the session is started, the P2P Links will be in the Joined state
-/// and can be used for deterministic gameplay.
+/// Freeze the selected remote identities and begin their start barrier.
 fn start_session(
-    _trigger: On<P2PStart>,
+    trigger: On<P2PStart>,
     mut commands: Commands,
     mut session: ResMut<P2PSession>,
     real_time: Res<Time<Real>>,
@@ -548,60 +617,77 @@ fn start_session(
         return;
     }
 
+    // The cohort is the Links the application selected, not every Link it declared.
+    //
+    // A Link left out keeps `P2P::Inactive`, which is the state the join protocol admits from, so a
+    // peer the application expects later neither holds the barrier up nor loses the Link it will
+    // need.
+    let cohort = &trigger.cohort;
     let candidates: SmallVec<[(Entity, Option<PeerId>, Option<PeerId>, bool); 4]> = links
         .iter()
         .filter_map(|(entity, state, local_id, remote_id, has_receiver)| {
-            (*state == P2P::Inactive).then_some((
+            let remote = remote_id.map(|id| id.0)?;
+            (*state == P2P::Inactive && cohort.matches(&remote)).then_some((
                 entity,
                 local_id.map(|id| id.0),
-                remote_id.map(|id| id.0),
+                Some(remote),
                 has_receiver,
             ))
         })
         .collect();
     let peer_count = candidates.len().saturating_add(1);
-    if candidates.is_empty() {
-        tracing::warn!("P2PStart requires at least one inactive remote P2P Link");
-        return;
-    }
-    let Some(local_id) = candidates[0].1 else {
-        tracing::warn!("P2PStart requires every candidate Link to have a LocalId");
-        return;
-    };
-    if candidates
-        .iter()
-        .any(|(_, candidate_local_id, _, _)| *candidate_local_id != Some(local_id))
-    {
+    if candidates.is_empty() && session.min_players > 1 {
         tracing::warn!(
-            ?local_id,
-            "P2PStart requires every candidate Link to have the same LocalId"
+            min_players = session.min_players,
+            "P2PStart requires at least one declared remote P2P Link in the start cohort"
         );
         return;
     }
 
+    // A solo session has no Link to read the local identity from, and no roster to agree on: the
+    // roster hash stays unset and no session message is ever queued, because `collect_outbound`
+    // requires a hash. `min_players == 1` is what makes an empty cohort legal.
+    let local_id = candidates.first().and_then(|(_, local_id, _, _)| *local_id);
     let mut remote_ids = SmallVec::<[PeerId; 4]>::new();
-    for (_, _, remote_id, _) in &candidates {
-        let Some(remote_id) = *remote_id else {
-            tracing::warn!("P2PStart requires every candidate Link to have a RemoteId");
+    if !candidates.is_empty() {
+        let Some(local_id) = local_id else {
+            tracing::warn!("P2PStart requires every candidate Link to have a LocalId");
             return;
         };
-        if remote_id == local_id {
+        if candidates
+            .iter()
+            .any(|(_, candidate_local_id, _, _)| *candidate_local_id != Some(local_id))
+        {
             tracing::warn!(
                 ?local_id,
-                "a P2P Link cannot identify the local peer as remote"
+                "P2PStart requires every candidate Link to have the same LocalId"
             );
             return;
         }
-        if remote_ids.contains(&remote_id) {
-            tracing::warn!(
-                ?remote_id,
-                "P2PStart found duplicate remote peer identities"
-            );
-            return;
+
+        for (_, _, remote_id, _) in &candidates {
+            let Some(remote_id) = *remote_id else {
+                tracing::warn!("P2PStart requires every candidate Link to have a RemoteId");
+                return;
+            };
+            if remote_id == local_id {
+                tracing::warn!(
+                    ?local_id,
+                    "a P2P Link cannot identify the local peer as remote"
+                );
+                return;
+            }
+            if remote_ids.contains(&remote_id) {
+                tracing::warn!(
+                    ?remote_id,
+                    "P2PStart found duplicate remote peer identities"
+                );
+                return;
+            }
+            remote_ids.push(remote_id);
         }
-        remote_ids.push(remote_id);
     }
-    let roster_hash = roster_hash(local_id, &remote_ids);
+    let roster_hash = local_id.map(|local_id| roster_hash(local_id, &remote_ids));
 
     for (entity, _, _, has_receiver) in &candidates {
         commands.entity(*entity).insert(P2P::Candidate);
@@ -706,7 +792,13 @@ fn start_session_before_agreed_tick(
     joined.sort_unstable_by_key(|entity| entity.index_u32());
     session.state = P2PSessionState::Started { start_tick };
     transition_candidates(&mut commands, &mut links, P2P::Joined);
-    metadata.mode = NetworkTopology::P2P(joined);
+    // Publish the started session to this frame's fixed ticks without waiting for the PostUpdate
+    // projection. Every link the barrier admitted is now a started peer.
+    metadata.mode = NetworkTopology::P2P(P2PRoster {
+        phase: P2PSessionPhase::Active,
+        started: joined,
+        ..Default::default()
+    });
     tracing::info!(?start_tick, "P2P session started");
     session.clear_barrier_progress();
     commands.trigger(P2PStarted { start_tick });
@@ -776,7 +868,7 @@ fn drive_session(
         return;
     }
     if !all_connected {
-        if session.timed_out_at(real_time.elapsed()) {
+        if session.timed_out_at(real_time.elapsed(), session.start_timeout) {
             let timeout = session.start_timeout;
             session.stop();
             transition_candidates(&mut commands, &mut links, P2P::Inactive);
@@ -784,7 +876,12 @@ fn drive_session(
         }
         return;
     }
-    match session.advance(timeline.tick(), synced_timeline.is_some()) {
+    let start_delay_ticks = session.start_delay_ticks;
+    match session.advance(
+        timeline.tick(),
+        synced_timeline.is_some(),
+        start_delay_ticks,
+    ) {
         AdvanceResult::Failed => {
             tracing::warn!("P2P session start negotiation failed");
             session.stop();
@@ -799,7 +896,9 @@ fn drive_session(
 
     // Once every remote has acknowledged the common tick, the negotiation is complete. Do not
     // let its wall-clock timeout expire while FixedFirst waits for that future tick boundary.
-    if session.agreed_start_tick().is_none() && session.timed_out_at(real_time.elapsed()) {
+    if session.agreed_start_tick().is_none()
+        && session.timed_out_at(real_time.elapsed(), session.start_timeout)
+    {
         let timeout = session.start_timeout;
         session.stop();
         transition_candidates(&mut commands, &mut links, P2P::Inactive);
@@ -828,13 +927,14 @@ fn drive_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_connection::network_target::TargetList;
 
     fn peer(index: u64) -> PeerId {
         PeerId::Entity(index)
     }
 
     #[test]
-    fn start_freezes_inactive_links_and_ignores_links_declared_later() {
+    fn start_freezes_the_cohort_and_ignores_links_declared_later() {
         let mut app = App::new();
         app.init_resource::<P2PSession>();
         app.init_resource::<Time<Real>>();
@@ -842,14 +942,24 @@ mod tests {
         let local_id = peer(0);
         let second = app
             .world_mut()
-            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(2))))
+            .spawn((
+                P2P::Inactive,
+                LocalId(local_id),
+                RemoteId(peer(2)),
+                Connected,
+            ))
             .id();
         let first = app
             .world_mut()
-            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(1))))
+            .spawn((
+                P2P::Inactive,
+                LocalId(local_id),
+                RemoteId(peer(1)),
+                Connected,
+            ))
             .id();
 
-        app.world_mut().trigger(P2PStart);
+        app.world_mut().trigger(P2PStart::default());
         app.world_mut().flush();
         assert!(
             app.world()
@@ -876,7 +986,7 @@ mod tests {
             session.generation
         };
 
-        app.world_mut().trigger(P2PStart);
+        app.world_mut().trigger(P2PStart::default());
         app.world_mut().flush();
         assert_eq!(
             app.world().resource::<P2PSession>().generation,
@@ -896,18 +1006,109 @@ mod tests {
         );
     }
 
+    /// A Link outside the start cohort is left alone, and stays available for a join.
+    ///
+    /// The cohort has to be declared rather than inferred: the barrier agrees by comparing a roster
+    /// hash, so two peers that judged a peer's presence at different moments would derive different
+    /// cohorts and fail it. For plain UDP there is nothing to infer from anyway — a socket reports
+    /// itself connected the moment it binds, whether or not anything is at the other end.
+    #[test]
+    fn a_link_outside_the_start_cohort_is_left_for_the_join_protocol() {
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>();
+        app.add_observer(start_session);
+        let local_id = peer(0);
+        // Only peer 1 is expected to start; peer 2 is expected to arrive later and join.
+        app.init_resource::<P2PSession>();
+        let starting = app
+            .world_mut()
+            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(1))))
+            .id();
+        let later = app
+            .world_mut()
+            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(2))))
+            .id();
+
+        app.world_mut().trigger(P2PStart {
+            cohort: NetworkTarget::Only(TargetList::from_slice(&[peer(1)])),
+        });
+        app.world_mut().flush();
+
+        assert_eq!(
+            app.world().entity(starting).get::<P2P>(),
+            Some(&P2P::Candidate)
+        );
+        assert_eq!(
+            app.world().entity(later).get::<P2P>(),
+            Some(&P2P::Inactive),
+            "a peer outside the cohort must be left for the join protocol, not counted in it"
+        );
+        let session = app.world().resource::<P2PSession>();
+        assert_eq!(session.remote_peers.len(), 1);
+        assert!(session.contains_remote(peer(1)));
+        assert!(!session.contains_remote(peer(2)));
+    }
+
+    #[test]
+    fn the_session_phase_tracks_the_lifecycle() {
+        #[derive(Resource, Default)]
+        struct Phases(Vec<P2PSessionPhase>);
+
+        let mut app = App::new();
+        app.init_resource::<P2PSession>();
+        app.init_resource::<P2PSessionPhase>();
+        app.init_resource::<Phases>();
+        app.add_systems(PostUpdate, sync_session_phase);
+        app.add_systems(
+            PostUpdate,
+            (|phase: Res<P2PSessionPhase>, mut phases: ResMut<Phases>| {
+                phases.0.push(*phase);
+            })
+            .after(sync_session_phase),
+        );
+
+        app.update();
+        assert_eq!(
+            app.world().resource::<Phases>().0.as_slice(),
+            &[P2PSessionPhase::Stopped]
+        );
+
+        // A forming cohort is a start candidate, not a started peer.
+        app.world_mut().resource_mut::<P2PSession>().state =
+            P2PSessionState::Starting { start_tick: None };
+        app.update();
+        let phase = *app.world().resource::<Phases>().0.last().unwrap();
+        assert_eq!(phase, P2PSessionPhase::Starting);
+
+        // Crossing the barrier makes it a started peer.
+        app.world_mut().resource_mut::<P2PSession>().state = P2PSessionState::Started {
+            start_tick: Tick(10),
+        };
+        app.update();
+        let phase = *app.world().resource::<Phases>().0.last().unwrap();
+        assert_eq!(phase, P2PSessionPhase::Active);
+
+        // Stopping clears it.
+        app.world_mut().resource_mut::<P2PSession>().state = P2PSessionState::Stopped;
+        app.update();
+        assert_eq!(
+            *app.world().resource::<Phases>().0.last().unwrap(),
+            P2PSessionPhase::Stopped
+        );
+    }
+
     #[test]
     fn ready_peers_agree_on_the_latest_tick() {
-        let mut session = P2PSession::default().with_start_delay_ticks(10);
+        let mut session = P2PSession::default();
         let local = peer(0);
         let first = peer(1);
         let second = peer(2);
         let remote_peers = SmallVec::from_slice(&[first, second]);
         let roster_hash = roster_hash(local, &remote_peers);
-        session.begin(remote_peers, roster_hash, Duration::ZERO);
+        session.begin(remote_peers, Some(roster_hash), Duration::ZERO);
 
-        assert_eq!(session.advance(Tick(5), false), AdvanceResult::Waiting);
-        assert_eq!(session.advance(Tick(6), true), AdvanceResult::Waiting);
+        assert_eq!(session.advance(Tick(5), false, 10), AdvanceResult::Waiting);
+        assert_eq!(session.advance(Tick(6), true, 10), AdvanceResult::Waiting);
         session.receive(
             first,
             P2PSessionMessage::Ready {
@@ -924,7 +1125,7 @@ mod tests {
                 earliest_start_tick: Tick(17),
             },
         );
-        assert_eq!(session.advance(Tick(7), true), AdvanceResult::Waiting);
+        assert_eq!(session.advance(Tick(7), true, 10), AdvanceResult::Waiting);
         assert_eq!(session.start_tick(), Some(Tick(18)));
         let mut outbound = SmallVec::new();
         session.collect_outbound(&mut outbound);
@@ -940,7 +1141,7 @@ mod tests {
             );
         }
         assert_eq!(
-            session.advance(Tick(17), true),
+            session.advance(Tick(17), true, 10),
             AdvanceResult::Agreed(Tick(18))
         );
         assert_eq!(
@@ -958,7 +1159,7 @@ mod tests {
         let remote_peers = SmallVec::from_slice(&[peer(1)]);
         let expected_roster_hash = roster_hash(local, &remote_peers);
         let mut session = P2PSession::default();
-        session.begin(remote_peers, expected_roster_hash, Duration::ZERO);
+        session.begin(remote_peers, Some(expected_roster_hash), Duration::ZERO);
 
         session.receive(
             peer(1),
@@ -969,7 +1170,7 @@ mod tests {
             },
         );
 
-        assert_eq!(session.advance(Tick(0), true), AdvanceResult::Failed);
+        assert_eq!(session.advance(Tick(0), true, 0), AdvanceResult::Failed);
     }
 
     #[test]
@@ -983,16 +1184,17 @@ mod tests {
     #[test]
     fn a_start_attempt_times_out() {
         let remote_peers = SmallVec::from_slice(&[peer(1)]);
+        let timeout = Duration::from_secs(2);
         assert_eq!(P2PSession::default().start_timeout, Duration::from_secs(5));
-        let mut session = P2PSession::default().with_start_timeout(Duration::from_secs(2));
+        let mut session = P2PSession::default();
         session.begin(
             remote_peers,
-            roster_hash(peer(0), &[peer(1)]),
+            Some(roster_hash(peer(0), &[peer(1)])),
             Duration::from_secs(5),
         );
 
-        assert!(!session.timed_out_at(Duration::from_secs(6)));
-        assert!(session.timed_out_at(Duration::from_secs(7)));
+        assert!(!session.timed_out_at(Duration::from_secs(6), timeout));
+        assert!(session.timed_out_at(Duration::from_secs(7), timeout));
     }
 
     #[derive(Resource, Default)]
@@ -1010,7 +1212,7 @@ mod tests {
         let mut session = P2PSession::default();
         session.begin(
             SmallVec::from_slice(&[peer(1)]),
-            roster_hash(peer(0), &[peer(1)]),
+            Some(roster_hash(peer(0), &[peer(1)])),
             Duration::ZERO,
         );
         app.insert_resource(session);
@@ -1044,7 +1246,7 @@ mod tests {
         let mut session = P2PSession::default();
         session.begin(
             SmallVec::from_slice(&[peer(1)]),
-            roster_hash(peer(0), &[peer(1)]),
+            Some(roster_hash(peer(0), &[peer(1)])),
             Duration::ZERO,
         );
         app.insert_resource(session);

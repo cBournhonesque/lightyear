@@ -176,6 +176,23 @@ pub enum Target<T> {
     Single(T),
 }
 
+impl<T: PartialEq> Target<T> {
+    /// Whether `value` is one of the targets this selection names.
+    ///
+    /// The inverse of [`resolve`](NetworkTargetResolver::resolve): that maps a target onto the
+    /// entities that satisfy it, this asks about one value that has already been found.
+    pub fn matches(&self, value: &T) -> bool {
+        match self {
+            Target::None => false,
+            Target::All => true,
+            Target::Single(target) => target == value,
+            Target::Only(targets) => targets.contains(value),
+            Target::AllExceptSingle(excluded) => excluded != value,
+            Target::AllExcept(excluded) => !excluded.contains(value),
+        }
+    }
+}
+
 impl ToBytes for Target<PeerId> {
     fn bytes_len(&self) -> usize {
         match self {
