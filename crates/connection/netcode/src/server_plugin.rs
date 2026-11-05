@@ -8,7 +8,9 @@ use bevy_ecs::{
 };
 use bevy_time::{Real, Time};
 use core::net::SocketAddr;
-use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
+use lightyear_connection::client::{
+    Connected, Disconnect, Disconnected, DisconnectedReason, Disconnecting,
+};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
@@ -425,6 +427,38 @@ impl NetcodeServerPlugin {
         }
     }
 
+    /// Disconnect a single client when `Disconnect` is triggered on its `ClientOf` entity,
+    /// using the same per-client steps as [`Self::stop`].
+    fn disconnect(
+        trigger: On<Disconnect>,
+        mut commands: Commands,
+        mut link_query: Query<
+            (&LinkOf, &mut Link, &RemoteId),
+            (
+                With<ClientOf>,
+                With<Connected>,
+                Without<HostClient>,
+                Without<SkipNetcode>,
+            ),
+        >,
+        mut server_query: Query<&mut NetcodeServer>,
+    ) -> Result {
+        let Ok((link_of, mut link, remote_peer_id)) = link_query.get_mut(trigger.entity) else {
+            return Ok(());
+        };
+        let PeerId::Netcode(client_id) = remote_peer_id.0 else {
+            return Ok(());
+        };
+        let Ok(mut netcode_server) = server_query.get_mut(link_of.endpoint) else {
+            return Ok(());
+        };
+        // this will make sure that `netcode.on_disconnect` is called, so the entity will get disconnected
+        // in the next frame from the `receive` system.
+        netcode_server.inner.disconnect(client_id, &mut link.send)?;
+        commands.entity(trigger.entity).insert(Disconnecting);
+        Ok(())
+    }
+
     fn stop(
         trigger: On<Stop>,
         mut commands: Commands,
@@ -500,6 +534,7 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
+        app.add_observer(Self::disconnect);
         app.add_observer(Self::reset_on_stopped);
     }
 }
