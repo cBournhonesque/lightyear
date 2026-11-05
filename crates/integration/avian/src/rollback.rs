@@ -13,7 +13,7 @@ use avian2d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 use avian2d::{
     collider_tree::{
         ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-        MovedProxies, MovedProxyList,
+        MovedProxies, MovedProxyList, ProxyId,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
@@ -33,7 +33,7 @@ use avian3d::dynamics::solver::xpbd::joints::{PrismaticJointSolverData, Revolute
 use avian3d::{
     collider_tree::{
         ColliderTree, ColliderTreeProxy, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-        MovedProxies, MovedProxyList,
+        MovedProxies, MovedProxyList, ProxyId,
     },
     collision::collider::{ColliderAabb, EnlargedAabb},
     data_structures::stable_vec::StableVec,
@@ -59,6 +59,8 @@ use lightyear_prediction::prelude::{
 };
 use lightyear_replication::prelude::AppComponentExt;
 use obvhs::bvh2::Bvh2;
+
+mod collider_lifecycle;
 
 /// The persistent portion of one Avian collider tree.
 ///
@@ -223,6 +225,7 @@ pub(super) fn register_rollback(app: &mut App) {
         (
             restore_collider_broad_phase,
             restore_contact_status_changes,
+            collider_lifecycle::reconcile_collider_lifecycle,
             reregister_invalid_proxies,
             restore_colliding_entities_from_contact_graph,
         )
