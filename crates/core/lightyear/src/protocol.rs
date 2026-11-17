@@ -3,6 +3,7 @@
 use bevy_app::{App, Plugin};
 use bevy_ecs::error::{BevyError, Result};
 use bevy_ecs::prelude::*;
+use bevy_replicon::prelude::ProtocolHash;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
@@ -20,7 +21,9 @@ use tracing::trace;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Copy, Event)]
 pub struct ProtocolCheck {
     messages: Option<u64>,
-    components: Option<u64>,
+    /// Components are registered through Replicon, whose hash covers its replication rules and
+    /// receive markers.
+    components: Option<ProtocolHash>,
     channels: Option<u64>,
 }
 
@@ -42,12 +45,12 @@ impl ProtocolCheckPlugin {
         trigger: On<Add<Connected>>,
         mut sender: Query<&mut EventSender<ProtocolCheck>, (With<ClientOf>, Without<HostClient>)>,
         messages: Option<ResMut<MessageRegistry>>,
-        components: Option<ResMut<ComponentRegistry>>,
+        components: Option<Res<ProtocolHash>>,
         channels: Option<ResMut<ChannelRegistry>>,
     ) {
         let check_message = ProtocolCheck {
             messages: messages.map(|mut m| m.finish()),
-            components: components.map(|mut c| c.finish()),
+            components: components.map(|c| *c),
             channels: channels.map(|mut c| c.finish()),
         };
         if let Ok(mut s) = sender.get_mut(trigger.entity) {
@@ -58,7 +61,7 @@ impl ProtocolCheckPlugin {
     fn receive_verify_protocol(
         trigger: On<RemoteEvent<ProtocolCheck>>,
         messages: Option<ResMut<MessageRegistry>>,
-        components: Option<ResMut<ComponentRegistry>>,
+        components: Option<Res<ProtocolHash>>,
         channels: Option<ResMut<ChannelRegistry>>,
     ) -> Result {
         let message = trigger.trigger;
@@ -66,7 +69,7 @@ impl ProtocolCheckPlugin {
         if message.messages != messages.map(|mut m| m.finish()) {
             return Err(BevyError::from(ProtocolCheckError::Message));
         }
-        if message.components != components.map(|mut c| c.finish()) {
+        if message.components != components.map(|c| *c) {
             return Err(BevyError::from(ProtocolCheckError::Component));
         }
         if message.channels != channels.map(|mut c| c.finish()) {

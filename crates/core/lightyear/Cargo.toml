@@ -108,6 +108,7 @@ p2p = [
 ]
 ## Enables replicating entities between two peers
 replication = [
+  "dep:bevy_replicon",
   "dep:lightyear_replication",
   "lightyear_deterministic_replication?/replication",
   "lightyear_tools?/replication",
@@ -234,6 +235,9 @@ lightyear_webtransport = { workspace = true, optional = true }
 lightyear_websocket = { workspace = true, optional = true }
 lightyear_steam = { workspace = true, optional = true }
 lightyear_tools = { workspace = true, optional = true }
+
+# replication
+bevy_replicon = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true
