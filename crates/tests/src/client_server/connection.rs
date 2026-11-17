@@ -193,3 +193,83 @@ mod disconnection_log_tests {
         });
     }
 }
+
+/// A client whose protocol differs from the server's must leave that server, and its
+/// [`Disconnected`] must name the part of the protocol that differs.
+mod protocol_mismatch_tests {
+    use crate::stepper::*;
+    use bevy::prelude::*;
+    use bevy::state::app::StatesPlugin;
+    use bevy_replicon::prelude::{AppRuleExt, ProtocolHash, RepliconPlugins};
+    use lightyear::prelude::*;
+    use lightyear_connection::client::{Disconnected, DisconnectedReason, ProtocolMismatch};
+    use lightyear_connection::direction::NetworkDirection;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+    struct ClientOnlyMessage;
+
+    #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
+    struct ClientOnlyComponent;
+
+    struct ClientOnlyChannel;
+
+    /// Connects a client whose protocol got `register` on top of the server's, and returns the
+    /// reason it is disconnected with, if it is.
+    fn connect_with(register: impl FnOnce(&mut App)) -> Option<String> {
+        let mut config = StepperConfig::single();
+        config.init = false;
+        let mut stepper = ClientServerStepper::from_config(config);
+        register(&mut stepper.client_apps[0]);
+        stepper.init();
+        stepper.frame_step(20);
+        stepper
+            .client(0)
+            .get::<Disconnected>()
+            .map(|disconnected| match &disconnected.reason {
+                DisconnectedReason::ProtocolMismatch(mismatch) => format!("{mismatch:?}"),
+                reason => format!("{reason}"),
+            })
+    }
+
+    #[test]
+    fn client_with_the_servers_protocol_stays_connected() {
+        assert_eq!(connect_with(|_| {}), None);
+    }
+
+    #[test]
+    fn client_with_another_message_protocol_disconnects() {
+        let reason = connect_with(|app| {
+            app.register_message::<ClientOnlyMessage>()
+                .add_direction(NetworkDirection::Bidirectional);
+        });
+        assert_eq!(reason, Some(format!("{:?}", ProtocolMismatch::Message)));
+    }
+
+    #[test]
+    fn client_with_another_component_protocol_disconnects() {
+        // The stepper has finished the client's app, which fixes its component protocol, so the
+        // client gets the hash of an app that replicates one component.
+        let mut other = App::new();
+        other.add_plugins((MinimalPlugins, StatesPlugin, RepliconPlugins));
+        other.replicate::<ClientOnlyComponent>();
+        other.finish();
+        let hash = *other.world().resource::<ProtocolHash>();
+        let reason = connect_with(|app| {
+            app.insert_resource(hash);
+        });
+        assert_eq!(reason, Some(format!("{:?}", ProtocolMismatch::Component)));
+    }
+
+    #[test]
+    fn client_with_another_channel_protocol_disconnects() {
+        let reason = connect_with(|app| {
+            app.add_channel::<ClientOnlyChannel>(ChannelSettings {
+                mode: ChannelMode::UnorderedUnreliable,
+                ..Default::default()
+            })
+            .add_direction(NetworkDirection::Bidirectional);
+        });
+        assert_eq!(reason, Some(format!("{:?}", ProtocolMismatch::Channel)));
+    }
+}
