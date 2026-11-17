@@ -1,12 +1,15 @@
 //! Module to verify that the protocols of the client and server match
 
 use bevy_app::{App, Plugin};
-use bevy_ecs::error::{BevyError, Result};
 use bevy_ecs::prelude::*;
-use lightyear_connection::client::Connected;
+use bevy_replicon::prelude::ProtocolHash;
+use lightyear_connection::client::{
+    Client, Connected, Disconnect, Disconnected, DisconnectedReason, ProtocolMismatch,
+};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
+use lightyear_core::id::RemoteId;
 use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
 use lightyear_messages::registry::MessageRegistry;
 use lightyear_replication::metadata::MetadataChannel;
@@ -15,26 +18,18 @@ use lightyear_transport::prelude::{
     AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, ReliableSettings,
 };
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::{error, trace};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Copy, Event)]
 pub struct ProtocolCheck {
     messages: Option<u64>,
-    components: Option<u64>,
+    /// Components are registered through Replicon, whose hash covers its replication rules and
+    /// receive markers.
+    components: Option<ProtocolHash>,
     channels: Option<u64>,
 }
 
 pub struct ProtocolCheckPlugin;
-
-#[derive(thiserror::Error, Debug)]
-pub enum ProtocolCheckError {
-    #[error("the message protocol doesn't match")]
-    Message,
-    #[error("the component protocol doesn't match")]
-    Component,
-    #[error("the channel protocol doesn't match")]
-    Channel,
-}
 
 impl ProtocolCheckPlugin {
     /// On the server, send a message with the protocol checksum when a client connects
@@ -42,12 +37,12 @@ impl ProtocolCheckPlugin {
         trigger: On<Add<Connected>>,
         mut sender: Query<&mut EventSender<ProtocolCheck>, (With<ClientOf>, Without<HostClient>)>,
         messages: Option<ResMut<MessageRegistry>>,
-        components: Option<ResMut<ComponentRegistry>>,
+        components: Option<Res<ProtocolHash>>,
         channels: Option<ResMut<ChannelRegistry>>,
     ) {
         let check_message = ProtocolCheck {
             messages: messages.map(|mut m| m.finish()),
-            components: components.map(|mut c| c.finish()),
+            components: components.map(|c| *c),
             channels: channels.map(|mut c| c.finish()),
         };
         if let Ok(mut s) = sender.get_mut(trigger.entity) {
@@ -55,24 +50,39 @@ impl ProtocolCheckPlugin {
         }
     }
 
+    /// On the client, disconnect from a server whose protocol differs from ours.
     fn receive_verify_protocol(
         trigger: On<RemoteEvent<ProtocolCheck>>,
         messages: Option<ResMut<MessageRegistry>>,
-        components: Option<ResMut<ComponentRegistry>>,
+        components: Option<Res<ProtocolHash>>,
         channels: Option<ResMut<ChannelRegistry>>,
-    ) -> Result {
+        clients: Query<(Entity, &RemoteId), With<Client>>,
+        mut commands: Commands,
+    ) {
         let message = trigger.trigger;
         trace!("Received protocol check from server: {message:?}");
-        if message.messages != messages.map(|mut m| m.finish()) {
-            return Err(BevyError::from(ProtocolCheckError::Message));
+        let mismatch = if message.messages != messages.map(|mut m| m.finish()) {
+            ProtocolMismatch::Message
+        } else if message.components != components.map(|c| *c) {
+            ProtocolMismatch::Component
+        } else if message.channels != channels.map(|mut c| c.finish()) {
+            ProtocolMismatch::Channel
+        } else {
+            return;
+        };
+        for (client, remote) in &clients {
+            if remote.0 != trigger.from {
+                continue;
+            }
+            error!(?client, "Disconnecting from the server: {mismatch}");
+            commands.trigger(Disconnect { entity: client });
+            // The transport's disconnect inserts its own reason, which this one replaces:
+            // `Add<Disconnected>` observers see the transport's reason, `Insert` ones see this.
+            // The order is fixed, as the transport skips an entity already `Disconnected`.
+            commands.entity(client).insert(Disconnected {
+                reason: DisconnectedReason::ProtocolMismatch(mismatch),
+            });
         }
-        if message.components != components.map(|mut c| c.finish()) {
-            return Err(BevyError::from(ProtocolCheckError::Component));
-        }
-        if message.channels != channels.map(|mut c| c.finish()) {
-            return Err(BevyError::from(ProtocolCheckError::Channel));
-        }
-        Ok(())
     }
 }
 
