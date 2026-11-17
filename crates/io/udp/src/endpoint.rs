@@ -34,7 +34,9 @@ use lightyear_core::buffer_pool::BufferPool;
 use lightyear_core::time::Instant;
 use lightyear_link::endpoint::EndpointLinkPlugin;
 use lightyear_link::prelude::{Endpoint, LinkOf};
-use lightyear_link::{Link, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{
+    Link, LinkStart, LinkSystems, Linked, Linking, Unlink, UnlinkReason, Unlinked,
+};
 
 /// UDP endpoint component.
 ///
@@ -105,7 +107,8 @@ impl UdpEndpoint {
 ///
 /// The plugin installs:
 /// - [`EndpointLinkPlugin`] for child unlink/despawn and receive-conditioner inheritance;
-/// - a [`LinkStart`] observer that binds the endpoint socket and marks the endpoint [`Linked`];
+/// - a [`LinkStart`] observer that binds the endpoint socket and marks the endpoint [`Linked`], or
+///   [`Unlinked`] with [`UnlinkReason::TransportError`] when the bind fails;
 /// - an [`Unlink`] observer that closes the socket;
 /// - a receive system that creates or finds a child link for each remote address and queues the
 ///   datagram in that child [`Link::recv`];
@@ -123,14 +126,30 @@ impl UdpEndpointPlugin {
     ) -> Result {
         if let Ok((mut udp_endpoint, local_addr)) = query.get_mut(trigger.entity) {
             let mut local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?;
-            let socket = std::net::UdpSocket::bind(local_addr.0)?;
-            socket.set_nonblocking(true)?;
-            local_addr.0 = socket.local_addr()?;
-            info!("UDP endpoint bound to {}", local_addr.0);
-            udp_endpoint.socket = Some(socket);
-            commands.entity(trigger.entity).insert(Linked);
+            match Self::bind(local_addr.0) {
+                Ok(socket) => {
+                    local_addr.0 = socket.local_addr()?;
+                    info!("UDP endpoint bound to {}", local_addr.0);
+                    udp_endpoint.socket = Some(socket);
+                    commands.entity(trigger.entity).insert(Linked);
+                }
+                // A taken address is a runtime condition, not a bug: the endpoint stays unlinked
+                // with the reason, for the application to read.
+                Err(e) => {
+                    error!("UDP endpoint could not bind to {}: {}", local_addr.0, e);
+                    commands.entity(trigger.entity).insert(Unlinked {
+                        reason: UnlinkReason::TransportError(e.to_string()),
+                    });
+                }
+            }
         }
         Ok(())
+    }
+
+    fn bind(addr: SocketAddr) -> std::io::Result<std::net::UdpSocket> {
+        let socket = std::net::UdpSocket::bind(addr)?;
+        socket.set_nonblocking(true)?;
+        Ok(socket)
     }
 
     fn unlink(trigger: On<Unlink>, mut query: Query<&mut UdpEndpoint, Without<Unlinked>>) {
@@ -324,8 +343,8 @@ impl Plugin for UdpEndpointPlugin {
 mod tests {
     use super::*;
     use core::net::Ipv4Addr;
+    use lightyear_link::RecvLinkConditioner;
     use lightyear_link::prelude::LinkConditionerConfig;
-    use lightyear_link::{RecvLinkConditioner, UnlinkReason};
 
     #[derive(Resource, Default)]
     struct UnlinkedChildren(Vec<Entity>);
@@ -420,5 +439,31 @@ mod tests {
         assert_eq!(bound_addr.ip(), requested_addr.ip());
         assert_ne!(bound_addr.port(), 0);
         assert!(app.world().get::<Linked>(endpoint).is_some());
+    }
+
+    #[test]
+    fn link_on_a_taken_address_leaves_the_endpoint_unlinked_with_the_bind_error() {
+        let taken = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let mut app = App::new();
+        app.add_plugins(UdpEndpointPlugin);
+        let endpoint = app
+            .world_mut()
+            .spawn((
+                LocalAddr(taken.local_addr().unwrap()),
+                UdpEndpoint::default(),
+            ))
+            .id();
+
+        // Under Bevy's default error handler, an error returned by the observer would panic here.
+        app.world_mut().trigger(LinkStart { entity: endpoint });
+        app.world_mut().flush();
+
+        assert!(app.world().get::<Linked>(endpoint).is_none());
+        let unlinked = app.world().get::<Unlinked>(endpoint).unwrap();
+        assert!(
+            matches!(unlinked.reason, UnlinkReason::TransportError(_)),
+            "{:?}",
+            unlinked.reason
+        );
     }
 }
