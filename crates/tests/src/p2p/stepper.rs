@@ -251,7 +251,7 @@ impl Stepper {
             })
         });
         for slot in slots {
-            self.peers[*slot as usize].app.world_mut().trigger(P2PStart);
+            self.peers[*slot as usize].app.world_mut().trigger(P2PStart::default());
         }
     }
 
