@@ -253,5 +253,5 @@ fn start_when_lobby_ready(
         "P2P lobby complete; starting session negotiation"
     );
     commands.remove_resource::<AwaitingP2PStart>();
-    commands.trigger(P2PStart);
+    commands.trigger(P2PStart::default());
 }

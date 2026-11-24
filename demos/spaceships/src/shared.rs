@@ -322,7 +322,10 @@ pub fn shared_player_firing(
                         !is_local,
                     )
                 }
-                NetworkTopology::P2P(_) if is_deterministic => {
+                // Gameplay: only a started peer fires.
+                NetworkTopology::P2P(roster)
+                    if is_deterministic && matches!(roster.phase, P2PSessionPhase::Active) =>
+                {
                     client_should_fire(input_buffer, &weapon, current_tick, true, !is_local)
                 }
                 _ => false,

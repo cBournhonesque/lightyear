@@ -65,12 +65,12 @@ pub mod prelude {
     pub use crate::network_topology::{
         NetworkTopology, NetworkTopologyError, NetworkTopologySystems, NetworkingMetadata,
     };
+    pub use crate::p2p::{P2P, P2PRoster, P2PSessionPhase};
     // we also export these types at the top level for easier access
     pub use crate::client::{
         Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
         Disconnected, DisconnectedReason,
     };
-    pub use crate::p2p::P2P;
 
     #[cfg(feature = "client")]
     pub mod client {
@@ -94,6 +94,10 @@ pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
+        // Every application needs the P2P session lifecycle, even one that never starts a
+        // deterministic session: the topology, timeline synchronization, and input layers all
+        // branch on it. The session crate updates it when it has a session.
+        app.init_resource::<p2p::P2PSessionPhase>();
         app.add_plugins(network_topology::NetworkTopologyPlugin);
     }
 }
