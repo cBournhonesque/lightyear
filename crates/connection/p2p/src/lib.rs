@@ -21,9 +21,11 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod join;
 mod lobby;
 mod session;
 
+pub use join::*;
 pub use lobby::*;
 pub use session::*;
 
@@ -37,7 +39,8 @@ pub mod prelude {
         DialPeer, LobbyAnnounce, LobbyId, LobbyIdPolicy, LobbyPlugin, PeerState,
     };
     pub use crate::{
-        P2PChannel, P2PSession, P2PSessionPlugin, P2PSessionState, P2PStart, P2PStarted, P2PStop,
-        P2PStopped,
+        JoinRejectReason, P2PChannel, P2PJoin, P2PJoinAdmission, P2PJoinCancel, P2PJoinCatchUp,
+        P2PJoinCatchUpComplete, P2PJoinRejected, P2PJoinRequested, P2PJoined, P2PSession,
+        P2PSessionPlugin, P2PSessionState, P2PStart, P2PStarted, P2PStop, P2PStopped,
     };
 }

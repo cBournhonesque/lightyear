@@ -12,6 +12,8 @@ use lightyear_connection::network_topology::{
 };
 use lightyear_connection::p2p::P2P;
 use lightyear_connection::p2p::{P2PRoster, P2PSessionPhase};
+
+use crate::join::{JoinDriveParams, P2PJoinState, PendingActivation};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_core::prelude::{LocalTimeline, Tick, TimelineSystems};
 use lightyear_link::prelude::{Unlink, UnlinkReason};
@@ -91,11 +93,11 @@ pub struct P2PSession {
     /// Lead added to the local tick when this peer proposes a shared future tick.
     start_delay_ticks: u16,
     /// Maximum wall-clock time allowed for one start attempt.
-    start_timeout: Duration,
+    pub(crate) start_timeout: Duration,
     /// Wall-clock timestamp at which the current start attempt began.
     start_started_at: Option<Duration>,
     /// Current deterministic-session lifecycle.
-    state: P2PSessionState,
+    pub(crate) state: P2PSessionState,
     /// Local start-attempt number carried by messages to reject packets from older attempts.
     ///
     /// Peers must begin start attempts in the same sequence for their generations to match.
@@ -116,6 +118,10 @@ pub struct P2PSession {
     remote_peers: SmallVec<[RemotePeerStart; 4]>,
     /// Set when a peer advertises a different roster for the same attempt.
     roster_mismatch: bool,
+    /// Admission, catch-up negotiation, and scheduled membership activation.
+    pub(crate) join: P2PJoinState,
+    /// This application's own peer id, learned from a declared Link.
+    pub(crate) local_peer_id: Option<PeerId>,
 }
 
 impl Default for P2PSession {
@@ -133,6 +139,8 @@ impl Default for P2PSession {
             roster_hash: None,
             remote_peers: SmallVec::new(),
             roster_mismatch: false,
+            join: P2PJoinState::default(),
+            local_peer_id: None,
         }
     }
 }
@@ -187,8 +195,83 @@ impl P2PSession {
         matches!(self.state, P2PSessionState::Started { .. })
     }
 
+    /// Membership generation of this session.
+    ///
+    /// It starts at zero for the initial cohort and increments on every committed membership
+    /// change, so it identifies *which* session membership a control message belongs to.
+    pub(crate) fn epoch(&self) -> u32 {
+        self.join.epoch
+    }
+
+    /// The peers playing in this session, excluding the local peer.
+    ///
+    /// The committed roster: peers that have crossed the barrier and are not in the middle of being
+    /// admitted.
+    pub fn started_peers(&self) -> SmallVec<[PeerId; 4]> {
+        if let Some(attempt) = &self.join.attempt {
+            return attempt.hosts.clone();
+        }
+        self.remote_peers.iter().map(|peer| peer.peer_id).collect()
+    }
+
+    /// This application's own peer id, once a declared Link has revealed it.
+    pub(crate) fn local_peer_id(&self) -> Option<PeerId> {
+        self.local_peer_id
+    }
+
+    /// Whether a join is in flight on this application.
+    pub(crate) fn is_joining(&self) -> bool {
+        self.join.attempt.is_some()
+    }
+
+    /// Lead added to the local tick when this peer proposes a shared future tick.
+    pub(crate) fn start_delay_ticks(&self) -> u16 {
+        self.start_delay_ticks
+    }
+
+    /// Wall-clock budget for one negotiation attempt.
+    pub(crate) fn start_timeout(&self) -> Duration {
+        self.start_timeout
+    }
+
+    /// Record a peer id revealed by a declared Link.
+    pub(crate) fn observe_local_id(&mut self, local_id: PeerId) {
+        self.local_peer_id.get_or_insert(local_id);
+    }
+
+    /// Apply the agreed membership and gameplay change at one activation boundary.
+    pub(crate) fn apply_activation(&mut self, activation: PendingActivation) {
+        self.join.epoch = activation.epoch.wrapping_add(1);
+        if activation.local_is_joiner {
+            let attempt = self
+                .join
+                .attempt
+                .take()
+                .expect("joining peer has an attempt");
+            self.remote_peers = attempt
+                .hosts
+                .into_iter()
+                .map(RemotePeerStart::new)
+                .collect();
+            self.state = P2PSessionState::Started {
+                start_tick: attempt
+                    .session_start_tick
+                    .expect("admitted session has a start tick"),
+            };
+        } else if !self
+            .remote_peers
+            .iter()
+            .any(|peer| peer.peer_id == activation.peer_id)
+        {
+            self.remote_peers
+                .push(RemotePeerStart::new(activation.peer_id));
+        }
+        self.join.admission = None;
+        self.join.activation = None;
+    }
+
     /// Reset negotiation state and freeze the supplied remote identities into a new start attempt.
-    fn begin(
+    pub(crate) fn begin(
         &mut self,
         remote_peer_ids: SmallVec<[PeerId; 4]>,
         roster_hash: Option<u64>,
@@ -209,19 +292,23 @@ impl P2PSession {
     }
 
     /// Clear the active cohort and return to the lobby/stopped state.
-    fn stop(&mut self) {
+    pub(crate) fn stop(&mut self) {
         self.state = P2PSessionState::Stopped;
         self.clear_barrier_progress();
+        self.remote_peers.clear();
+        self.join.clear();
     }
 
     /// Drop transient barrier bookkeeping while preserving the public Started state.
-    fn clear_barrier_progress(&mut self) {
+    ///
+    /// The committed roster is kept: it is the session's membership, and a later join reads it to
+    /// tell a newcomer which peers are playing.
+    pub(crate) fn clear_barrier_progress(&mut self) {
         self.start_started_at = None;
         self.local_ready_tick = None;
         self.local_ready_sent = false;
         self.local_acknowledgement_sent = false;
         self.roster_hash = None;
-        self.remote_peers.clear();
         self.roster_mismatch = false;
     }
 
@@ -523,6 +610,9 @@ impl Plugin for P2PSessionPlugin {
         if !app.is_plugin_added::<P2PProtocolPlugin>() {
             app.add_plugins(P2PProtocolPlugin);
         }
+        if !app.is_plugin_added::<crate::P2PJoinPlugin>() {
+            app.add_plugins(crate::P2PJoinPlugin);
+        }
         // `init_resource` keeps an application-provided session, so policy can be set through
         // `P2PSession`'s builders before this plugin is added. `P2PSessionPhase` belongs to
         // `ConnectionPlugin`; reach for it directly in case this plugin is used standalone.
@@ -557,10 +647,16 @@ impl Plugin for P2PSessionPlugin {
 /// [`NetworkTopology`], timeline synchronization, and input routing cannot read [`P2PSession`],
 /// which lives above them, so they branch on [`P2PSessionPhase`] instead.
 fn sync_session_phase(session: Res<P2PSession>, mut phase: ResMut<P2PSessionPhase>) {
-    let next = match session.state() {
-        P2PSessionState::Stopped => P2PSessionPhase::Stopped,
-        P2PSessionState::Starting { .. } => P2PSessionPhase::Starting,
-        P2PSessionState::Started { .. } => P2PSessionPhase::Active,
+    // An attempt to join a session that is already running is its own lifecycle: the application has
+    // no session of its own yet, but it must follow the cohort's clock and receive its inputs.
+    let next = if session.is_joining() {
+        P2PSessionPhase::Joining
+    } else {
+        match session.state() {
+            P2PSessionState::Stopped => P2PSessionPhase::Stopped,
+            P2PSessionState::Starting { .. } => P2PSessionPhase::Starting,
+            P2PSessionState::Started { .. } => P2PSessionPhase::Active,
+        }
     };
     // Only write on a real transition: a `DerefMut` would mark the resource as changed and make
     // the topology projection re-run on every frame.
@@ -714,10 +810,10 @@ fn stop_session(
     mut session: ResMut<P2PSession>,
     links: Query<(Entity, &P2P)>,
 ) {
-    let was_running = !matches!(session.state, P2PSessionState::Stopped);
-    if was_running {
-        session.stop();
-    }
+    let was_running = !matches!(session.state, P2PSessionState::Stopped)
+        || session.is_joining()
+        || session.join.activation.is_some();
+    session.stop();
 
     for (entity, state) in &links {
         if *state != P2P::Inactive {
@@ -766,7 +862,16 @@ fn start_session_before_agreed_tick(
     timeline: Res<LocalTimeline>,
     mut metadata: ResMut<NetworkingMetadata>,
     mut links: P2PLinkQuery,
+    mut phase: ResMut<P2PSessionPhase>,
 ) {
+    // A scheduled membership change applies at its own tick, independent of the start barrier.
+    crate::join::apply_join_activation_inner(
+        &mut commands,
+        &mut session,
+        &timeline,
+        &metadata,
+        &mut phase,
+    );
     let Some(start_tick) = session.agreed_start_tick() else {
         return;
     };
@@ -816,7 +921,17 @@ fn drive_session(
     synced_timeline: Option<SyncedLocalTimeline>,
     real_time: Res<Time<Real>>,
     mut links: P2PLinkQuery,
+    join: JoinDriveParams,
 ) {
+    // Admission runs whether or not a start barrier is in flight.
+    crate::join::drive_join_inner(
+        &mut commands,
+        &mut session,
+        &real_time,
+        &timeline,
+        synced_timeline.is_some(),
+        join,
+    );
     if !matches!(session.state, P2PSessionState::Starting { .. }) {
         return;
     }
@@ -996,7 +1111,12 @@ mod tests {
 
         let late = app
             .world_mut()
-            .spawn((P2P::Inactive, LocalId(local_id), RemoteId(peer(3))))
+            .spawn((
+                P2P::Inactive,
+                LocalId(local_id),
+                RemoteId(peer(3)),
+                Connected,
+            ))
             .id();
         assert_eq!(app.world().entity(late).get::<P2P>(), Some(&P2P::Inactive));
         assert!(
