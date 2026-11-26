@@ -14,7 +14,7 @@ std = ["bevy_ecs/std"]
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]
 compression = []
-compression_lz4 = ["compression", "dep:lz4_flex"]
+compression_lz4 = ["compression", "dep:lz4rip"]
 metrics = ["dep:metrics", "std", "lightyear_utils/metrics", "bevy_utils/debug"]
 trace = []
 
@@ -44,7 +44,7 @@ bytes.workspace = true
 crossbeam-channel.workspace = true
 indexmap.workspace = true
 governor.workspace = true
-lz4_flex = { workspace = true, optional = true }
+lz4rip = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
 no_std_io2.workspace = true
 nonzero_ext.workspace = true

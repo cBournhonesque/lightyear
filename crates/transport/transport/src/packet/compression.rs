@@ -109,7 +109,7 @@ pub(crate) enum PayloadCompressionCandidate {
 pub(crate) struct CompressionScratch {
     output: Vec<u8>,
     #[cfg(feature = "compression_lz4")]
-    lz4_table: Option<lz4_flex::block::CompressTable>,
+    lz4_compressor: Option<lz4rip::block::RatioCompressor>,
 }
 
 impl core::fmt::Debug for CompressionScratch {
@@ -117,7 +117,7 @@ impl core::fmt::Debug for CompressionScratch {
         let mut state = formatter.debug_struct("CompressionScratch");
         state.field("output_capacity", &self.output.capacity());
         #[cfg(feature = "compression_lz4")]
-        state.field("lz4_table_initialized", &self.lz4_table.is_some());
+        state.field("lz4_compressor_initialized", &self.lz4_compressor.is_some());
         state.finish()
     }
 }
@@ -136,8 +136,8 @@ impl CompressionScratch {
             CompressionAlgorithm::Lz4 => Self::compress_lz4(
                 payload,
                 output,
-                self.lz4_table
-                    .get_or_insert_with(lz4_flex::block::CompressTable::default),
+                self.lz4_compressor
+                    .get_or_insert_with(lz4rip::block::RatioCompressor::new),
             ),
         }
     }
@@ -152,8 +152,8 @@ impl CompressionScratch {
             CompressionAlgorithm::Lz4 => Self::compress_lz4(
                 payload,
                 &mut self.output,
-                self.lz4_table
-                    .get_or_insert_with(lz4_flex::block::CompressTable::default),
+                self.lz4_compressor
+                    .get_or_insert_with(lz4rip::block::RatioCompressor::new),
             ),
         }
     }
@@ -168,25 +168,21 @@ impl CompressionScratch {
     fn compress_lz4<'output>(
         payload: &[u8],
         output: &'output mut Vec<u8>,
-        table: &mut lz4_flex::block::CompressTable,
+        compressor: &mut lz4rip::block::RatioCompressor,
     ) -> Result<&'output [u8], PacketError> {
         const SIZE_PREFIX_BYTES: usize = core::mem::size_of::<u32>();
 
         let uncompressed_len =
             u32::try_from(payload.len()).map_err(|_| PacketError::CompressionFailed)?;
-        let output_len =
-            SIZE_PREFIX_BYTES + lz4_flex::block::get_maximum_output_size(payload.len());
+        let output_len = SIZE_PREFIX_BYTES + lz4rip::block::get_maximum_output_size(payload.len());
         if output.len() < output_len {
             output.resize(output_len, 0);
         }
         output[..SIZE_PREFIX_BYTES].copy_from_slice(&uncompressed_len.to_le_bytes());
 
-        let compressed_len = lz4_flex::block::compress_into_with_table(
-            payload,
-            &mut output[SIZE_PREFIX_BYTES..output_len],
-            table,
-        )
-        .map_err(|_| PacketError::CompressionFailed)?;
+        let compressed_len = compressor
+            .compress_into(payload, &mut output[SIZE_PREFIX_BYTES..output_len])
+            .map_err(|_| PacketError::CompressionFailed)?;
 
         Ok(&output[..SIZE_PREFIX_BYTES + compressed_len])
     }
@@ -338,9 +334,10 @@ fn decompress_lz4(
     compressed_payload: &[u8],
     config: CompressionConfig,
 ) -> Result<Vec<u8>, PacketError> {
-    let (uncompressed_size, compressed_payload) =
-        lz4_flex::block::uncompressed_size(compressed_payload)
-            .map_err(|_| PacketError::DecompressionFailed)?;
+    let (uncompressed_size, compressed_payload) = compressed_payload
+        .split_first_chunk::<4>()
+        .ok_or(PacketError::DecompressionFailed)?;
+    let uncompressed_size = u32::from_le_bytes(*uncompressed_size) as usize;
 
     if uncompressed_size > config.max_decompressed_payload_size {
         return Err(PacketError::DecompressedPayloadTooLarge {
@@ -350,7 +347,7 @@ fn decompress_lz4(
     }
 
     let mut decompressed = vec![0; uncompressed_size];
-    let decoded_size = lz4_flex::block::decompress_into(compressed_payload, &mut decompressed)
+    let decoded_size = lz4rip::block::decompress_into(compressed_payload, &mut decompressed)
         .map_err(|_| PacketError::DecompressionFailed)?;
     if decoded_size != uncompressed_size {
         return Err(PacketError::DecompressionFailed);
@@ -461,7 +458,7 @@ mod tests {
         let compressed = CompressionScratch::compress_lz4(
             &[3u8; 32],
             &mut output,
-            &mut lz4_flex::block::CompressTable::default(),
+            &mut lz4rip::block::RatioCompressor::new(),
         )
         .unwrap();
         let config = CompressionConfig {
